@@ -4,6 +4,7 @@ import { ChatMessage, DisasterAnalysis, UserStatus } from "./types";
 import EmergencyStatus from "./components/EmergencyStatus";
 import SurvivalGauge from "./components/SurvivalGauge";
 import { playAudio } from "./services/VoiceTTS";
+import { getOfflineAnalysis } from "./services/offlineService";
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -109,10 +110,6 @@ const App: React.FC = () => {
 
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
-    if (isOffline) {
-      speak("目前處於離線模式，請描述現在的情況");
-      return;
-    }
     e.preventDefault();
     if (!input.trim() || isAnalyzing) return;
 
@@ -128,6 +125,24 @@ const App: React.FC = () => {
     setMessages(updatedMessages);
     const currentInput = input;
     setInput("");
+    // --- 離線邏輯開始 ---
+    if (isOffline) {
+      const offlineAnalysis = getOfflineAnalysis(currentInput);
+      
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組：",
+        analysis: offlineAnalysis,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, assistantMsg]);
+      setCurrentAnalysis(offlineAnalysis);
+      speak(offlineAnalysis.immediateActions[0].description);
+      return; // 離線模式處理完畢，直接結束
+    }
+    // --- 離線邏輯結束 ---
     setIsAnalyzing(true);
 
     try {
@@ -199,6 +214,7 @@ const App: React.FC = () => {
             </div>
             <span className="font-bold text-lg tracking-tight">
               Guardia<span className="text-amber-500">AI</span>
+              {isOffline && <span className="ml-2 text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full">OFFLINE</span>}
             </span>
           </div>
 
