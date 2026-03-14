@@ -1,23 +1,26 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { DisasterAnalysis, ChatMessage } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// 改用 Vite 標準讀取方式
+const ai = new GoogleGenAI({
+  apiKey: import.meta.env.VITE_GEMINI_API_KEY || "",
+});
 
 const ANALYSIS_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     type: {
       type: Type.STRING,
-      description: '災害類型（如地震、火災等）',
+      description: "災害類型（如地震、火災等）",
     },
     riskLevel: {
       type: Type.NUMBER,
-      description: '1-10 的風險分數',
+      description: "1-10 的風險分數",
     },
     situationSummary: {
       type: Type.STRING,
-      description: '當前狀況摘要',
+      description: "當前狀況摘要",
     },
     immediateActions: {
       type: Type.ARRAY,
@@ -26,30 +29,40 @@ const ANALYSIS_SCHEMA = {
         properties: {
           title: { type: Type.STRING },
           description: { type: Type.STRING },
-          priority: { type: Type.STRING, enum: ['CRITICAL', 'HIGH', 'MEDIUM'] },
+          priority: { type: Type.STRING, enum: ["CRITICAL", "HIGH", "MEDIUM"] },
         },
-        required: ['title', 'description', 'priority'],
+        required: ["title", "description", "priority"],
       },
-      description: '最高生存率行動建議',
+      description: "最高生存率行動建議",
     },
     longTermAdvice: {
       type: Type.STRING,
-      description: '後續建議',
+      description: "後續建議",
     },
     survivalProbability: {
       type: Type.NUMBER,
-      description: '生存率百分比',
+      description: "生存率百分比",
     },
     missingInfoRequests: {
       type: Type.ARRAY,
       items: { type: Type.STRING },
-      description: '尚未獲得但對評估至關重要的資訊請求',
+      description: "尚未獲得但對評估至關重要的資訊請求",
     },
   },
-  required: ['type', 'riskLevel', 'situationSummary', 'immediateActions', 'longTermAdvice', 'survivalProbability'],
+  required: [
+    "type",
+    "riskLevel",
+    "situationSummary",
+    "immediateActions",
+    "longTermAdvice",
+    "survivalProbability",
+  ],
 };
 
-export async function analyzeDisaster(history: ChatMessage[], sensorContext: string): Promise<DisasterAnalysis> {
+export async function analyzeDisaster(
+  history: ChatMessage[],
+  sensorContext: string,
+): Promise<DisasterAnalysis> {
   const systemInstruction = `
     你是一位具備記憶與邏輯推演能力的災害應變專家 AI。
     
@@ -63,9 +76,9 @@ export async function analyzeDisaster(history: ChatMessage[], sensorContext: str
   `;
 
   // 將 ChatMessage 轉換為 Gemini 的對話格式
-  const contents = history.map(msg => ({
-    role: msg.role === 'user' ? 'user' : 'model',
-    parts: [{ text: msg.content }]
+  const contents = history.map((msg) => ({
+    role: msg.role === "user" ? "user" : "model",
+    parts: [{ text: msg.content }],
   }));
 
   // 在最後一則訊息加入感測器背景資訊
@@ -85,7 +98,7 @@ export async function analyzeDisaster(history: ChatMessage[], sensorContext: str
       },
     });
 
-    const result = JSON.parse(response.text || '{}');
+    const result = JSON.parse(response.text || "{}");
     return result as DisasterAnalysis;
   } catch (error) {
     console.error("Gemini Analysis Error:", error);

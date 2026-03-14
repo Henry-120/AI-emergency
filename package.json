@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@google/genai": "^1.40.0",
+    "cors": "^2.8.6",
+    "edge-tts-node": "^1.5.7",
+    "express": "^5.2.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "^3.7.0"
