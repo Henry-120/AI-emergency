@@ -190,6 +190,12 @@ const App: React.FC = () => {
       setIsAnalyzing(false);
     }
   };
+  // --- 在這裡加入 handleOfflineOption ---
+  const handleOfflineOption = (option: string) => {
+    setInput(option);
+    // 這裡可以選擇是否要點擊後自動送出，如果要自動送出可以加一行：
+    setTimeout(() => document.querySelector('form')?.requestSubmit(), 100);
+  };
 
   // 根據優先級不同的邊框顏色
   const getPriorityBorder = (priority: string) => {
@@ -260,13 +266,14 @@ const App: React.FC = () => {
                     {m.content}
                   </p>
 
-                  {m.analysis?.missingInfoRequests &&
-                    m.analysis.missingInfoRequests.length > 0 && (
-                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-3">
+                  {m.analysis?.missingInfoRequests && m.analysis.missingInfoRequests.length > 0 && (
+                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
+                      {/* --- 保留原本的部分：文字清單 --- */}
+                      <div className="space-y-3">
                         <div className="flex items-center gap-2 text-amber-500">
                           <i className="fas fa-question-circle text-xs"></i>
                           <span className="text-[10px] font-bold uppercase tracking-wider">
-                            待確認資訊
+                            {isOffline ? "請選擇您的狀況" : "待確認資訊"}
                           </span>
                         </div>
                         <div className="space-y-2">
@@ -279,15 +286,33 @@ const App: React.FC = () => {
                             </div>
                           ))}
                         </div>
+                      </div>
+
+                      {/* --- 新增的部分：快速互動按鈕 --- */}
+                      <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
+                        {m.analysis.missingInfoRequests.map((option, i) => (
+                          <button
+                            key={`btn-${i}`}
+                            onClick={() => handleOfflineOption(option)}
+                            className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
+                          >
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* 保留原本的相機按鈕 (非離線模式下很有用) */}
+                      {!isOffline && (
                         <button
                           onClick={() => alert("相機介面啟動...")}
-                          className="w-full py-2 bg-amber-500 text-black text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+                          className="w-full py-2 bg-amber-500/20 text-amber-500 border border-amber-500/30 text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
                         >
                           <i className="fas fa-camera"></i>
                           提供視覺資料
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
+                  )}
 
                   {m.analysis && (
                     <div className="space-y-3">
