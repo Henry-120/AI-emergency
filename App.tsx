@@ -5,6 +5,7 @@ import EmergencyStatus from "./components/EmergencyStatus";
 import SurvivalGauge from "./components/SurvivalGauge";
 import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
+import { uploadPendingData } from "./services/localstorage";
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -22,6 +23,23 @@ const App: React.FC = () => {
     hasInjuries: false,
   });
 
+  // 每 30 秒把心率自動存進資料庫
+  useEffect(() => {
+    const syncInterval = setInterval(() => {
+      fetch("http://localhost:8000/api/sync/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          heart_rate: userStatus.heartRate,
+          battery_level: userStatus.batteryLevel,
+          latitude: userStatus.location?.lat,
+          longitude: userStatus.location?.lng,
+        }),
+      });
+    }, 30000);
+    return () => clearInterval(syncInterval);
+  }, [userStatus]);
+
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   useEffect(() => {
@@ -36,6 +54,38 @@ const App: React.FC = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  const syncUserStatus = async (status: UserStatus) => {
+    if (navigator.onLine) {
+      try {
+        // 1. 嘗試傳給後端
+        await fetch("http://localhost:8000/api/sync/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(status),
+        });
+
+        // 2. 成功後，檢查本地是否有舊資料需要補傳
+        const pendingData = JSON.parse(
+          localStorage.getItem("pending_status") || "[]",
+        );
+        if (pendingData.length > 0) {
+          uploadPendingData(pendingData);
+        }
+      } catch (e) {
+        saveToLocal(status); // 請求失敗也轉存本地
+      }
+    } else {
+      // 沒網路，直接存本地
+      saveToLocal(status);
+    }
+  };
+
+  const saveToLocal = (status: UserStatus) => {
+    const existing = JSON.parse(localStorage.getItem("pending_status") || "[]");
+    existing.push({ ...status, timestamp: new Date().toISOString() });
+    localStorage.setItem("pending_status", JSON.stringify(existing));
+  };
 
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
@@ -128,7 +178,7 @@ const App: React.FC = () => {
     // --- 離線邏輯開始 ---
     if (isOffline) {
       const offlineAnalysis = getOfflineAnalysis(currentInput);
-      
+
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -137,7 +187,7 @@ const App: React.FC = () => {
         timestamp: new Date(),
       };
 
-      setMessages(prev => [...prev, assistantMsg]);
+      setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(offlineAnalysis);
       speak(offlineAnalysis.immediateActions[0].description);
       return; // 離線模式處理完畢，直接結束
@@ -194,7 +244,7 @@ const App: React.FC = () => {
   const handleOfflineOption = (option: string) => {
     setInput(option);
     // 這裡可以選擇是否要點擊後自動送出，如果要自動送出可以加一行：
-    setTimeout(() => document.querySelector('form')?.requestSubmit(), 100);
+    setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
 
   // 根據優先級不同的邊框顏色
@@ -220,7 +270,11 @@ const App: React.FC = () => {
             </div>
             <span className="font-bold text-lg tracking-tight">
               Guardia<span className="text-amber-500">AI</span>
-              {isOffline && <span className="ml-2 text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full">OFFLINE</span>}
+              {isOffline && (
+                <span className="ml-2 text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full">
+                  OFFLINE
+                </span>
+              )}
             </span>
           </div>
 
@@ -266,53 +320,54 @@ const App: React.FC = () => {
                     {m.content}
                   </p>
 
-                  {m.analysis?.missingInfoRequests && m.analysis.missingInfoRequests.length > 0 && (
-                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
-                      {/* --- 保留原本的部分：文字清單 --- */}
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-amber-500">
-                          <i className="fas fa-question-circle text-xs"></i>
-                          <span className="text-[10px] font-bold uppercase tracking-wider">
-                            {isOffline ? "請選擇您的狀況" : "待確認資訊"}
-                          </span>
+                  {m.analysis?.missingInfoRequests &&
+                    m.analysis.missingInfoRequests.length > 0 && (
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
+                        {/* --- 保留原本的部分：文字清單 --- */}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-amber-500">
+                            <i className="fas fa-question-circle text-xs"></i>
+                            <span className="text-[10px] font-bold uppercase tracking-wider">
+                              {isOffline ? "請選擇您的狀況" : "待確認資訊"}
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {m.analysis.missingInfoRequests.map((req, i) => (
+                              <div key={i} className="flex gap-2 items-start">
+                                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0"></div>
+                                <p className="text-xs text-amber-100/70 leading-relaxed">
+                                  {req}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          {m.analysis.missingInfoRequests.map((req, i) => (
-                            <div key={i} className="flex gap-2 items-start">
-                              <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0"></div>
-                              <p className="text-xs text-amber-100/70 leading-relaxed">
-                                {req}
-                              </p>
-                            </div>
+
+                        {/* --- 新增的部分：快速互動按鈕 --- */}
+                        <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
+                          {m.analysis.missingInfoRequests.map((option, i) => (
+                            <button
+                              key={`btn-${i}`}
+                              onClick={() => handleOfflineOption(option)}
+                              className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
+                            >
+                              {option}
+                            </button>
                           ))}
                         </div>
-                      </div>
 
-                      {/* --- 新增的部分：快速互動按鈕 --- */}
-                      <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
-                        {m.analysis.missingInfoRequests.map((option, i) => (
+                        {/* 保留原本的相機按鈕 (非離線模式下很有用) */}
+                        {!isOffline && (
                           <button
-                            key={`btn-${i}`}
-                            onClick={() => handleOfflineOption(option)}
-                            className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
+                            onClick={() => alert("相機介面啟動...")}
+                            className="w-full py-2 bg-amber-500/20 text-amber-500 border border-amber-500/30 text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
                           >
-                            {option}
+                            <i className="fas fa-camera"></i>
+                            提供視覺資料
                           </button>
-                        ))}
+                        )}
                       </div>
-
-                      {/* 保留原本的相機按鈕 (非離線模式下很有用) */}
-                      {!isOffline && (
-                        <button
-                          onClick={() => alert("相機介面啟動...")}
-                          className="w-full py-2 bg-amber-500/20 text-amber-500 border border-amber-500/30 text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
-                        >
-                          <i className="fas fa-camera"></i>
-                          提供視覺資料
-                        </button>
-                      )}
-                    </div>
-                  )}
+                    )}
 
                   {m.analysis && (
                     <div className="space-y-3">
