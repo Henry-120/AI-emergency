@@ -6,13 +6,18 @@ import SurvivalGauge from "./components/SurvivalGauge";
 import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
 import { uploadPendingData } from "./services/localstorage";
+import NearbyPeople from "./components/NearbyPeople";
+
+type AppTab = "assistant" | "nearby";
 
 const App: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<AppTab>("assistant");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentAnalysis, setCurrentAnalysis] =
     useState<DisasterAnalysis | null>(null);
+  const [myNickname] = useState(() => `用戶-${Math.floor(Math.random() * 9000 + 1000)}`);
 
   // 新增：用戶狀態
   const [userStatus, setUserStatus] = useState<UserStatus>({
@@ -279,7 +284,7 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
-            {currentAnalysis && (
+            {activeTab === "assistant" && currentAnalysis && (
               <div className="flex items-center gap-2 animate-in fade-in duration-500">
                 <div className="text-right">
                   <p className="text-[8px] text-slate-500 uppercase tracking-widest font-bold">
@@ -302,163 +307,194 @@ const App: React.FC = () => {
         <EmergencyStatus status={userStatus} />
       </header>
 
-      <main
-        className="flex-1 overflow-y-auto px-4 py-6 space-y-6"
-        ref={scrollRef}
-      >
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
+      {/* ===== 災害助手頁面 ===== */}
+      {activeTab === "assistant" && (
+        <>
+          <main
+            className="flex-1 overflow-y-auto px-4 py-6 space-y-6"
+            ref={scrollRef}
           >
-            <div
-              className={`max-w-[90%] ${m.role === "user" ? "message-gradient-user text-black rounded-2xl rounded-tr-none px-4 py-3 shadow-xl" : ""}`}
-            >
-              {m.role === "assistant" && (
-                <div className="space-y-4">
-                  <p className="text-sm font-medium leading-relaxed text-slate-200">
-                    {m.content}
-                  </p>
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
+              >
+                <div
+                  className={`max-w-[90%] ${m.role === "user" ? "message-gradient-user text-black rounded-2xl rounded-tr-none px-4 py-3 shadow-xl" : ""}`}
+                >
+                  {m.role === "assistant" && (
+                    <div className="space-y-4">
+                      <p className="text-sm font-medium leading-relaxed text-slate-200">
+                        {m.content}
+                      </p>
 
-                  {m.analysis?.missingInfoRequests &&
-                    m.analysis.missingInfoRequests.length > 0 && (
-                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
-                        {/* --- 保留原本的部分：文字清單 --- */}
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-amber-500">
-                            <i className="fas fa-question-circle text-xs"></i>
-                            <span className="text-[10px] font-bold uppercase tracking-wider">
-                              {isOffline ? "請選擇您的狀況" : "待確認資訊"}
-                            </span>
-                          </div>
-                          <div className="space-y-2">
-                            {m.analysis.missingInfoRequests.map((req, i) => (
-                              <div key={i} className="flex gap-2 items-start">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0"></div>
-                                <p className="text-xs text-amber-100/70 leading-relaxed">
-                                  {req}
-                                </p>
+                      {m.analysis?.missingInfoRequests &&
+                        m.analysis.missingInfoRequests.length > 0 && (
+                          <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2 text-amber-500">
+                                <i className="fas fa-question-circle text-xs"></i>
+                                <span className="text-[10px] font-bold uppercase tracking-wider">
+                                  {isOffline ? "請選擇您的狀況" : "待確認資訊"}
+                                </span>
                               </div>
-                            ))}
-                          </div>
-                        </div>
+                              <div className="space-y-2">
+                                {m.analysis.missingInfoRequests.map((req, i) => (
+                                  <div key={i} className="flex gap-2 items-start">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0"></div>
+                                    <p className="text-xs text-amber-100/70 leading-relaxed">
+                                      {req}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
 
-                        {/* --- 新增的部分：快速互動按鈕 --- */}
-                        <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
-                          {m.analysis.missingInfoRequests.map((option, i) => (
-                            <button
-                              key={`btn-${i}`}
-                              onClick={() => handleOfflineOption(option)}
-                              className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
+                            <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
+                              {m.analysis.missingInfoRequests.map((option, i) => (
+                                <button
+                                  key={`btn-${i}`}
+                                  onClick={() => handleOfflineOption(option)}
+                                  className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+
+                            {!isOffline && (
+                              <button
+                                onClick={() => alert("相機介面啟動...")}
+                                className="w-full py-2 bg-amber-500/20 text-amber-500 border border-amber-500/30 text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+                              >
+                                <i className="fas fa-camera"></i>
+                                提供視覺資料
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                      {m.analysis && (
+                        <div className="space-y-3">
+                          {m.analysis.immediateActions.map((step, idx) => (
+                            <div
+                              key={idx}
+                              className={`p-4 rounded-xl border border-l-4 ${getPriorityBorder(step.priority)} animate-in zoom-in-95 duration-300`}
+                              style={{ animationDelay: `${idx * 100}ms` }}
                             >
-                              {option}
-                            </button>
+                              <div className="flex items-start gap-3">
+                                <span className="text-xs font-black text-amber-500/50 mt-1">
+                                  {String(idx + 1).padStart(2, "0")}
+                                </span>
+                                <div>
+                                  <h4 className="font-bold text-sm mb-1">
+                                    {step.title}
+                                  </h4>
+                                  <p className="text-xs text-slate-400 leading-normal">
+                                    {step.description}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
                           ))}
                         </div>
-
-                        {/* 保留原本的相機按鈕 (非離線模式下很有用) */}
-                        {!isOffline && (
-                          <button
-                            onClick={() => alert("相機介面啟動...")}
-                            className="w-full py-2 bg-amber-500/20 text-amber-500 border border-amber-500/30 text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
-                          >
-                            <i className="fas fa-camera"></i>
-                            提供視覺資料
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                  {m.analysis && (
-                    <div className="space-y-3">
-                      {m.analysis.immediateActions.map((step, idx) => (
-                        <div
-                          key={idx}
-                          className={`p-4 rounded-xl border border-l-4 ${getPriorityBorder(step.priority)} animate-in zoom-in-95 duration-300`}
-                          style={{ animationDelay: `${idx * 100}ms` }}
-                        >
-                          <div className="flex items-start gap-3">
-                            <span className="text-xs font-black text-amber-500/50 mt-1">
-                              {String(idx + 1).padStart(2, "0")}
-                            </span>
-                            <div>
-                              <h4 className="font-bold text-sm mb-1">
-                                {step.title}
-                              </h4>
-                              <p className="text-xs text-slate-400 leading-normal">
-                                {step.description}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                      )}
                     </div>
                   )}
+                  {m.role === "user" && (
+                    <p className="text-sm font-bold tracking-tight">{m.content}</p>
+                  )}
                 </div>
-              )}
-              {m.role === "user" && (
-                <p className="text-sm font-bold tracking-tight">{m.content}</p>
-              )}
-            </div>
-          </div>
-        ))}
-        {isAnalyzing && (
-          <div className="flex items-center gap-3 py-2">
-            <div className="w-5 h-5 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin"></div>
-            <span className="text-[11px] text-slate-500 font-bold uppercase tracking-widest">
-              整合歷史資訊中...
-            </span>
-          </div>
-        )}
-      </main>
-
-      <footer className="glass-panel p-4 safe-area-bottom">
-        <div className="max-w-xl mx-auto">
-          <div className="flex gap-2 mb-3 overflow-x-auto pb-1 no-scrollbar">
-            {["已拍照回傳", "出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
-              <button
-                key={tag}
-                onClick={() => setInput(tag)}
-                className="whitespace-nowrap px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] text-slate-400 active:bg-amber-500 active:text-black transition-all"
-              >
-                {tag}
-              </button>
+              </div>
             ))}
-          </div>
+            {isAnalyzing && (
+              <div className="flex items-center gap-3 py-2">
+                <div className="w-5 h-5 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin"></div>
+                <span className="text-[11px] text-slate-500 font-bold uppercase tracking-widest">
+                  整合歷史資訊中...
+                </span>
+              </div>
+            )}
+          </main>
 
-          <form
-            onSubmit={handleSubmit}
-            className="relative flex items-center gap-2"
-          >
-            <div className="relative flex-1">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="回報進度或回答問題..."
-                className="w-full bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-600 shadow-inner"
-                disabled={isAnalyzing}
-              />
-              <button
-                type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 active:text-amber-500"
-                onClick={() => alert("開啟相機相簿...")}
+          <footer className="glass-panel p-4">
+            <div className="max-w-xl mx-auto">
+              <div className="flex gap-2 mb-3 overflow-x-auto pb-1 no-scrollbar">
+                {["已拍照回傳", "出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => setInput(tag)}
+                    className="whitespace-nowrap px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] text-slate-400 active:bg-amber-500 active:text-black transition-all"
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+
+              <form
+                onSubmit={handleSubmit}
+                className="relative flex items-center gap-2"
               >
-                <i className="fas fa-images"></i>
-              </button>
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="回報進度或回答問題..."
+                    className="w-full bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-600 shadow-inner"
+                    disabled={isAnalyzing}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 active:text-amber-500"
+                    onClick={() => alert("開啟相機相簿...")}
+                  >
+                    <i className="fas fa-images"></i>
+                  </button>
+                </div>
+                <button
+                  type="submit"
+                  disabled={isAnalyzing || !input.trim()}
+                  className="bg-amber-500 text-black w-11 h-11 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(251,191,36,0.3)] active:scale-90 transition-all disabled:opacity-30 disabled:shadow-none"
+                >
+                  <i
+                    className={`fas ${isAnalyzing ? "fa-circle-notch fa-spin" : "fa-arrow-up"}`}
+                  ></i>
+                </button>
+              </form>
             </div>
-            <button
-              type="submit"
-              disabled={isAnalyzing || !input.trim()}
-              className="bg-amber-500 text-black w-11 h-11 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(251,191,36,0.3)] active:scale-90 transition-all disabled:opacity-30 disabled:shadow-none"
-            >
-              <i
-                className={`fas ${isAnalyzing ? "fa-circle-notch fa-spin" : "fa-arrow-up"}`}
-              ></i>
-            </button>
-          </form>
+          </footer>
+        </>
+      )}
+
+      {/* ===== 附近的人頁面 ===== */}
+      {activeTab === "nearby" && (
+        <div className="flex-1 overflow-hidden">
+          <NearbyPeople nickname={myNickname} />
         </div>
-      </footer>
+      )}
+
+      {/* ===== 底部 Tab 導航列 ===== */}
+      <nav className="flex items-center border-t border-white/5 bg-[#020617] safe-area-bottom">
+        <button
+          onClick={() => setActiveTab("assistant")}
+          className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
+            activeTab === "assistant" ? "text-amber-500" : "text-slate-600"
+          }`}
+        >
+          <i className="fas fa-shield-alt text-sm"></i>
+          <span className="text-[9px] font-bold uppercase tracking-wider">災害助手</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("nearby")}
+          className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
+            activeTab === "nearby" ? "text-amber-500" : "text-slate-600"
+          }`}
+        >
+          <i className="fas fa-bluetooth-b text-sm"></i>
+          <span className="text-[9px] font-bold uppercase tracking-wider">附近的人</span>
+        </button>
+      </nav>
     </div>
   );
 };
