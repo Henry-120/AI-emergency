@@ -1,5 +1,5 @@
 // src/services/offlineService.ts
-import { DisasterAnalysis } from "../types";
+import { DisasterAnalysis, DisasterType } from "../types";
 
 export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
   let advice = "目前離線。請選擇狀況：";
@@ -215,7 +215,7 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
   }
 
   return {
-    type: "地震" as any,
+    type: DisasterType.EARTHQUAKE,
     riskLevel,
     situationSummary: `[離線應變] ${userInput}`,
     immediateActions: [{ title: "避難指南", description: advice, priority: riskLevel > 8 ? "CRITICAL" : "HIGH" }],

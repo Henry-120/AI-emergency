@@ -12,6 +12,7 @@
     "@capacitor/cli": "^8.2.0",
     "@capacitor/core": "^8.2.0",
     "@capacitor/ios": "^8.2.0",
+    "@capacitor/local-notifications": "^8.0.2",
     "@google/genai": "^1.40.0",
     "cors": "^2.8.6",
     "edge-tts-node": "^1.5.7",
