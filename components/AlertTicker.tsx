@@ -16,10 +16,18 @@ function formatTime(iso: string) {
   return `${mm}/${dd} ${hh}:${mi}`;
 }
 
-const AlertTicker: React.FC<Props> = ({ alerts }) => {
-  if (alerts.length === 0) return null;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
-  const text = alerts
+const AlertTicker: React.FC<Props> = ({ alerts }) => {
+  const cutoff = Date.now() - ONE_HOUR_MS;
+  const recent = alerts.filter((a) => {
+    const t = new Date(a.originTime.replace(" ", "T")).getTime();
+    return !isNaN(t) && t >= cutoff;
+  });
+
+  if (recent.length === 0) return null;
+
+  const text = recent
     .slice(0, 5)
     .map(
       (a) =>
