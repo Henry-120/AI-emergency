@@ -71,8 +71,9 @@ export async function analyzeDisaster(
     關鍵準則：
     1. **記憶連續性**：閱讀對話紀錄。如果使用者之前已經提供過某項資訊（例如樓層、傷情），請勿重複詢問。
     2. **資訊補完**：檢查對話中是否還有遺漏的關鍵細節。如果還有不清楚的地方（例如雖然知道在火場，但不知道有無出口被堵塞），請在 'missingInfoRequests' 中提出。
-    3. **情境適應**：根據最新的感測器數據（${sensorContext}）判斷使用者生理與環境狀態。
-    4. **結構化輸出**：始終返回 JSON 格式，包含即時行動步驟與生存率預估。
+    3. **情境適應**：根據最新的感測器與災害資料（${sensorContext}）判斷使用者生理與環境狀態。其中「最近地震」欄位是中央氣象署回報的最新震源資料，可直接引用回答使用者「剛剛地震多大」「震央在哪」這類詢問。
+    4. **回應策略**：若使用者只是詢問災情/地震資訊（非求救），請在 'situationSummary' 直接回答事實（規模、震央、深度、發生時間），'immediateActions' 給予一般性安全提醒即可，不要硬問細節。若使用者描述受困或受傷，才進入完整應變流程。
+    5. **結構化輸出**：始終返回 JSON 格式，包含即時行動步驟與生存率預估。
   `;
 
   // 將 ChatMessage 轉換為 Gemini 的對話格式
@@ -89,7 +90,7 @@ export async function analyzeDisaster(
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash",
       contents: contents,
       config: {
         systemInstruction,
@@ -98,8 +99,17 @@ export async function analyzeDisaster(
       },
     });
 
-    const result = JSON.parse(response.text || "{}");
-    return result as DisasterAnalysis;
+    const raw = response.text || "";
+    if (!raw.trim()) {
+      console.error("Gemini 回應為空，完整 response：", response);
+      throw new Error("Gemini 回應為空（可能被安全過濾或超出配額）");
+    }
+    try {
+      return JSON.parse(raw) as DisasterAnalysis;
+    } catch (parseErr) {
+      console.error("JSON 解析失敗，原始回應：", raw);
+      throw new Error(`回應格式錯誤：${raw.slice(0, 100)}`);
+    }
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
     throw error;
