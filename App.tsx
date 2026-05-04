@@ -6,6 +6,8 @@ import SurvivalGauge from "./components/SurvivalGauge";
 import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
 import { uploadPendingData } from "./services/localstorage";
+import { fetchEarthquakes, EarthquakeAlert } from "./services/cwaService";
+import AlertTicker from "./components/AlertTicker";
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -24,21 +26,65 @@ const App: React.FC = () => {
   });
 
   // 每 30 秒把心率自動存進資料庫
+  const userStatusRef = useRef(userStatus);
+  useEffect(() => {
+    userStatusRef.current = userStatus;
+  }, [userStatus]);
+
   useEffect(() => {
     const syncInterval = setInterval(() => {
+      const s = userStatusRef.current;
       fetch("http://localhost:8000/api/sync/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          heart_rate: userStatus.heartRate,
-          battery_level: userStatus.batteryLevel,
-          latitude: userStatus.location?.lat,
-          longitude: userStatus.location?.lng,
+          heart_rate: s.heartRate,
+          battery_level: s.batteryLevel,
+          latitude: s.location?.lat,
+          longitude: s.location?.lng,
         }),
       });
     }, 30000);
     return () => clearInterval(syncInterval);
-  }, [userStatus]);
+  }, []);
+
+  const [earthquakes, setEarthquakes] = useState<EarthquakeAlert[]>([]);
+  const lastSeenQuakeIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const list = await fetchEarthquakes();
+        if (cancelled) return;
+        setEarthquakes(list);
+
+        const latestId = list[0]?.id ?? null;
+        if (latestId === null) return;
+
+        if (lastSeenQuakeIdRef.current === null) {
+          // 首次載入：只記錄，不跳警報
+          lastSeenQuakeIdRef.current = latestId;
+        } else if (latestId !== lastSeenQuakeIdRef.current) {
+          // 偵測到新地震
+          lastSeenQuakeIdRef.current = latestId;
+          const eq = list[0];
+          const text = `地震警報：${eq.location} 規模 ${eq.magnitude.toFixed(1)}`;
+          speak(text);
+        }
+      } catch (e) {
+        console.error("CWA 抓取失敗", e);
+      }
+    };
+
+    poll();
+    const id = setInterval(poll, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
@@ -196,18 +242,21 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
 
     try {
-      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}`;
+      const latestQuake = earthquakes[0];
+      const quakeContext = latestQuake
+        ? `最近地震=${latestQuake.originTime} ${latestQuake.location} 芮氏 M${latestQuake.magnitude.toFixed(1)} 深度${latestQuake.depth}km`
+        : "近期無顯著地震紀錄";
+      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}, ${quakeContext}`;
 
       // 將整個對話歷史傳送給 AI
       const analysis = await analyzeDisaster(updatedMessages, sensorContext);
 
-      // AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊`
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
         content: analysis.missingInfoRequests?.length
-          ? `收到回報。為了提供更精確的逃生指令，我還需要一些細節：`
-          : `分析更新：根據最新資訊，請優先執行以下行動：`,
+          ? `為了提供更精確的指令，請補充以下資訊：`
+          : "",
         analysis,
         timestamp: new Date(),
       };
@@ -227,12 +276,15 @@ const App: React.FC = () => {
         speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
       }
     } catch (error) {
+      console.error("[handleSubmit] Gemini analysis failed:", error);
+      const detail =
+        error instanceof Error ? error.message : String(error);
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "分析引擎繁忙中，請嘗試簡短描述您觀察到的新狀況。",
+          content: `分析引擎暫時失敗：${detail.slice(0, 200)}`,
           timestamp: new Date(),
         },
       ]);
@@ -300,6 +352,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <EmergencyStatus status={userStatus} />
+        <AlertTicker alerts={earthquakes} />
       </header>
 
       <main
@@ -316,9 +369,25 @@ const App: React.FC = () => {
             >
               {m.role === "assistant" && (
                 <div className="space-y-4">
-                  <p className="text-sm font-medium leading-relaxed text-slate-200">
-                    {m.content}
-                  </p>
+                  {m.content && (
+                    <p className="text-sm font-medium leading-relaxed text-slate-200">
+                      {m.content}
+                    </p>
+                  )}
+
+                  {m.analysis?.situationSummary && (
+                    <div className="px-4 py-3 bg-slate-800/40 border border-white/5 rounded-xl">
+                      <div className="flex items-center gap-2 mb-1.5 text-amber-500">
+                        <i className="fas fa-circle-info text-[10px]"></i>
+                        <span className="text-[10px] font-bold uppercase tracking-widest">
+                          情境摘要
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        {m.analysis.situationSummary}
+                      </p>
+                    </div>
+                  )}
 
                   {m.analysis?.missingInfoRequests &&
                     m.analysis.missingInfoRequests.length > 0 && (

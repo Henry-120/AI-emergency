@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Noto+Sans+TC', sans-serif;
+            font-family: 'Noto Sans TC', sans-serif;
             background-color: #020617;
             color: #f8fafc;
             overflow: hidden; /* 防止手機端出現雙重捲軸 */
@@ -29,6 +29,14 @@
         }
         .safe-area-bottom {
             padding-bottom: env(safe-area-inset-bottom);
+        }
+        /* 跑馬燈動畫 */
+        @keyframes ticker {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+        .ticker-anim {
+            animation: ticker 40s linear infinite;
         }
         /* 自定義滾動條 */
         ::-webkit-scrollbar {
@@ -53,7 +61,6 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body>
     <div id="root"></div>
