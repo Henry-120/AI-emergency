@@ -9,6 +9,55 @@ import { uploadPendingData } from "./services/localstorage";
 import { fetchEarthquakes, EarthquakeAlert } from "./services/cwaService";
 import AlertTicker from "./components/AlertTicker";
 
+const getUserId = (): string => {
+  let uid = localStorage.getItem("user_id");
+  if (!uid) {
+    uid = (crypto as any).randomUUID
+      ? (crypto as any).randomUUID()
+      : `u-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem("user_id", uid);
+  }
+  return uid;
+};
+
+const toBackendPayload = (status: UserStatus) => ({
+  user_id: getUserId(),
+  heart_rate: Math.round(status.heartRate),
+  battery_level: status.batteryLevel,
+  latitude: status.location?.lat ?? null,
+  longitude: status.location?.lng ?? null,
+});
+
+const saveToLocal = (status: UserStatus) => {
+  const existing = JSON.parse(localStorage.getItem("pending_status") || "[]");
+  existing.push(toBackendPayload(status));
+  localStorage.setItem("pending_status", JSON.stringify(existing));
+};
+
+const syncUserStatus = async (status: UserStatus) => {
+  if (!navigator.onLine) {
+    saveToLocal(status);
+    return;
+  }
+  try {
+    const res = await fetch("http://localhost:8000/api/sync/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(toBackendPayload(status)),
+    });
+    if (!res.ok) throw new Error(`sync failed: ${res.status}`);
+
+    const pending = JSON.parse(
+      localStorage.getItem("pending_status") || "[]",
+    );
+    if (pending.length > 0) {
+      await uploadPendingData(pending);
+    }
+  } catch {
+    saveToLocal(status);
+  }
+};
+
 const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -33,23 +82,46 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      const s = userStatusRef.current;
-      fetch("http://localhost:8000/api/sync/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          heart_rate: s.heartRate,
-          battery_level: s.batteryLevel,
-          latitude: s.location?.lat,
-          longitude: s.location?.lng,
-        }),
-      });
+      syncUserStatus(userStatusRef.current);
     }, 30000);
     return () => clearInterval(syncInterval);
   }, []);
 
   const [earthquakes, setEarthquakes] = useState<EarthquakeAlert[]>([]);
+  const [quakeNotice, setQuakeNotice] = useState<EarthquakeAlert | null>(null);
   const lastSeenQuakeIdRef = useRef<number | null>(null);
+
+  // 請求瀏覽器系統通知權限（iOS WKWebView 不支援，會自動跳過）
+  useEffect(() => {
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "default"
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  const triggerQuakeAlert = (eq: EarthquakeAlert) => {
+    const text = `地震警報：${eq.location} 規模 ${eq.magnitude.toFixed(1)}`;
+    speak(text);
+    setQuakeNotice(eq);
+    window.setTimeout(() => {
+      setQuakeNotice((curr) => (curr?.id === eq.id ? null : curr));
+    }, 12000);
+
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted"
+    ) {
+      try {
+        new Notification("⚠️ 地震警報", {
+          body: `${eq.location}\n規模 M${eq.magnitude.toFixed(1)} ・ 深度 ${eq.depth}km\n${eq.originTime}`,
+          tag: `quake-${eq.id}`,
+          requireInteraction: false,
+        });
+      } catch {}
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -64,14 +136,17 @@ const App: React.FC = () => {
         if (latestId === null) return;
 
         if (lastSeenQuakeIdRef.current === null) {
-          // 首次載入：只記錄，不跳警報
+          // 首次載入：記錄 ID。若該震發生於近 1 小時內，也視為新事件提醒（與跑馬燈一致）
           lastSeenQuakeIdRef.current = latestId;
+          const eq = list[0];
+          const t = new Date(eq.originTime.replace(" ", "T")).getTime();
+          if (!isNaN(t) && Date.now() - t < 60 * 60 * 1000) {
+            triggerQuakeAlert(eq);
+          }
         } else if (latestId !== lastSeenQuakeIdRef.current) {
           // 偵測到新地震
           lastSeenQuakeIdRef.current = latestId;
-          const eq = list[0];
-          const text = `地震警報：${eq.location} 規模 ${eq.magnitude.toFixed(1)}`;
-          speak(text);
+          triggerQuakeAlert(list[0]);
         }
       } catch (e) {
         console.error("CWA 抓取失敗", e);
@@ -101,60 +176,35 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const syncUserStatus = async (status: UserStatus) => {
-    if (navigator.onLine) {
-      try {
-        // 1. 嘗試傳給後端
-        await fetch("http://localhost:8000/api/sync/status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(status),
-        });
-
-        // 2. 成功後，檢查本地是否有舊資料需要補傳
-        const pendingData = JSON.parse(
-          localStorage.getItem("pending_status") || "[]",
-        );
-        if (pendingData.length > 0) {
-          uploadPendingData(pendingData);
-        }
-      } catch (e) {
-        saveToLocal(status); // 請求失敗也轉存本地
-      }
-    } else {
-      // 沒網路，直接存本地
-      saveToLocal(status);
-    }
-  };
-
-  const saveToLocal = (status: UserStatus) => {
-    const existing = JSON.parse(localStorage.getItem("pending_status") || "[]");
-    existing.push({ ...status, timestamp: new Date().toISOString() });
-    localStorage.setItem("pending_status", JSON.stringify(existing));
-  };
 
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    // 1. 取得目前裝置支援的所有聲音
-    const voices = window.speechSynthesis.getVoices();
+    const doSpeak = () => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voices = window.speechSynthesis.getVoices();
+      const chineseVoice =
+        voices.find((v) => v.lang.includes("zh-TW")) ||
+        voices.find((v) => v.lang.includes("zh-HK")) ||
+        voices.find((v) => v.lang.includes("zh-CN"));
 
-    // 2. 優先尋找台灣中文 (zh-TW)，其次是 zh-HK 或 zh-CN
-    const chineseVoice =
-      voices.find((v) => v.lang.includes("zh-TW")) ||
-      voices.find((v) => v.lang.includes("zh-HK")) ||
-      voices.find((v) => v.lang.includes("zh-CN"));
+      if (chineseVoice) {
+        utterance.voice = chineseVoice;
+      }
+      utterance.lang = "zh-TW";
+      utterance.rate = 1.0;
+      utterance.pitch = 1.1;
+      window.speechSynthesis.speak(utterance);
+    };
 
-    if (chineseVoice) {
-      utterance.voice = chineseVoice; // 強制指定中文聲音物件
+    // voices 在頁面剛載入時可能還是空的，需要等 voiceschanged 事件
+    if (window.speechSynthesis.getVoices().length === 0) {
+      window.speechSynthesis.addEventListener("voiceschanged", doSpeak, {
+        once: true,
+      });
+    } else {
+      doSpeak();
     }
-
-    utterance.lang = "zh-tw";
-    utterance.rate = 1.0;
-    utterance.pitch = 1.1;
-
-    window.speechSynthesis.speak(utterance);
   };
 
   // 用於自動滾動到底部
@@ -205,21 +255,22 @@ const App: React.FC = () => {
   }, []);
 
   // 處理使用者提交的訊息
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isAnalyzing) return;
+  const handleSubmit = async (e?: React.FormEvent, override?: string) => {
+    e?.preventDefault();
+    const text = (override ?? input).trim();
+    if (!text || isAnalyzing) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: input,
+      content: text,
       timestamp: new Date(),
     };
 
     // 立即在 UI 顯示使用者訊息
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
-    const currentInput = input;
+    const currentInput = text;
     setInput("");
     // --- 離線邏輯開始 ---
     if (isOffline) {
@@ -294,9 +345,7 @@ const App: React.FC = () => {
   };
   // --- 在這裡加入 handleOfflineOption ---
   const handleOfflineOption = (option: string) => {
-    setInput(option);
-    // 這裡可以選擇是否要點擊後自動送出，如果要自動送出可以加一行：
-    setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
+    handleSubmit(undefined, option);
   };
 
   // 根據優先級不同的邊框顏色
@@ -313,7 +362,40 @@ const App: React.FC = () => {
 
   // 渲染 UI
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
+    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden relative">
+      {quakeNotice && (
+        <div className="absolute top-4 left-4 right-4 z-[100] animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className="bg-red-600 border border-red-300/40 text-white p-4 rounded-xl shadow-2xl shadow-red-500/50 backdrop-blur-md">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <i className="fas fa-bolt animate-pulse text-yellow-300"></i>
+                  <span className="font-black text-sm tracking-wider uppercase">
+                    地震警報
+                  </span>
+                </div>
+                <p className="text-base font-bold leading-tight">
+                  {quakeNotice.location}
+                </p>
+                <p className="text-sm font-mono mt-1">
+                  芮氏 M{quakeNotice.magnitude.toFixed(1)} ・ 深度{" "}
+                  {quakeNotice.depth} km
+                </p>
+                <p className="text-[10px] opacity-75 mt-1 font-mono">
+                  {quakeNotice.originTime}
+                </p>
+              </div>
+              <button
+                onClick={() => setQuakeNotice(null)}
+                aria-label="關閉警報"
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center flex-shrink-0"
+              >
+                <i className="fas fa-times text-xs"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="z-50 shadow-lg">
         <div className="flex items-center justify-between px-4 py-3 bg-[#020617] border-b border-white/5">
           <div className="flex items-center gap-2">
@@ -345,6 +427,28 @@ const App: React.FC = () => {
                   probability={currentAnalysis.survivalProbability}
                 />
               </div>
+            )}
+            {import.meta.env.DEV && (
+              <button
+                onClick={() =>
+                  triggerQuakeAlert({
+                    id: -Date.now(),
+                    originTime: new Date()
+                      .toISOString()
+                      .slice(0, 19)
+                      .replace("T", " "),
+                    location: "測試震央：宜蘭縣外海",
+                    magnitude: 4 + Math.random() * 3,
+                    depth: 20 + Math.floor(Math.random() * 50),
+                    reportColor: "",
+                    web: "",
+                  })
+                }
+                title="模擬地震警報（僅開發模式可見）"
+                className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center active:bg-purple-500/30 transition-colors text-xs"
+              >
+                🧪
+              </button>
             )}
             <button className="w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
               <i className="fas fa-phone-alt text-red-500 text-xs"></i>
