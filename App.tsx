@@ -8,6 +8,106 @@ import { getOfflineAnalysis } from "./services/offlineService";
 import { uploadPendingData } from "./services/localstorage";
 import { fetchEarthquakes, EarthquakeAlert } from "./services/cwaService";
 import AlertTicker from "./components/AlertTicker";
+import { LocalNotifications } from "@capacitor/local-notifications";
+
+type Severity = "extreme" | "strong" | "moderate" | "mild" | "tiny";
+
+interface QuakeNoticeState {
+  eq: EarthquakeAlert;
+  severity: Severity;
+  estimatedIntensity: number;
+  distanceKm: number | null;
+}
+
+const haversineKm = (
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number => {
+  const R = 6371;
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const evaluateSeverity = (
+  eq: EarthquakeAlert,
+  userLat: number | null | undefined,
+  userLng: number | null | undefined,
+): { severity: Severity; estimatedIntensity: number; distanceKm: number | null } => {
+  let estimatedIntensity = 0;
+  let distanceKm: number | null = null;
+
+  if (
+    userLat != null &&
+    userLng != null &&
+    eq.epicenterLat != null &&
+    eq.epicenterLng != null
+  ) {
+    distanceKm = haversineKm(userLat, userLng, eq.epicenterLat, eq.epicenterLng);
+    // 簡化 GMPE：距離越近、規模越大、震度越高
+    estimatedIntensity = eq.magnitude - Math.log10(Math.max(distanceKm, 10)) + 1;
+    if (eq.depth < 30) estimatedIntensity += 0.5; // 淺層加成
+  } else {
+    // 沒定位資料，退回用規模估
+    estimatedIntensity = eq.magnitude - 1;
+  }
+
+  // 規模 ≥ 6.5 一律當高警報
+  if (eq.magnitude >= 6.5) {
+    estimatedIntensity = Math.max(estimatedIntensity, 5);
+  }
+
+  let severity: Severity;
+  if (estimatedIntensity >= 5) severity = "extreme";
+  else if (estimatedIntensity >= 4) severity = "strong";
+  else if (estimatedIntensity >= 3) severity = "moderate";
+  else if (estimatedIntensity >= 2) severity = "mild";
+  else severity = "tiny";
+
+  return { severity, estimatedIntensity, distanceKm };
+};
+
+const SEVERITY_STYLE: Record<
+  Severity,
+  { label: string; bg: string; ring: string; duration: number }
+> = {
+  extreme: {
+    label: "重大地震警報",
+    bg: "bg-red-700",
+    ring: "shadow-red-500/60",
+    duration: 30000,
+  },
+  strong: {
+    label: "強震警報",
+    bg: "bg-red-600",
+    ring: "shadow-red-500/50",
+    duration: 18000,
+  },
+  moderate: {
+    label: "地震通知",
+    bg: "bg-orange-500",
+    ring: "shadow-orange-500/40",
+    duration: 12000,
+  },
+  mild: {
+    label: "輕微地震",
+    bg: "bg-amber-500",
+    ring: "shadow-amber-500/30",
+    duration: 8000,
+  },
+  tiny: {
+    label: "微震",
+    bg: "bg-slate-600",
+    ring: "",
+    duration: 0,
+  },
+};
 
 const getUserId = (): string => {
   let uid = localStorage.getItem("user_id");
@@ -88,39 +188,71 @@ const App: React.FC = () => {
   }, []);
 
   const [earthquakes, setEarthquakes] = useState<EarthquakeAlert[]>([]);
-  const [quakeNotice, setQuakeNotice] = useState<EarthquakeAlert | null>(null);
+  const [quakeNotice, setQuakeNotice] = useState<QuakeNoticeState | null>(null);
   const lastSeenQuakeIdRef = useRef<number | null>(null);
 
-  // 請求瀏覽器系統通知權限（iOS WKWebView 不支援，會自動跳過）
+  // 請求通知權限（iOS native + Web 通用）
   useEffect(() => {
-    if (
-      typeof Notification !== "undefined" &&
-      Notification.permission === "default"
-    ) {
-      Notification.requestPermission().catch(() => {});
-    }
+    LocalNotifications.requestPermissions().catch(() => {});
   }, []);
 
   const triggerQuakeAlert = (eq: EarthquakeAlert) => {
-    const text = `地震警報：${eq.location} 規模 ${eq.magnitude.toFixed(1)}`;
-    speak(text);
-    setQuakeNotice(eq);
-    window.setTimeout(() => {
-      setQuakeNotice((curr) => (curr?.id === eq.id ? null : curr));
-    }, 12000);
+    const userLoc = userStatusRef.current.location;
+    const { severity, estimatedIntensity, distanceKm } = evaluateSeverity(
+      eq,
+      userLoc?.lat,
+      userLoc?.lng,
+    );
 
-    if (
-      typeof Notification !== "undefined" &&
-      Notification.permission === "granted"
-    ) {
-      try {
-        new Notification("⚠️ 地震警報", {
-          body: `${eq.location}\n規模 M${eq.magnitude.toFixed(1)} ・ 深度 ${eq.depth}km\n${eq.originTime}`,
-          tag: `quake-${eq.id}`,
-          requireInteraction: false,
-        });
-      } catch {}
+    // 微震不彈通知，跑馬燈即可
+    if (severity === "tiny") return;
+
+    const config = SEVERITY_STYLE[severity];
+    const distanceText =
+      distanceKm !== null
+        ? `離您約 ${distanceKm.toFixed(0)} 公里`
+        : "距離未知";
+
+    let voiceText: string;
+    if (severity === "extreme") {
+      voiceText = `重大地震警報！${eq.location} 規模 ${eq.magnitude.toFixed(1)}，${distanceText}。請立即執行：趴下、掩護、穩住。`;
+    } else if (severity === "strong") {
+      voiceText = `強震警報。${eq.location} 規模 ${eq.magnitude.toFixed(1)}，${distanceText}。請就近掩護。`;
+    } else if (severity === "moderate") {
+      voiceText = `地震通知。${eq.location} 規模 ${eq.magnitude.toFixed(1)}，${distanceText}。`;
+    } else {
+      voiceText = `輕微地震。${eq.location} 規模 ${eq.magnitude.toFixed(1)}。`;
     }
+
+    speak(voiceText);
+    setQuakeNotice({ eq, severity, estimatedIntensity, distanceKm });
+    window.setTimeout(() => {
+      setQuakeNotice((curr) => (curr?.eq.id === eq.id ? null : curr));
+    }, config.duration);
+
+    // 強震以上觸發震動
+    if (
+      (severity === "extreme" || severity === "strong") &&
+      typeof navigator !== "undefined" &&
+      typeof navigator.vibrate === "function"
+    ) {
+      navigator.vibrate([200, 100, 200, 100, 400]);
+    }
+
+    // 系統通知（iOS 鎖屏橫幅 / 瀏覽器系統通知）
+    LocalNotifications.schedule({
+      notifications: [
+        {
+          id: Math.abs(eq.id) % 2147483647,
+          title: config.label,
+          body: `${eq.location}\n規模 M${eq.magnitude.toFixed(1)} ・ 深度 ${eq.depth}km\n${distanceText} ・ 估計震度 ${estimatedIntensity.toFixed(1)}`,
+          sound: severity === "extreme" || severity === "strong"
+            ? "default"
+            : undefined,
+          schedule: { at: new Date(Date.now() + 50) },
+        },
+      ],
+    }).catch((e) => console.warn("通知發送失敗", e));
   };
 
   useEffect(() => {
@@ -162,6 +294,7 @@ const App: React.FC = () => {
   }, []);
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -175,6 +308,36 @@ const App: React.FC = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  const requestLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError("此裝置不支援定位");
+      return;
+    }
+    setLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserStatus((prev) => ({
+          ...prev,
+          location: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+        }));
+        setLocationError(null);
+      },
+      (err) => {
+        const msg =
+          err.code === err.PERMISSION_DENIED
+            ? "定位權限被拒絕"
+            : err.code === err.POSITION_UNAVAILABLE
+              ? "無法取得位置（系統可能未開啟定位）"
+              : err.code === err.TIMEOUT
+                ? "定位逾時"
+                : `定位失敗：${err.message}`;
+        setLocationError(msg);
+        console.warn("Geolocation error:", err.code, err.message);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  };
 
 
   const speak = (text: string) => {
@@ -230,17 +393,7 @@ const App: React.FC = () => {
     ]);
 
     // 嘗試獲取用戶定位
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setUserStatus((prev) => ({
-            ...prev,
-            location: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-          }));
-        },
-        () => console.log("定位獲取失敗"),
-      );
-    }
+    requestLocation();
 
     // 模擬心率和電量變化
     const interval = setInterval(() => {
@@ -365,24 +518,33 @@ const App: React.FC = () => {
     <div className="h-screen flex flex-col bg-[#020617] overflow-hidden relative">
       {quakeNotice && (
         <div className="absolute top-4 left-4 right-4 z-[100] animate-in slide-in-from-top-4 fade-in duration-300">
-          <div className="bg-red-600 border border-red-300/40 text-white p-4 rounded-xl shadow-2xl shadow-red-500/50 backdrop-blur-md">
+          <div
+            className={`${SEVERITY_STYLE[quakeNotice.severity].bg} border border-white/30 text-white p-4 rounded-xl shadow-2xl ${SEVERITY_STYLE[quakeNotice.severity].ring} backdrop-blur-md ${quakeNotice.severity === "extreme" ? "animate-pulse" : ""}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-2">
-                  <i className="fas fa-bolt animate-pulse text-yellow-300"></i>
+                  <i className="fas fa-triangle-exclamation animate-pulse text-yellow-300"></i>
                   <span className="font-black text-sm tracking-wider uppercase">
-                    地震警報
+                    {SEVERITY_STYLE[quakeNotice.severity].label}
                   </span>
                 </div>
                 <p className="text-base font-bold leading-tight">
-                  {quakeNotice.location}
+                  {quakeNotice.eq.location}
                 </p>
                 <p className="text-sm font-mono mt-1">
-                  芮氏 M{quakeNotice.magnitude.toFixed(1)} ・ 深度{" "}
-                  {quakeNotice.depth} km
+                  芮氏 M{quakeNotice.eq.magnitude.toFixed(1)} ・ 深度{" "}
+                  {quakeNotice.eq.depth} km
+                </p>
+                <p className="text-sm font-mono mt-1 font-bold">
+                  {quakeNotice.distanceKm !== null
+                    ? `離您約 ${quakeNotice.distanceKm.toFixed(0)} km`
+                    : "距離未知（請開定位）"}
+                  {" ・ "}
+                  估計震度 {quakeNotice.estimatedIntensity.toFixed(1)}
                 </p>
                 <p className="text-[10px] opacity-75 mt-1 font-mono">
-                  {quakeNotice.originTime}
+                  {quakeNotice.eq.originTime}
                 </p>
               </div>
               <button
@@ -430,20 +592,35 @@ const App: React.FC = () => {
             )}
             {import.meta.env.DEV && (
               <button
-                onClick={() =>
+                onClick={() => {
+                  const userLoc = userStatus.location;
+                  // 距離隨機 5km～300km，模擬不同震度
+                  const distanceKm = 5 + Math.random() * 295;
+                  const bearing = Math.random() * 2 * Math.PI;
+                  const baseLat = userLoc?.lat ?? 24.5;
+                  const baseLng = userLoc?.lng ?? 121.5;
+                  // 約略換算：1 度 ≈ 111 km
+                  const epicenterLat =
+                    baseLat + (distanceKm / 111) * Math.cos(bearing);
+                  const epicenterLng =
+                    baseLng +
+                    (distanceKm / (111 * Math.cos((baseLat * Math.PI) / 180))) *
+                      Math.sin(bearing);
                   triggerQuakeAlert({
                     id: -Date.now(),
                     originTime: new Date()
                       .toISOString()
                       .slice(0, 19)
                       .replace("T", " "),
-                    location: "測試震央：宜蘭縣外海",
+                    location: `測試震央 (距離 ${distanceKm.toFixed(0)}km)`,
                     magnitude: 4 + Math.random() * 3,
                     depth: 20 + Math.floor(Math.random() * 50),
+                    epicenterLat,
+                    epicenterLng,
                     reportColor: "",
                     web: "",
-                  })
-                }
+                  });
+                }}
                 title="模擬地震警報（僅開發模式可見）"
                 className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center active:bg-purple-500/30 transition-colors text-xs"
               >
@@ -455,7 +632,11 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
-        <EmergencyStatus status={userStatus} />
+        <EmergencyStatus
+          status={userStatus}
+          locationError={locationError}
+          onRetryLocation={requestLocation}
+        />
         <AlertTicker alerts={earthquakes} />
       </header>
 
