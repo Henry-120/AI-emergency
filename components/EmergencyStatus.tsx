@@ -4,9 +4,14 @@ import { UserStatus } from '../types';
 
 interface Props {
   status: UserStatus;
+  locationError?: string | null;
+  onRetryLocation?: () => void;
 }
 
-const EmergencyStatus: React.FC<Props> = ({ status }) => {
+const EmergencyStatus: React.FC<Props> = ({ status, locationError, onRetryLocation }) => {
+  const hasLocation = !!status.location;
+  const showError = !hasLocation && !!locationError;
+
   return (
     <div className="flex items-center justify-between w-full px-4 py-2 bg-slate-900/40 backdrop-blur-md border-b border-white/5">
       <div className="flex items-center gap-4">
@@ -19,13 +24,28 @@ const EmergencyStatus: React.FC<Props> = ({ status }) => {
           <span className="text-[11px] font-mono font-medium tracking-tighter">{Math.round(status.batteryLevel)}%</span>
         </div>
       </div>
-      
-      <div className="flex items-center gap-1.5 opacity-60">
-        <i className="fas fa-location-dot text-[10px]"></i>
-        <span className="text-[9px] font-mono">
-          {status.location ? `${status.location.lat.toFixed(2)},${status.location.lng.toFixed(2)}` : '定位中...'}
-        </span>
-      </div>
+
+      {showError ? (
+        <button
+          onClick={onRetryLocation}
+          className="flex items-center gap-1.5 text-red-400 hover:text-red-300 active:text-red-200"
+          title={locationError || ""}
+        >
+          <i className="fas fa-location-crosshairs text-[10px]"></i>
+          <span className="text-[9px] font-mono underline">
+            {locationError} ・ 點此重試
+          </span>
+        </button>
+      ) : (
+        <div className={`flex items-center gap-1.5 ${hasLocation ? 'opacity-60' : 'opacity-50 animate-pulse'}`}>
+          <i className="fas fa-location-dot text-[10px]"></i>
+          <span className="text-[9px] font-mono">
+            {hasLocation
+              ? `${status.location!.lat.toFixed(2)},${status.location!.lng.toFixed(2)}`
+              : '定位中...'}
+          </span>
+        </div>
+      )}
     </div>
   );
 };

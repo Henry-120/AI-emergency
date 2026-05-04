@@ -48,6 +48,8 @@ class CWAService:
                             "location": epicenter.get("Location") or "未知地點",
                             "magnitude": magnitude.get("MagnitudeValue") or 0,
                             "depth": info.get("FocalDepth") or 0,
+                            "epicenterLat": epicenter.get("EpicenterLatitude"),
+                            "epicenterLng": epicenter.get("EpicenterLongitude"),
                             "reportColor": eq.get("ReportColor") or "",
                             "web": eq.get("Web") or "",
                         })
