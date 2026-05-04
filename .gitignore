@@ -23,3 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Python
+.venv
+venv
+__pycache__
+*.pyc
+
+# SQLite local database
+*.db
