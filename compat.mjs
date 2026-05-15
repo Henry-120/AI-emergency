@@ -289,4 +289,3 @@ export { toPlainObject } from './util/toPlainObject.mjs';
 export { toSafeInteger } from './util/toSafeInteger.mjs';
 export { toString } from './util/toString.mjs';
 export { uniqueId } from './util/uniqueId.mjs';
-export { toolkit as default } from './toolkit.mjs';
