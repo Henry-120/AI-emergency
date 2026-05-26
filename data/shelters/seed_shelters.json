@@ -1,0 +1,69 @@
+{
+  "source": "內建備援資料：桃園市中壢周邊示範避難點。正式上線前請以政府開放資料快取取代。",
+  "shelters": [
+    {
+      "id": "seed-taoyuan-zhongli-landmark-park",
+      "name": "地標公園",
+      "city": "桃園市",
+      "town": "中壢區",
+      "village": "新街里",
+      "address": "延平路普義路橋旁",
+      "lat": 24.963076,
+      "lon": 121.2248,
+      "open_status": "",
+      "disaster_type": "震災",
+      "capacity": null,
+      "contact_name": "",
+      "contact_phone": "03-4271801#1210",
+      "last_update_time": ""
+    },
+    {
+      "id": "seed-taoyuan-zhongli-zhenxing-park",
+      "name": "振興公園",
+      "city": "桃園市",
+      "town": "中壢區",
+      "village": "振興里",
+      "address": "振興里龍陵路以西",
+      "lat": 24.931646,
+      "lon": 121.2458,
+      "open_status": "",
+      "disaster_type": "震災",
+      "capacity": null,
+      "contact_name": "",
+      "contact_phone": "03-4271801#1210",
+      "last_update_time": ""
+    },
+    {
+      "id": "seed-taoyuan-zhongli-uch",
+      "name": "健行科技大學",
+      "city": "桃園市",
+      "town": "中壢區",
+      "village": "",
+      "address": "桃園市中壢區健行路229號",
+      "lat": 24.9471,
+      "lon": 121.2287,
+      "open_status": "",
+      "disaster_type": "震災、水災",
+      "capacity": 2028,
+      "contact_name": "",
+      "contact_phone": "03-4581196",
+      "last_update_time": ""
+    },
+    {
+      "id": "seed-taoyuan-zhongli-vnu",
+      "name": "萬能科技大學",
+      "city": "桃園市",
+      "town": "中壢區",
+      "village": "",
+      "address": "桃園市中壢區萬能路1號",
+      "lat": 24.991445,
+      "lon": 121.234614,
+      "open_status": "",
+      "disaster_type": "震災、水災",
+      "capacity": 1787,
+      "contact_name": "",
+      "contact_phone": "03-4515811",
+      "last_update_time": ""
+    }
+  ]
+}
