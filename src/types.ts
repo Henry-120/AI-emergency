@@ -39,3 +39,35 @@ export interface UserStatus {
   location: { lat: number; lng: number } | null;
   hasInjuries: boolean;
 }
+
+// ===== BLE 藍牙通訊相關型別 =====
+
+export type BLEConnectionState = 'disconnected' | 'connecting' | 'connected' | 'pairing_sent' | 'pairing_received';
+
+export interface NearbyUser {
+  id: string;            // BLE 裝置 ID
+  nickname: string;      // 用戶暱稱
+  rssi: number;          // 訊號強度
+  distance: string;      // 距離估算文字 (如 "~2m")
+  lastSeen: Date;        // 最後偵測時間
+  connectionState: BLEConnectionState;
+}
+
+export interface BLEMessage {
+  id: string;
+  senderId: string;
+  content: string;
+  timestamp: Date;
+  isMine: boolean;
+}
+
+export interface BLEState {
+  isScanning: boolean;
+  isAdvertising: boolean;
+  isSupported: boolean;
+  nearbyUsers: NearbyUser[];
+  connectedUser: NearbyUser | null;
+  chatMessages: BLEMessage[];
+  myNickname: string;
+  error: string | null;
+}
