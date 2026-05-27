@@ -47,5 +47,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>GuardiaAI 需要藍牙以便在斷網時與附近的使用者互傳災害訊息與位置。</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>GuardiaAI 需要藍牙廣播權限，讓附近的使用者能夠找到並接收您的求救訊息。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>GuardiaAI 需要您的位置以便在傳送訊息時分享所在地，協助附近使用者找到您。</string>
 </dict>
 </plist>

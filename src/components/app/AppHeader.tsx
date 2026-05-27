@@ -16,6 +16,7 @@ export function AppHeader({
   onDownloadOfflineSafetyPack,
   onRefreshCwa,
   onShowShelterNavigator,
+  onShowNearbyPeople,
 }: {
   currentAnalysis: DisasterAnalysis | null;
   cwaError: string;
@@ -28,6 +29,8 @@ export function AppHeader({
   onDownloadOfflineSafetyPack: () => void;
   onRefreshCwa: () => void;
   onShowShelterNavigator: () => void;
+  /** 藍牙模組：開啟「附近的人」頁面 */
+  onShowNearbyPeople: () => void;
 }) {
   return (
     <header className="z-50 shadow-lg">
@@ -103,6 +106,14 @@ export function AppHeader({
               避難導航
             </button>
           )}
+          {/* 藍牙模組：附近的人入口（同 App 用戶 BLE 互傳訊息 + 位置） */}
+          <button
+            onClick={onShowNearbyPeople}
+            className="px-3 py-2 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-200 text-xs font-semibold hover:bg-sky-500/20 transition-all"
+            title="掃描並聯絡附近的 GuardiaAI 使用者"
+          >
+            附近的人
+          </button>
           <button className="w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
             <i className="fas fa-phone-alt text-red-500 text-xs"></i>
           </button>

@@ -23,6 +23,8 @@ import {
   saveUserStatusSnapshot,
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
+// 藍牙模組：附近的人功能（BLE App-to-App 訊息 + 位置廣播）
+import { NearbyPeoplePage } from "./components/bluetooth/NearbyPeoplePage";
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -64,6 +66,8 @@ const App: React.FC = () => {
   const [offlineSafetyPack, setOfflineSafetyPack] =
     useState<OfflineSafetyPack | null>(() => getOfflineSafetyPack());
   const [showShelterNavigator, setShowShelterNavigator] = useState(false);
+  // 藍牙模組：是否顯示「附近的人」頁面
+  const [showNearbyPeople, setShowNearbyPeople] = useState(false);
 
   const loadDownloadedMaps = async () => {
     const result = await getDownloadedMaps();
@@ -374,6 +378,16 @@ const App: React.FC = () => {
     );
   }
 
+  // 藍牙模組：附近的人頁面（獨立全螢幕）
+  if (showNearbyPeople) {
+    return (
+      <NearbyPeoplePage
+        onBack={() => setShowNearbyPeople(false)}
+        myLocation={userStatus.location}
+      />
+    );
+  }
+
   // 渲染 UI
   return (
     <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
@@ -389,6 +403,7 @@ const App: React.FC = () => {
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
+        onShowNearbyPeople={() => setShowNearbyPeople(true)}
       />
       <ChatMessageList
         isAnalyzing={isAnalyzing}
