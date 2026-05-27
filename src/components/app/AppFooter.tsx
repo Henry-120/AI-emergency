@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { MapInfo } from "../../services/offlineMapsService";
+import { createSpeechRecognizer } from "../../services/VoiceInput";
 
 export function AppFooter({
   downloadedMaps,
@@ -20,6 +21,59 @@ export function AppFooter({
   onViewMap: (map: MapInfo) => void;
   setInput: (value: string) => void;
 }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [finalTranscript, setFinalTranscript] = useState("");
+  const recognizerRef = useRef<ReturnType<typeof createSpeechRecognizer> | null>(
+    null,
+  );
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setSpeechSupported(Boolean(SpeechRecognition));
+
+    return () => {
+      recognizerRef.current?.stop();
+    };
+  }, []);
+
+  const toggleRecording = () => {
+    if (!recognizerRef.current) {
+      if (!speechSupported) {
+        alert(
+          "此瀏覽器不支援語音辨識。請使用支援的瀏覽器或 HTTPS/localhost 測試。",
+        );
+        return;
+      }
+
+      recognizerRef.current = createSpeechRecognizer(
+        (text, isFinal) => {
+          setInput(text);
+          if (isFinal) {
+            setIsRecording(false);
+            setFinalTranscript(text);
+          }
+        },
+        (error) => {
+          console.error("Speech error:", error);
+          setIsRecording(false);
+          alert(`語音辨識錯誤：${error}`);
+        },
+      );
+    }
+
+    if (!isRecording) {
+      recognizerRef.current.start();
+      setFinalTranscript("");
+      setIsRecording(true);
+    } else {
+      recognizerRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
   return (
     <footer className="glass-panel p-4 safe-area-bottom">
       <div className="max-w-xl mx-auto">
@@ -104,33 +158,88 @@ export function AppFooter({
             </button>
           ))}
         </div>
-        <form onSubmit={onSubmit} className="relative flex items-center gap-2">
+        <form
+          ref={formRef}
+          onSubmit={(event) => {
+            onSubmit(event);
+            setFinalTranscript("");
+          }}
+          className="relative flex items-center gap-2"
+        >
           <div className="relative flex-1">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="回報進度或回答問題..."
-              className="w-full bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-600 shadow-inner"
+              className="w-full bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-20 text-sm focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-600 shadow-inner"
               disabled={isAnalyzing}
             />
             <button
               type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 active:text-amber-500"
+              className="absolute right-12 top-1/2 -translate-y-1/2 text-slate-500 active:text-amber-500"
               onClick={() => alert("開啟相機相簿...")}
             >
               <i className="fas fa-images"></i>
             </button>
+            <button
+              type="button"
+              aria-pressed={isRecording}
+              aria-disabled={!speechSupported}
+              onClick={toggleRecording}
+              disabled={isAnalyzing || !speechSupported}
+              className={`absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2 ${
+                isRecording
+                  ? "text-rose-400"
+                  : speechSupported
+                    ? "text-slate-500"
+                    : "text-slate-600/40"
+              } active:text-amber-500`}
+              aria-label={isRecording ? "停止語音輸入" : "開始語音輸入"}
+              title={
+                !speechSupported
+                  ? "此瀏覽器不支援語音辨識"
+                  : isRecording
+                    ? "停止錄音"
+                    : "開始語音輸入"
+              }
+            >
+              {isRecording && (
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+              )}
+              <i className="fas fa-microphone"></i>
+            </button>
+            <div aria-live="polite" className="sr-only">
+              {isRecording
+                ? "錄音中"
+                : finalTranscript
+                  ? `辨識完成：${finalTranscript}`
+                  : ""}
+            </div>
           </div>
-          <button
-            type="submit"
-            disabled={isAnalyzing || !input.trim()}
-            className="bg-amber-500 text-black w-11 h-11 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(251,191,36,0.3)] active:scale-90 transition-all disabled:opacity-30 disabled:shadow-none"
-          >
-            <i
-              className={`fas ${isAnalyzing ? "fa-circle-notch fa-spin" : "fa-arrow-up"}`}
-            ></i>
-          </button>
+          {finalTranscript ? (
+            <button
+              type="button"
+              onClick={() => {
+                setInput(finalTranscript);
+                formRef.current?.requestSubmit();
+              }}
+              className="bg-emerald-500 text-black w-11 h-11 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(16,185,129,0.2)] active:scale-90 transition-all"
+              aria-label="確認送出語音辨識結果"
+            >
+              <i className="fas fa-check"></i>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={isAnalyzing || !input.trim()}
+              className="bg-amber-500 text-black w-11 h-11 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(251,191,36,0.3)] active:scale-90 transition-all disabled:opacity-30 disabled:shadow-none"
+            >
+              <i
+                className={`fas ${isAnalyzing ? "fa-circle-notch fa-spin" : "fa-arrow-up"}`}
+              ></i>
+            </button>
+          )}
         </form>
       </div>
     </footer>
