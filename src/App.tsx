@@ -35,7 +35,10 @@ const App: React.FC = () => {
     useState<EarthquakeAlert | null>(null);
   const [cwaError, setCwaError] = useState<string>("");
 
-  // 新增：用戶狀態
+  // 全局管理相機相簿選取的 Base64 圖片狀態
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  // 用戶狀態
   const [userStatus, setUserStatus] = useState<UserStatus>({
     isMoving: false,
     heartRate: 72,
@@ -160,25 +163,21 @@ const App: React.FC = () => {
 
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
-
     const utterance = new SpeechSynthesisUtterance(text);
-    // 1. 取得目前裝置支援的所有聲音
     const voices = window.speechSynthesis.getVoices();
-
-    // 2. 優先尋找台灣中文 (zh-TW)，其次是 zh-HK 或 zh-CN
     const chineseVoice =
       voices.find((v) => v.lang.includes("zh-TW")) ||
       voices.find((v) => v.lang.includes("zh-HK")) ||
       voices.find((v) => v.lang.includes("zh-CN"));
 
     if (chineseVoice) {
-      utterance.voice = chineseVoice; // 強制指定中文聲音物件
+      document.body.click(); // 嘗試觸發使用者互動以符合瀏覽器政策
+      utterance.voice = chineseVoice;
     }
 
     utterance.lang = "zh-tw";
     utterance.rate = 1.0;
     utterance.pitch = 1.1;
-
     window.speechSynthesis.speak(utterance);
   };
 
@@ -192,7 +191,6 @@ const App: React.FC = () => {
     if (!isSecureContext) {
       return "請透過 localhost 或 HTTPS 開啟此頁面，瀏覽器才會允許地理定位。";
     }
-
     if (err.code === 1) {
       return "定位權限被拒絕，請允許定位後重新整理頁面。";
     }
@@ -207,10 +205,8 @@ const App: React.FC = () => {
       : "定位失敗，請確認定位權限與安全上下文。";
   };
 
-  // 用於自動滾動到底部
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 每當 messages 更新時，自動滾動到底部
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -218,7 +214,6 @@ const App: React.FC = () => {
   }, [messages]);
 
   useEffect(() => {
-    // 初始系統訊息
     setMessages([
       {
         id: "1",
@@ -229,7 +224,6 @@ const App: React.FC = () => {
       },
     ]);
 
-    // 持續追蹤使用者定位，離線避難導航會用最新位置重新排序。
     let watchId: number | null = null;
     if (navigator.geolocation) {
       const handleGeolocationError = (err: GeolocationPositionError) => {
@@ -252,7 +246,6 @@ const App: React.FC = () => {
       setLocationError("此設備不支援地理定位。請使用支援的瀏覽器。");
     }
 
-    // 模擬心率和電量變化
     const interval = setInterval(() => {
       setUserStatus((prev) => ({
         ...prev,
@@ -274,47 +267,52 @@ const App: React.FC = () => {
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isAnalyzing) return;
+    
+    // 如果文字跟圖片都是空的，或者正在分析中，就不執行
+    if ((!input.trim() && !selectedImage) || isAnalyzing) return;
 
+    // 紀錄這次發送要使用的圖片，並立刻清空全局圖片暫存（優化使用者介面體驗）
+    const imageToSend = selectedImage;
+    setSelectedImage(null);
+
+    // 修正：在這裡把 imageBase64 欄位補上去，讓歷史訊息狀態記得圖片資訊
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: input,
+      content: input || "【傳送了現場照片】",
       timestamp: new Date(),
+      imageBase64: imageToSend, //  關鍵行
     };
 
-    // 立即在 UI 顯示使用者訊息
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     const currentInput = input;
     setInput("");
-    // --- 離線邏輯開始 ---
+
+    // --- 離線邏輯 ---
     if (isOffline) {
       const offlineAnalysis = getOfflineAnalysis(currentInput);
-
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組：",
+        content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組（無法處理影像分析）：",
         analysis: offlineAnalysis,
         timestamp: new Date(),
       };
-
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(offlineAnalysis);
       speak(offlineAnalysis.immediateActions[0].description);
-      return; // 離線模式處理完畢，直接結束
+      return;
     }
-    // --- 離線邏輯結束 ---
+    
     setIsAnalyzing(true);
 
     try {
       const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}`;
 
-      // 將整個對話歷史傳送給 AI
-      const analysis = await analyzeDisaster(updatedMessages, sensorContext);
+      // 呼叫分析服務，連同對話歷史、感測器資訊、以及影像 Base64 一併傳入
+      const analysis = await analyzeDisaster(updatedMessages, sensorContext, imageToSend);
 
-      // AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊`
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -330,13 +328,11 @@ const App: React.FC = () => {
 
       if (analysis.immediateActions && analysis.immediateActions.length > 0) {
         const text = `緊急指令${analysis.immediateActions[0].title}`;
-        // 優先嘗試 OpenAI，失敗則用原生降級
         playAudio(text).catch(() => {
           console.log("切換至原生語音降級模式");
           speak(text);
         });
       } else if (analysis.missingInfoRequests?.length) {
-        // 如果是請求資訊
         speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
       }
     } catch (error) {
@@ -353,10 +349,9 @@ const App: React.FC = () => {
       setIsAnalyzing(false);
     }
   };
-  // --- 在這裡加入 handleOfflineOption ---
+
   const handleOfflineOption = (option: string) => {
     setInput(option);
-    // 這裡可以選擇是否要點擊後自動送出，如果要自動送出可以加一行：
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
 
@@ -386,7 +381,6 @@ const App: React.FC = () => {
     return <BleMessengerPage onBack={() => setShowBleMessenger(false)} />;
   }
 
-  // 渲染 UI
   return (
     <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
       <AppHeader
@@ -419,6 +413,8 @@ const App: React.FC = () => {
         onSubmit={handleSubmit}
         onViewMap={handleViewMap}
         setInput={setInput}
+        selectedImage={selectedImage}
+        setSelectedImage={setSelectedImage}
       />
     </div>
   );

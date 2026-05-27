@@ -28,6 +28,12 @@
 	<string>Guardian 需要使用藍牙尋找附近可互助的使用者與傳遞緊急訊息。</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Guardian 需要使用藍牙尋找附近可互助的使用者與傳遞緊急訊息。</string>
+	<key>NSCameraUsageDescription</key>
+    <string>我們需要存取您的相機以拍攝緊急現場照片並進行 AI 分析。</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>我們需要存取您的相簿以選取緊急現場照片並進行 AI 分析。</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>我們需要儲存照片至您的相簿。</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

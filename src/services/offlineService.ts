@@ -9,7 +9,7 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
   // 1. 地震主選單
   if (userInput.includes("地震")) {
     advice = "地震發生：請執行『趴下、掩護、穩住』。請回報您的現況：";
-    options = ["受困", "出口受阻", "受傷", "我人安全"];
+    options = ["受困", "出口受阻", "受傷", "我人安全", "有瓦斯味"];
   } 
   // 2. 我人安全分支
   else if (userInput === "我人安全") {
@@ -19,7 +19,7 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
   }
   else if (userInput.includes("低樓層")) {
     advice = "【低樓層】搖晃停止後走樓梯撤離至室外。離開前關閉瓦斯與電源，注意掉落物。";
-    options = ["回首頁"];
+    options = ["已撤離至室外", "樓梯/出口受阻", "撤離途中受傷"];
   }
   else if (userInput.includes("中高樓層")) {
     advice = "【高樓層】切勿搭電梯！若結構無損請留在室內核心柱旁。撤離時走樓梯，若因受傷無法移動，請選擇下方選項。。";
@@ -46,7 +46,7 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
   }
 
   // 4. 出口受阻分支 (包含 建築/水/火)
-  else if (userInput === "出口受阻") {
+  else if (userInput.includes("出口受阻")) {
     advice = "目前人身安全但無法離開。請告知阻礙類型，協助您尋找替代方案：";
     options = ["出口：建築倒塌", "出口：水災", "出口：火災"];
     riskLevel = 7;
@@ -66,7 +66,7 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
 
   // 5. 受傷與回首頁處理
   // 5-1. 受傷主選單
-  else if (userInput === "受傷") {
+  else if (userInput === "受傷" || userInput === "撤離途中受傷") {
     advice = "【受傷處置】保持冷靜，深呼吸。現在哪裡受傷了？請點選對應狀況：";
     options = ["大量出血", "骨折或脫臼", "壓傷砸傷", "頭頸部受傷", "燒燙傷/吸入傷", "焦慮過度"];
     riskLevel = 8;
@@ -145,12 +145,43 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     options = ["地震"];
   }
 
-  // 6. 深度延伸指令 (針對特定危險狀況)
-  
+  // 6. 瓦斯味分支
+  else if (userInput === "有瓦斯味") {
+    advice = "【危險防禦】1. 嚴禁開關任何電器如電燈、打火機、或抽風機！嚴禁拔插頭 2. 順手關閉瓦斯總開關 3. 輕輕「手動」推開窗戶通風 4. 迅速撤離至室外空曠處";
+    options = ["已關閉總開關", "無法關閉開關", "回首頁"];
+    riskLevel = 10; // 風險等級調至最高
+  }
+  // 延伸選項：無法關閉開關
+  else if (userInput === "無法關閉開關") {
+    advice = "【盡速撤離】立即放棄關閉 1. 維持現有電器狀態，直接開門。 2. 用濕毛巾或衣物掩住口鼻。 3. 壓低姿勢走樓梯撤離。";
+    options = ["準備好出發撤離", "擔心撤離途中氣爆"];
+    riskLevel = 10;
+  }
+
+  // 延伸選項：已關閉總開關
+  else if (userInput === "已關閉總開關") {
+    advice = "【安全撤離】做得好。 1. 維持現有電器狀態 2. 拿好避難包，用衣物護住頭部與口鼻。 3. 走樓梯撤離至戶外空曠處。樓梯間較通風，擴散較快，撤離是唯一安全路徑。";
+    options = ["準備好出發撤離", "擔心撤離途中氣爆"];
+    riskLevel = 7;
+  }
+
+  // 增加擔心撤離途中氣爆的選項
+  else if (userInput === "擔心撤離途中氣爆") {
+    advice = "【心理建設】留在高濃度瓦斯室內遭遇氣爆與窒息的機率是 100%。大樓樓梯間多有通風設計，濃度較低。 1. 撤離時用厚外套、防護墊或雙臂護住頭部與胸口。 2. 採取微蹲低姿勢。 3. 不要猶豫，迅速走樓梯向下，安全在於速度！";
+    options = ["準備好出發撤離", "回首頁"];
+    riskLevel = 9;
+  }
+  else if (userInput === "準備好出發撤離") {
+    advice = "【行動指令】保持冷靜，用衣物遮住口鼻，手護住頭部，立刻出發走樓梯下樓！";
+    options = ["回首頁"];
+  }
+
+  // 7. 深度延伸指令 (針對特定危險狀況)
+
   // 高樓層延伸
   else if (userInput === "準備撤離，樓梯暢通") {
     advice = "【撤離提醒】請攜帶緊急避難包，沿樓梯右側向下行進，將左側留給搜救人員。抵達一樓後，迅速移動至最近的開放綠地或避難收容所。";
-    options = ["已抵達安全地點", "回首頁"];
+    options = ["已撤離至室外", "回首頁"];
   }
   else if (userInput === "受傷了無法撤離") {
     advice = "【高樓層就地避難】1. 停止撤離，留在原地，移動至安全角落。 2. 優先處理大出血，利用衣物加壓止血並保暖。 3. 在窗戶懸掛亮色衣物或用硬物敲擊發出規律聲響，讓搜救人員知道您的位置。4. 保持手機電力，每小時開啟一次發訊。";
@@ -212,6 +243,13 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     advice = "【嚴禁開門】這代表門外已有劇烈火煙！立即關閉所有內部門窗減緩火勢蔓延。退往離火源最遠且有對外窗的房間，用衣物塞住所有門縫，等待消防隊。";
     options = ["已進入避難房間", "回首頁"];
     riskLevel = 10;
+  }
+
+  // 安全確認
+  else if (userInput === "已撤離至室外") {
+    advice = "【室外避難】做得好！請前往空曠處（如公園、學校操場），遠離高大建築物、外牆磁磚、圍牆及電線桿。持續注意餘震，並嘗試與家人報平安。";
+    options = ["回首頁"];
+    riskLevel = 2; // 安全撤離，大幅降低風險
   }
 
   return {
