@@ -7,6 +7,7 @@ import { AppHeader } from "./components/app/AppHeader";
 import { ChatMessageList } from "./components/app/ChatMessageList";
 import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
+import { BleMessengerPage } from "./components/ble/BleMessengerPage";
 import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
 import {
@@ -64,6 +65,7 @@ const App: React.FC = () => {
   const [offlineSafetyPack, setOfflineSafetyPack] =
     useState<OfflineSafetyPack | null>(() => getOfflineSafetyPack());
   const [showShelterNavigator, setShowShelterNavigator] = useState(false);
+  const [showBleMessenger, setShowBleMessenger] = useState(false);
 
   const loadDownloadedMaps = async () => {
     const result = await getDownloadedMaps();
@@ -227,14 +229,15 @@ const App: React.FC = () => {
       },
     ]);
 
-    // 嘗試獲取用戶定位
+    // 持續追蹤使用者定位，離線避難導航會用最新位置重新排序。
+    let watchId: number | null = null;
     if (navigator.geolocation) {
       const handleGeolocationError = (err: GeolocationPositionError) => {
         console.log("定位獲取失敗", err);
         setLocationError(getGeolocationErrorMessage(err));
       };
 
-      navigator.geolocation.getCurrentPosition(
+      watchId = navigator.geolocation.watchPosition(
         (pos) => {
           setUserStatus((prev) => ({
             ...prev,
@@ -260,7 +263,12 @@ const App: React.FC = () => {
 
     loadDownloadedMaps();
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
   }, []);
 
   // 處理使用者提交的訊息
@@ -374,6 +382,10 @@ const App: React.FC = () => {
     );
   }
 
+  if (showBleMessenger) {
+    return <BleMessengerPage onBack={() => setShowBleMessenger(false)} />;
+  }
+
   // 渲染 UI
   return (
     <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
@@ -387,6 +399,7 @@ const App: React.FC = () => {
         offlineSafetyPackReady={Boolean(offlineSafetyPack)}
         userStatus={userStatus}
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
+        onShowBleMessenger={() => setShowBleMessenger(true)}
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
       />

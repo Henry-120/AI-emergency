@@ -14,6 +14,7 @@ export function AppHeader({
   offlineSafetyPackReady,
   userStatus,
   onDownloadOfflineSafetyPack,
+  onShowBleMessenger,
   onRefreshCwa,
   onShowShelterNavigator,
 }: {
@@ -26,6 +27,7 @@ export function AppHeader({
   offlineSafetyPackReady: boolean;
   userStatus: UserStatus;
   onDownloadOfflineSafetyPack: () => void;
+  onShowBleMessenger: () => void;
   onRefreshCwa: () => void;
   onShowShelterNavigator: () => void;
 }) {
@@ -103,6 +105,12 @@ export function AppHeader({
               避難導航
             </button>
           )}
+          <button
+            onClick={onShowBleMessenger}
+            className="px-3 py-2 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-100 text-xs font-semibold hover:bg-cyan-500/20 transition-all"
+          >
+            BLE
+          </button>
           <button className="w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
             <i className="fas fa-phone-alt text-red-500 text-xs"></i>
           </button>
