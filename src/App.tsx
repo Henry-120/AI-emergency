@@ -309,7 +309,10 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
 
     try {
-      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}`;
+      const quakeInfo = earthquakeAlert
+        ? `最近地震: 規模 ${earthquakeAlert.magnitude}, 震央 ${earthquakeAlert.location}, 時間 ${earthquakeAlert.time}`
+        : "目前無即時地震資料";
+      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}, ${quakeInfo}`;
 
       // 將整個對話歷史傳送給 AI
       const analysis = await analyzeDisaster(updatedMessages, sensorContext);
