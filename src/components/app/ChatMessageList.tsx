@@ -44,6 +44,20 @@ export function ChatMessageList({
                   {m.content}
                 </p>
 
+                {m.analysis?.situationSummary && (
+                  <div className="p-4 bg-slate-500/10 border border-slate-400/20 rounded-xl">
+                    <div className="flex items-center gap-2 text-slate-300 mb-2">
+                      <i className="fas fa-circle-info text-xs"></i>
+                      <span className="text-[10px] font-bold uppercase tracking-wider">
+                        狀況分析
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-100 leading-relaxed">
+                      {m.analysis.situationSummary}
+                    </p>
+                  </div>
+                )}
+
                 {m.analysis?.missingInfoRequests &&
                   m.analysis.missingInfoRequests.length > 0 && (
                     <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
