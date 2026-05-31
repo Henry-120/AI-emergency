@@ -22,8 +22,18 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 環境變數與金鑰（絕對不要上傳）
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
 *.py[cod]
+
+# 後端執行時自動產生的資料庫（會自動重建，不需上傳）
+guardia_ai.db
+
+# 本機離線地圖瓦片等暫存資料
+data/offline_maps/
