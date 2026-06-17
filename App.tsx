@@ -24,8 +24,28 @@ import {
   saveUserStatusSnapshot,
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
+import { AuthPage } from "./components/auth/AuthPage";
+import { MedicalCardPage } from "./components/medical/MedicalCardPage";
+import { getCurrentUser, logout } from "./services/authService";
+import {
+  getMedicalCard,
+  summarizeMedicalCard,
+} from "./services/medicalCardService";
+import { AuthUser } from "./types";
 
 const App: React.FC = () => {
+  // 登入狀態（離線優先：以 localStorage session 為準）
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
+    getCurrentUser(),
+  );
+  const [showMedicalCard, setShowMedicalCard] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    setShowMedicalCard(false);
+    setAuthUser(null);
+  };
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -312,7 +332,9 @@ const App: React.FC = () => {
       const quakeInfo = earthquakeAlert
         ? `最近地震: 規模 ${earthquakeAlert.magnitude}, 震央 ${earthquakeAlert.location}, 時間 ${earthquakeAlert.time}`
         : "目前無即時地震資料";
-      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}, ${quakeInfo}`;
+      const medicalSummary = summarizeMedicalCard(getMedicalCard());
+      const medicalInfo = medicalSummary ? `, 醫療卡: ${medicalSummary}` : "";
+      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}, ${quakeInfo}${medicalInfo}`;
 
       // 將整個對話歷史傳送給 AI
       const analysis = await analyzeDisaster(updatedMessages, sensorContext);
@@ -363,6 +385,15 @@ const App: React.FC = () => {
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
 
+  // 未登入時，先顯示註冊 / 登入頁
+  if (!authUser) {
+    return <AuthPage onAuthed={setAuthUser} />;
+  }
+
+  if (showMedicalCard) {
+    return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
+  }
+
   if (selectedMap) {
     return (
       <OfflineMapPage
@@ -391,7 +422,7 @@ const App: React.FC = () => {
 
   // 渲染 UI
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-bg text-ink">
+    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}
@@ -401,10 +432,13 @@ const App: React.FC = () => {
         locationError={locationError}
         offlineSafetyPackReady={Boolean(offlineSafetyPack)}
         userStatus={userStatus}
+        authUser={authUser}
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
         onShowBleMessenger={() => setShowBleMessenger(true)}
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
+        onShowMedicalCard={() => setShowMedicalCard(true)}
+        onLogout={handleLogout}
       />
       <ChatMessageList
         isAnalyzing={isAnalyzing}
