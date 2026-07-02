@@ -1,6 +1,6 @@
 import React from "react";
 import { EarthquakeAlert } from "../../services/cwaService";
-import { DisasterAnalysis, UserStatus } from "../../types";
+import { AuthUser, DisasterAnalysis, UserStatus } from "../../types";
 import EmergencyStatus from "../EmergencyStatus";
 import SurvivalGauge from "../SurvivalGauge";
 
@@ -13,10 +13,13 @@ export function AppHeader({
   locationError,
   offlineSafetyPackReady,
   userStatus,
+  authUser,
   onDownloadOfflineSafetyPack,
   onShowBleMessenger,
   onRefreshCwa,
   onShowShelterNavigator,
+  onShowMedicalCard,
+  onLogout,
 }: {
   currentAnalysis: DisasterAnalysis | null;
   cwaError: string;
@@ -26,10 +29,13 @@ export function AppHeader({
   locationError: string;
   offlineSafetyPackReady: boolean;
   userStatus: UserStatus;
+  authUser: AuthUser | null;
   onDownloadOfflineSafetyPack: () => void;
   onShowBleMessenger: () => void;
   onRefreshCwa: () => void;
   onShowShelterNavigator: () => void;
+  onShowMedicalCard: () => void;
+  onLogout: () => void;
 }) {
   return (
     <header className="z-50 shadow-lg">
@@ -111,6 +117,31 @@ export function AppHeader({
           >
             BLE
           </button>
+          <button
+            onClick={onShowMedicalCard}
+            title="緊急醫療卡"
+            className="px-3 py-2 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs font-semibold hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
+          >
+            <i className="fas fa-notes-medical"></i>
+            <span className="hidden sm:inline">醫療卡</span>
+          </button>
+          {authUser && (
+            <div className="flex items-center gap-2">
+              <span
+                className="text-[11px] text-slate-300 max-w-[80px] truncate hidden sm:inline"
+                title={authUser.username}
+              >
+                {authUser.username}
+              </span>
+              <button
+                onClick={onLogout}
+                title="登出"
+                className="w-8 h-8 rounded-full bg-slate-700/60 border border-white/10 flex items-center justify-center text-slate-300 hover:text-rose-300 hover:border-rose-500/30 transition-colors"
+              >
+                <i className="fas fa-right-from-bracket text-xs"></i>
+              </button>
+            </div>
+          )}
           <button className="w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
             <i className="fas fa-phone-alt text-red-500 text-xs"></i>
           </button>

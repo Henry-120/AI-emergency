@@ -1,9 +1,10 @@
-from fastapi import FastAPI, Depends, HTTPException, Response
+from fastapi import FastAPI, Depends, HTTPException, Response, Header
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from typing import Optional
 from .database import SessionLocal, engine
-from . import models, schemas
+from . import models, schemas, auth
 from .services.cwa_service import CWAService
 from .services.offline_maps_service import offline_maps_service
 from .services.shelter_service import shelter_service
@@ -44,6 +45,109 @@ def get_db():
     db = SessionLocal()
     try: yield db
     finally: db.close()
+
+
+# ==================== 認證 / 帳號 API ====================
+
+def get_current_user(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+) -> models.User:
+    """從 Authorization: Bearer <token> 標頭解析出目前登入的使用者。"""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="尚未登入")
+    token = authorization.split(" ", 1)[1].strip()
+    payload = auth.decode_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="登入憑證無效或已過期")
+    user = db.query(models.User).filter(models.User.id == payload["uid"]).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="使用者不存在")
+    return user
+
+
+@app.post("/api/auth/register", response_model=schemas.AuthResponse)
+def register(data: schemas.RegisterRequest, db: Session = Depends(get_db)):
+    username = data.username.strip()
+    if len(username) < 2:
+        raise HTTPException(status_code=400, detail="帳號至少需 2 個字元")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="密碼至少需 6 個字元")
+    if db.query(models.User).filter(models.User.username == username).first():
+        raise HTTPException(status_code=409, detail="此帳號已被註冊")
+    email = (data.email or "").strip() or None
+    if email and db.query(models.User).filter(models.User.email == email).first():
+        raise HTTPException(status_code=409, detail="此 Email 已被註冊")
+
+    user = models.User(
+        username=username,
+        email=email,
+        password_hash=auth.hash_password(data.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    # 同時建立一張空白醫療卡，方便日後填寫
+    db.add(models.MedicalCard(user_id=user.id, full_name=username))
+    db.commit()
+    token = auth.create_token(user.id, user.username)
+    return {"token": token, "user": user}
+
+
+@app.post("/api/auth/login", response_model=schemas.AuthResponse)
+def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == data.username.strip()).first()
+    if not user or not auth.verify_password(data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
+    token = auth.create_token(user.id, user.username)
+    return {"token": token, "user": user}
+
+
+@app.get("/api/auth/me", response_model=schemas.UserResponse)
+def get_me(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+
+# ==================== 緊急醫療卡 API ====================
+
+@app.get("/api/medical-card", response_model=schemas.MedicalCardResponse)
+def get_medical_card(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    card = (
+        db.query(models.MedicalCard)
+        .filter(models.MedicalCard.user_id == current_user.id)
+        .first()
+    )
+    if not card:
+        card = models.MedicalCard(user_id=current_user.id, full_name=current_user.username)
+        db.add(card)
+        db.commit()
+        db.refresh(card)
+    return card
+
+
+@app.put("/api/medical-card", response_model=schemas.MedicalCardResponse)
+def update_medical_card(
+    data: schemas.MedicalCardBase,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    card = (
+        db.query(models.MedicalCard)
+        .filter(models.MedicalCard.user_id == current_user.id)
+        .first()
+    )
+    if not card:
+        card = models.MedicalCard(user_id=current_user.id)
+        db.add(card)
+    for field, value in data.dict().items():
+        setattr(card, field, value)
+    db.commit()
+    db.refresh(card)
+    return card
+
 
 @app.get("/api/weather/latest")
 async def get_weather():

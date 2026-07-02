@@ -37,3 +37,6 @@ guardia_ai.db
 
 # 本機離線地圖瓦片等暫存資料
 data/offline_maps/
+
+# 大型離線地圖檔（92MB，超過 GitHub 建議大小，請另行下載放置）
+public/maps/*.pmtiles
