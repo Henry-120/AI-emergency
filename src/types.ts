@@ -24,11 +24,56 @@ export interface DisasterAnalysis {
   missingInfoRequests?: string[]; // 新增：AI 認為缺少的關鍵資訊或請求
 }
 
+export type RoomRiskZoneType = 'danger' | 'caution' | 'safe';
+export type RoomRiskObjectLevel = 'high' | 'medium' | 'low';
+export type RoomRiskImpactType =
+  | 'topple'
+  | 'falling'
+  | 'glass'
+  | 'blocked_path'
+  | 'safe_floor';
+
+export interface RoomRiskPoint {
+  x: number;
+  y: number;
+}
+
+export interface RoomRiskZone {
+  id: string;
+  type: RoomRiskZoneType;
+  impactType: RoomRiskImpactType;
+  label: string;
+  reason: string;
+  sourceObjectLabel?: string;
+  polygon: RoomRiskPoint[];
+}
+
+export interface RoomRiskObject {
+  label: string;
+  risk: RoomRiskObjectLevel;
+  reason: string;
+  recommendation: string;
+  bbox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
+export interface RoomRiskAnalysis {
+  summary: string;
+  overallRiskLevel: number;
+  objects: RoomRiskObject[];
+  zones: RoomRiskZone[];
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   analysis?: DisasterAnalysis;
+  roomRiskAnalysis?: RoomRiskAnalysis;
   timestamp: Date;
 }
 

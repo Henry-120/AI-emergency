@@ -7,6 +7,7 @@ export function AppFooter({
   input,
   isAnalyzing,
   offlineMapStatus,
+  onOpenRoomRiskScanner,
   onDeleteMap,
   onSubmit,
   onViewMap,
@@ -16,6 +17,7 @@ export function AppFooter({
   input: string;
   isAnalyzing: boolean;
   offlineMapStatus: string;
+  onOpenRoomRiskScanner: () => void;
   onDeleteMap: (mapId: string) => void;
   onSubmit: (event: React.FormEvent) => void;
   onViewMap: (map: MapInfo) => void;
@@ -24,14 +26,15 @@ export function AppFooter({
   const [isRecording, setIsRecording] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [finalTranscript, setFinalTranscript] = useState("");
-  const recognizerRef = useRef<ReturnType<typeof createSpeechRecognizer> | null>(
-    null,
-  );
+  const recognizerRef = useRef<ReturnType<
+    typeof createSpeechRecognizer
+  > | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
     setSpeechSupported(Boolean(SpeechRecognition));
 
     return () => {
@@ -147,8 +150,19 @@ export function AppFooter({
           </div>
         )}
 
+        <button
+          type="button"
+          onClick={onOpenRoomRiskScanner}
+          disabled={isAnalyzing}
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="開啟 AR 房間風險掃描"
+        >
+          <i className="fas fa-camera"></i>
+          AR 房間風險掃描
+        </button>
+
         <div className="flex gap-2 mb-3 overflow-x-auto pb-1 no-scrollbar">
-          {["已拍照回傳", "出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
+          {["出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
             <button
               key={tag}
               onClick={() => setInput(tag)}
@@ -172,16 +186,9 @@ export function AppFooter({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="回報進度或回答問題..."
-              className="w-full bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-20 text-sm focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-600 shadow-inner"
+              className="w-full bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-600 shadow-inner"
               disabled={isAnalyzing}
             />
-            <button
-              type="button"
-              className="absolute right-12 top-1/2 -translate-y-1/2 text-slate-500 active:text-amber-500"
-              onClick={() => alert("開啟相機相簿...")}
-            >
-              <i className="fas fa-images"></i>
-            </button>
             <button
               type="button"
               aria-pressed={isRecording}

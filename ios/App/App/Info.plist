@@ -28,6 +28,17 @@
 	<string>Guardian 需要使用藍牙尋找附近可互助的使用者與傳遞緊急訊息。</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Guardian 需要使用藍牙尋找附近可互助的使用者與傳遞緊急訊息。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Guardian 需要使用相機掃描室內家具，標示地震時的危險波及區與相對安全區。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Guardian 需要連線到同一個區域網路中的災害分析後端。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Guardian 需要使用您的位置尋找附近避難所、排序避難導航路線，並提供災害期間的安全建議。</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

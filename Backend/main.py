@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Depends, HTTPException, Response
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from .database import SessionLocal, engine
-from . import models, schemas
+from . import schemas
 from .services.cwa_service import CWAService
+from .services.firebase_service import firebase_service
 from .services.offline_maps_service import offline_maps_service
+from .services.room_risk_service import room_risk_service
 from .services.shelter_service import shelter_service
 import os
 from pathlib import Path
@@ -25,12 +25,16 @@ for env_file in [Path(__file__).resolve().parent.parent / ".env.local", Path(__f
                 if key and key not in os.environ:
                     os.environ[key] = value
 
-models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "capacitor://localhost",
+        "ionic://localhost",
+    ],
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+):\d+",
     allow_credentials=True,
     allow_methods=["*"],
@@ -39,31 +43,48 @@ app.add_middleware(
 
 cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
-# 取得資料庫連線
-def get_db():
-    db = SessionLocal()
-    try: yield db
-    finally: db.close()
-
 @app.get("/api/weather/latest")
 async def get_weather():
     return await cwa.get_latest_alert()
 
 @app.post("/api/sync/status")
-async def sync_status(status: schemas.UserStatusCreate, db: Session = Depends(get_db)):
-    new_status = models.UserStatus(**status.dict())
-    db.add(new_status)
-    db.commit()
-    return {"status": "saved"}
+async def sync_status(status: schemas.UserStatusCreate):
+    doc_id = firebase_service.save_user_status(status)
+    return {"status": "saved", "id": doc_id}
 
 
 @app.post("/api/sync/bulk_status")
-def sync_bulk_status(data: schemas.UserStatusBulk, db: Session = Depends(get_db)):
-    for item in data.records:
-        db_status = models.UserStatus(**item.dict())
-        db.add(db_status)
-    db.commit()
+def sync_bulk_status(data: schemas.UserStatusBulk):
+    firebase_service.save_user_status_bulk(data.records)
     return {"message": f"Successfully synced {len(data.records)} records"}
+
+
+# ==================== 室內地震家具風險分析 API 端點 ====================
+
+@app.post("/api/room-risk/analyze", response_model=schemas.RoomRiskAnalysisResponse)
+async def analyze_room_risk(
+    image: UploadFile = File(...),
+    sensor_context: str = Form(""),
+):
+    """分析室內照片中的家具倒塌、玻璃、逃生動線與相對安全區。"""
+    content_type = image.content_type or ""
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="請上傳圖片檔。")
+
+    image_bytes = await image.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="圖片內容為空。")
+    if len(image_bytes) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="圖片太大，請使用 8MB 以下的照片。")
+
+    try:
+        return await room_risk_service.analyze_image(
+            image_bytes=image_bytes,
+            content_type=content_type,
+            sensor_context=sensor_context,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"房間風險分析失敗：{exc}") from exc
 
 
 # ==================== 離線避難導航 API 端點 ====================

@@ -85,6 +85,39 @@ class CleanupResponse(BaseModel):
     count: Optional[int] = None
     error: Optional[str] = None
 
+# --- 室內地震家具風險分析 ---
+class RoomRiskPoint(BaseModel):
+    x: float
+    y: float
+
+class RoomRiskBBox(BaseModel):
+    x: float
+    y: float
+    width: float
+    height: float
+
+class RoomRiskObject(BaseModel):
+    label: str
+    risk: str
+    reason: str
+    recommendation: str
+    bbox: RoomRiskBBox
+
+class RoomRiskZone(BaseModel):
+    id: str
+    type: str
+    impactType: str
+    label: str
+    reason: str
+    sourceObjectLabel: Optional[str] = None
+    polygon: List[RoomRiskPoint]
+
+class RoomRiskAnalysisResponse(BaseModel):
+    summary: str
+    overallRiskLevel: int
+    objects: List[RoomRiskObject]
+    zones: List[RoomRiskZone]
+
 # schemas.py
 class UserStatusBulk(BaseModel):
     records: List[UserStatusCreate]

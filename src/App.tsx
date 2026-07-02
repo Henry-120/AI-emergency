@@ -8,8 +8,14 @@ import { ChatMessageList } from "./components/app/ChatMessageList";
 import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
 import { BleMessengerPage } from "./components/ble/BleMessengerPage";
+import { RoomRiskScanner } from "./components/room-risk/RoomRiskScanner";
 import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
+import { analyzeRoomRisk } from "./services/roomRiskService";
+import {
+  canUseNativeRoomRiskAR,
+  startNativeRoomRiskAR,
+} from "./services/roomRiskARService";
 import {
   getDownloadedMaps,
   deleteOfflineMap,
@@ -24,6 +30,7 @@ import {
   saveUserStatusSnapshot,
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
+import { RoomRiskAnalysis } from "./types";
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -66,6 +73,12 @@ const App: React.FC = () => {
     useState<OfflineSafetyPack | null>(() => getOfflineSafetyPack());
   const [showShelterNavigator, setShowShelterNavigator] = useState(false);
   const [showBleMessenger, setShowBleMessenger] = useState(false);
+  const [showRoomRiskScanner, setShowRoomRiskScanner] = useState(false);
+  const [roomRiskImageUrl, setRoomRiskImageUrl] = useState<string>("");
+  const [roomRiskAnalysis, setRoomRiskAnalysis] =
+    useState<RoomRiskAnalysis | null>(null);
+  const [roomRiskError, setRoomRiskError] = useState<string>("");
+  const [isRoomRiskAnalyzing, setIsRoomRiskAnalyzing] = useState(false);
 
   const loadDownloadedMaps = async () => {
     const result = await getDownloadedMaps();
@@ -123,6 +136,161 @@ const App: React.FC = () => {
     } else {
       setCwaError("CWA 即時地震警報載入失敗。請稍後重新整理。");
     }
+  };
+
+  const getSensorContext = () =>
+    `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? `${userStatus.location.lat.toFixed(5)}, ${userStatus.location.lng.toFixed(5)}` : "無訊號"}`;
+
+  const buildRoomRiskChatSummary = (analysis: RoomRiskAnalysis) => {
+    const riskyObjects = analysis.objects
+      .filter((object) => object.risk !== "low")
+      .slice(0, 3)
+      .map((object) => object.label);
+    const safeZones = analysis.zones
+      .filter((zone) => zone.type === "safe")
+      .slice(0, 2)
+      .map((zone) => zone.label);
+
+    const parts = [];
+    if (riskyObjects.length) {
+      parts.push(`${riskyObjects.join("、")}需要優先處理`);
+    }
+    if (safeZones.length) {
+      parts.push(`${safeZones.join("、")}是相對安全區`);
+    }
+
+    return parts.length ? `${analysis.summary} ${parts.join("；")}。` : analysis.summary;
+  };
+
+  const handleCaptureRoomImage = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setRoomRiskError("請選擇或拍攝圖片檔。");
+      return;
+    }
+
+    if (roomRiskImageUrl) {
+      URL.revokeObjectURL(roomRiskImageUrl);
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+    setRoomRiskImageUrl(imageUrl);
+    setRoomRiskAnalysis(null);
+    setRoomRiskError("");
+    setIsRoomRiskAnalyzing(true);
+
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: "user",
+      content: "已拍攝現場照片，請分析地震時家具擺放風險。",
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    try {
+      const analysis = await analyzeRoomRisk(file, getSensorContext());
+      setRoomRiskAnalysis(analysis);
+
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: buildRoomRiskChatSummary(analysis),
+        roomRiskAnalysis: analysis,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+      speak(analysis.summary);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "房間影像分析失敗，請稍後再試。";
+      setRoomRiskError(message);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: `房間影像分析失敗：${message}`,
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsRoomRiskAnalyzing(false);
+    }
+  };
+
+  const appendRoomRiskAnalysis = (analysis: RoomRiskAnalysis) => {
+    const assistantMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: "assistant",
+      content: buildRoomRiskChatSummary(analysis),
+      roomRiskAnalysis: analysis,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+    speak(analysis.summary);
+  };
+
+  const handleOpenRoomRiskScanner = async () => {
+    if (!canUseNativeRoomRiskAR()) {
+      setShowRoomRiskScanner(true);
+      return;
+    }
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        role: "user",
+        content: "啟動 ARKit 掃描室內地板與家具波及範圍。",
+        timestamp: new Date(),
+      },
+    ]);
+
+    try {
+      const result = await startNativeRoomRiskAR();
+      if (result.analysis) {
+        appendRoomRiskAnalysis(result.analysis);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "ARKit 掃描無法啟動。";
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: `ARKit 掃描失敗：${message}`,
+          timestamp: new Date(),
+        },
+      ]);
+    }
+  };
+
+  const handleCloseRoomRiskScanner = () => {
+    setShowRoomRiskScanner(false);
+    setRoomRiskImageUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return "";
+    });
+    setRoomRiskAnalysis(null);
+    setRoomRiskError("");
+    setIsRoomRiskAnalyzing(false);
+  };
+
+  const handleRetakeRoomRiskImage = () => {
+    setRoomRiskImageUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return "";
+    });
+    setRoomRiskAnalysis(null);
+    setRoomRiskError("");
+    setIsRoomRiskAnalyzing(false);
   };
 
   useEffect(() => {
@@ -309,7 +477,7 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
 
     try {
-      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}`;
+      const sensorContext = getSensorContext();
 
       // 將整個對話歷史傳送給 AI
       const analysis = await analyzeDisaster(updatedMessages, sensorContext);
@@ -410,11 +578,23 @@ const App: React.FC = () => {
         onOfflineOption={handleOfflineOption}
         scrollRef={scrollRef}
       />
+      {showRoomRiskScanner && (
+        <RoomRiskScanner
+          analysis={roomRiskAnalysis}
+          error={roomRiskError}
+          imageUrl={roomRiskImageUrl}
+          isAnalyzing={isRoomRiskAnalyzing}
+          onCapture={handleCaptureRoomImage}
+          onClose={handleCloseRoomRiskScanner}
+          onRetake={handleRetakeRoomRiskImage}
+        />
+      )}
       <AppFooter
         downloadedMaps={downloadedMaps}
         input={input}
         isAnalyzing={isAnalyzing}
         offlineMapStatus={offlineMapStatus}
+        onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
         onDeleteMap={handleDeleteMap}
         onSubmit={handleSubmit}
         onViewMap={handleViewMap}

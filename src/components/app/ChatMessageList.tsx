@@ -12,6 +12,20 @@ const getPriorityBorder = (priority: string) => {
   }
 };
 
+const getRoomRiskBorder = (risk: string) => {
+  if (risk === "high") return "border-red-500/40 bg-red-500/5";
+  if (risk === "medium") return "border-amber-500/35 bg-amber-500/5";
+  return "border-emerald-500/30 bg-emerald-500/5";
+};
+
+const getZoneBadge = (type: string) => {
+  if (type === "danger") return "bg-red-500/15 text-red-200 border-red-500/20";
+  if (type === "caution") {
+    return "bg-amber-500/15 text-amber-100 border-amber-500/20";
+  }
+  return "bg-emerald-500/15 text-emerald-100 border-emerald-500/20";
+};
+
 export function ChatMessageList({
   isAnalyzing,
   isOffline,
@@ -113,6 +127,60 @@ export function ChatMessageList({
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {m.roomRiskAnalysis && (
+                  <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/70 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-amber-400">
+                        <i className="fas fa-couch text-xs"></i>
+                        <span className="text-[10px] font-bold uppercase tracking-wider">
+                          家具擺放風險
+                        </span>
+                      </div>
+                      <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] text-slate-300">
+                        {m.roomRiskAnalysis.overallRiskLevel}/5
+                      </span>
+                    </div>
+                    <p className="text-xs leading-relaxed text-slate-300">
+                      {m.roomRiskAnalysis.summary}
+                    </p>
+
+                    {m.roomRiskAnalysis.objects.length > 0 && (
+                      <div className="space-y-2">
+                        {m.roomRiskAnalysis.objects.slice(0, 4).map((object, i) => (
+                          <div
+                            key={`${object.label}-${i}`}
+                            className={`rounded-lg border px-3 py-2 ${getRoomRiskBorder(object.risk)}`}
+                          >
+                            <div className="mb-1 text-xs font-bold text-slate-100">
+                              {object.label}
+                            </div>
+                            <p className="text-[11px] leading-relaxed text-slate-400">
+                              {object.reason}
+                            </p>
+                            <p className="mt-1 text-[11px] leading-relaxed text-amber-100/80">
+                              {object.recommendation}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {m.roomRiskAnalysis.zones.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {m.roomRiskAnalysis.zones.slice(0, 5).map((zone) => (
+                          <span
+                            key={zone.id}
+                            className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${getZoneBadge(zone.type)}`}
+                            title={zone.reason}
+                          >
+                            {zone.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
