@@ -24,8 +24,35 @@ import {
   saveUserStatusSnapshot,
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
+import { AuthPage } from "./components/auth/AuthPage";
+import { MedicalCardPage } from "./components/medical/MedicalCardPage";
+import { subscribeAuth, logout } from "./services/authService";
+import {
+  getMedicalCard,
+  summarizeMedicalCard,
+} from "./services/medicalCardService";
+import { AuthUser } from "./types";
 
 const App: React.FC = () => {
+  // 登入狀態（由 Firebase Auth 監聽；authReady 用來避免載入時閃現登入頁）
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [showMedicalCard, setShowMedicalCard] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = subscribeAuth((user) => {
+      setAuthUser(user);
+      setAuthReady(true);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleLogout = async () => {
+    await logout();
+    setShowMedicalCard(false);
+    setAuthUser(null);
+  };
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -312,7 +339,9 @@ const App: React.FC = () => {
       const quakeInfo = earthquakeAlert
         ? `最近地震: 規模 ${earthquakeAlert.magnitude}, 震央 ${earthquakeAlert.location}, 時間 ${earthquakeAlert.time}`
         : "目前無即時地震資料";
-      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}, ${quakeInfo}`;
+      const medicalSummary = summarizeMedicalCard(getMedicalCard());
+      const medicalInfo = medicalSummary ? `, 醫療卡: ${medicalSummary}` : "";
+      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}, ${quakeInfo}${medicalInfo}`;
 
       // 將整個對話歷史傳送給 AI
       const analysis = await analyzeDisaster(updatedMessages, sensorContext);
@@ -363,6 +392,24 @@ const App: React.FC = () => {
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
 
+  // 等待 Firebase 回報登入狀態，避免畫面閃爍
+  if (!authReady) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#020617] text-slate-500 text-sm">
+        載入中...
+      </div>
+    );
+  }
+
+  // 未登入時，先顯示註冊 / 登入頁
+  if (!authUser) {
+    return <AuthPage onAuthed={setAuthUser} />;
+  }
+
+  if (showMedicalCard) {
+    return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
+  }
+
   if (selectedMap) {
     return (
       <OfflineMapPage
@@ -401,10 +448,13 @@ const App: React.FC = () => {
         locationError={locationError}
         offlineSafetyPackReady={Boolean(offlineSafetyPack)}
         userStatus={userStatus}
+        authUser={authUser}
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
         onShowBleMessenger={() => setShowBleMessenger(true)}
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
+        onShowMedicalCard={() => setShowMedicalCard(true)}
+        onLogout={handleLogout}
       />
       <ChatMessageList
         isAnalyzing={isAnalyzing}
