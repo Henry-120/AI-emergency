@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { analyzeDisaster } from "./services/geminiService";
-import { ChatMessage, DisasterAnalysis, UserStatus } from "./types";
+import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
 import { fetchLatestAlert, EarthquakeAlert } from "./services/cwaService";
 import { AppFooter } from "./components/app/AppFooter";
 import { AppHeader } from "./components/app/AppHeader";
@@ -31,8 +31,22 @@ import {
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
 import { RoomRiskAnalysis } from "./types";
+import { AuthPage } from "./components/auth/AuthPage";
+import { MedicalCardPage } from "./components/medical/MedicalCardPage";
+import { getCurrentUser, logout } from "./services/authService";
+import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 
 const App: React.FC = () => {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
+    getCurrentUser(),
+  );
+  const [showMedicalCard, setShowMedicalCard] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    setShowMedicalCard(false);
+    setAuthUser(null);
+  };
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -138,8 +152,11 @@ const App: React.FC = () => {
     }
   };
 
-  const getSensorContext = () =>
-    `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? `${userStatus.location.lat.toFixed(5)}, ${userStatus.location.lng.toFixed(5)}` : "無訊號"}`;
+  const getSensorContext = () => {
+    const medicalSummary = summarizeMedicalCard(getMedicalCard());
+    const medicalInfo = medicalSummary ? `, 醫療卡: ${medicalSummary}` : "";
+    return `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? `${userStatus.location.lat.toFixed(5)}, ${userStatus.location.lng.toFixed(5)}` : "無訊號"}${medicalInfo}`;
+  };
 
   const buildRoomRiskChatSummary = (analysis: RoomRiskAnalysis) => {
     const riskyObjects = analysis.objects
@@ -528,6 +545,14 @@ const App: React.FC = () => {
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
 
+  if (!authUser) {
+    return <AuthPage onAuthed={setAuthUser} />;
+  }
+
+  if (showMedicalCard) {
+    return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
+  }
+
   if (selectedMap) {
     return (
       <OfflineMapPage
@@ -566,10 +591,13 @@ const App: React.FC = () => {
         locationError={locationError}
         offlineSafetyPackReady={Boolean(offlineSafetyPack)}
         userStatus={userStatus}
+        authUser={authUser}
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
         onShowBleMessenger={() => setShowBleMessenger(true)}
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
+        onShowMedicalCard={() => setShowMedicalCard(true)}
+        onLogout={handleLogout}
       />
       <ChatMessageList
         isAnalyzing={isAnalyzing}
