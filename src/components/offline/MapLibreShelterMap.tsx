@@ -305,6 +305,18 @@ export function MapLibreShelterMap({
     (map.getSource("route") as GeoJSONSource | undefined)?.setData(
       getRouteGeoJson(location, nearest),
     );
+    (map.getSource("user-location") as GeoJSONSource | undefined)?.setData({
+      type: "FeatureCollection",
+      features: location
+        ? [
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [location.lng, location.lat] },
+              properties: {},
+            },
+          ]
+        : [],
+    });
   }, [location, nearest, shelters]);
 
   if (!checkedAsset || !canUsePmtiles) {
