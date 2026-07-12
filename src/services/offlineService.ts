@@ -1,14 +1,14 @@
 // src/services/offlineService.ts
-import { DisasterAnalysis } from "../types";
+import { DisasterAnalysis, ChatMessage} from "../types";
 
-export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
-  let advice = "目前離線。請選擇狀況：";
+function getLocalKnowledge(userInput: string): DisasterAnalysis {
+  let advice = "目前離線。請描述您的狀況（例如：地震、失火、受困）。";
   let options: string[] = [];
   let riskLevel = 8;
 
   // 1. 地震主選單
   if (userInput.includes("地震")) {
-    advice = "地震發生：請執行『趴下、掩護、穩住』。請回報您的現況：";
+    advice = "地震發生：1. 請執行『趴下、掩護、穩住』。2. 請回報您的現況：";
     options = ["受困", "出口受阻", "受傷", "我人安全", "有瓦斯味"];
   } 
   // 2. 我人安全分支
@@ -29,26 +29,26 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
   // 3. 受困分支 (包含 建築/水/火)
   else if (userInput === "受困" || userInput.includes("困住")) {
     advice = "您已受困。請選擇受困環境，以便提供脫困指引：";
-    options = ["受困：建築倒塌", "受困：水災", "受困：火災"];
+    options = ["受困：建築倒塌", "受困：水災", "受困：火就在我旁邊"];
     riskLevel = 9;
   }
   else if (userInput === "受困：建築倒塌") {
     advice = "【受困：建築倒塌】保護頭部與口鼻。規律敲擊管線發訊，不要大聲喊叫。節省體力，等待搜救。";
-    options = ["有呼吸困難", "有嚴重受傷", "回首頁"];
+    options = ["有呼吸困難", "有嚴重受傷", "目前無傷但不知如何應變", "回首頁"];
   }
   else if (userInput === "受困：水災") {
-    advice = "【受困：水災】設法爬往高處（如家具上方）。遠離插座以防觸電。若水持續上漲，尋找大型漂浮物。";
-    options = ["水面持續上升", "回首頁"];
+    advice = "【受困：水災】設法爬往高處（如家具上方或二樓以上）。遠離插座以防觸電。準備手電筒或鮮豔衣物求救。若水持續上漲，尋找大型漂浮物。";
+    options = ["水面持續上升", "水面漸緩或停滯", "回首頁"];
   }
-  else if (userInput === "受困：火災") {
-    advice = "【受困：火災】用衣物堵住門縫防止煙霧進入。若有窗戶請揮舞亮色衣物求救。保持低姿勢呼吸剩餘空氣。";
-    options = ["煙霧進入室內", "回首頁"];
+  else if (userInput === "受困：火就在我旁邊") {
+    advice = "【受困：火災】火源若在同一空間，請立刻趴下！貼緊地面 30 公分內尋找殘存氧氣。用衣物掩住口鼻，迅速爬向離火源最遠的窗戶或陽台。絕對不可以躲在床底、浴室或衣櫃裡！";
+    options = ["發現窗戶或陽台", "身上衣物著火", "被火包圍無法移動", "退到其他無火房間"];
   }
 
   // 4. 出口受阻分支 (包含 建築/水/火)
   else if (userInput.includes("出口受阻")) {
     advice = "目前人身安全但無法離開。請告知阻礙類型，協助您尋找替代方案：";
-    options = ["出口：建築倒塌", "出口：水災", "出口：火災"];
+    options = ["出口：建築倒塌", "出口：水災", "出口：門外有火災"];
     riskLevel = 7;
   }
   else if (userInput === "出口：建築倒塌") {
@@ -56,12 +56,12 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     options = ["發現其他出口", "沒有其他出口", "回首頁"];
   }
   else if (userInput === "出口：水災") {
-    advice = "【出口受阻：水災】切勿強行涉水離開（尤其超過膝蓋高度）。移動至高樓層待援，準備手電筒。";
-    options = ["已往高層移動", "回首頁"];
+    advice = "【出口受阻：水災】切勿強行涉水離開（尤其超過膝蓋高度）。移動至高樓層待援，準備手電筒。若有大量水灌入，請選擇方案。";
+    options = ["已往高層移動", "水面持續上升", "水面漸緩或停滯","回首頁"];
   }
-  else if (userInput === "出口：火災") {
+  else if (userInput === "出口：門外有火災") {
     advice = "【出口受阻：火災】不要開門！確認門把溫度。尋找另一個無煙的防火區劃（關門避難）。";
-    options = ["門把發燙", "回首頁"];
+    options = ["門把發燙", "煙霧進入室內", "回首頁"];
   }
 
   // 5. 受傷與回首頁處理
@@ -176,7 +176,7 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     options = ["回首頁"];
   }
 
-  // 7. 深度延伸指令 (針對特定危險狀況)
+  // 7. 深度延伸指令 (第一層)
 
   // 高樓層延伸
   else if (userInput === "準備撤離，樓梯暢通") {
@@ -191,8 +191,8 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
 
   // 受困：建築倒塌延伸
   else if (userInput === "有呼吸困難") {
-    advice = "【呼吸防護】盡量減少移動與喊叫。用衣物遮住口鼻過濾粉塵。若附近有水，打濕衣物效果更好。保持節奏性呼吸，穩定情緒以降低耗氧量。";
-    options = ["已採取防護", "回首頁"];
+    advice = "【呼吸防護】1. 停止所有移動與喊叫，立刻趴下或靠牆坐好。2. 用衣物遮住口鼻，若附近有水，打濕衣物效果更好。3. 閉上眼睛，用肚子緩慢深呼吸，切勿驚慌。";
+    options = ["這種狀態要過多久？", "身邊沒有水怎麼辦？", "身上沒有多餘衣物怎麼辦？", "回首頁"];
     riskLevel = 10;
   }
   else if (userInput === "有嚴重受傷") {
@@ -200,18 +200,43 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     options = ["已嘗試止血", "回首頁"];
     riskLevel = 10;
   }
+  else if (userInput === "目前無傷但不知如何應變") {
+    advice = "【受困指南】1. 穩定情緒：確認目前人身安全，深呼吸。 2. 評估空間：觀察上方結構是否穩定，切勿強行推擠重物，避免引發二次塌陷。 3. 保存體力：靜臥或靠牆坐好，收攏四肢維持體溫。 4. 定時發訊：每隔幾分鐘規律敲擊（如敲三聲），聽到外面有搜救聲時再吹哨或呼救。";
+    options = ["已採就地待援姿勢", "回首頁"];
+    riskLevel = 8;
+  }
 
   // 受困：水災延伸
   else if (userInput === "水面持續上升") {
-    advice = "【水災危險】拋棄沉重衣物。將自己繫在大型漂浮物（如床墊、大型塑膠箱）上。若在室內且水面逼近天花板，尋找是否有通往屋頂的出口。";
-    options = ["已轉移至更高處", "回首頁"];
+    advice = "【水災危險】拋棄沉重衣物。將自己繫在大型漂浮物（如床墊、大型塑膠箱）上。若在室內且水面逼近天花板，尋找是否有通往屋頂的出口或對外窗。";
+    options = ["怎麼把漂浮物繫在身上？", "身邊無大型漂浮物", "屋頂沒有出口", "已往高層移動", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "水面漸緩或停滯") {
+    advice = "【原地待援】水勢雖緩，但嚴禁涉水離開！積水極可能漏電，且水底常有銳器或掀開的人孔蓋。請堅守目前的高處，保存體力，並利用手電筒（夜間）或懸掛鮮豔衣物（白天）向外發出求救信號。";
+    options = ["已建立求救信號", "回首頁"];
     riskLevel = 10;
   }
 
   // 受困：火災延伸
-  else if (userInput === "煙霧進入室內") {
-    advice = "【防煙應變】立即採取低姿勢（地表 30 公分內仍有剩餘氧氣）。用濕毛巾徹底塞住門縫。若有對外窗且無煙，稍微打開窗戶縫隙並揮舞明顯色彩衣物。";
-    options = ["已採低姿勢", "回首頁"];
+  else if (userInput === "發現窗戶或陽台") {
+    advice = "【對外求生】迅速爬至窗邊或陽台。若是高樓層，請靠在窗邊呼吸新鮮空氣，大聲呼救並揮舞明顯衣物，讓消防員能第一時間看到您，切勿盲目跳樓！若是低樓層且窗外安全，才可考慮攀爬逃生。";
+    options = ["火場濃煙呼吸困難", "正在等待救援", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "身上衣物著火") {
+    advice = "【停、趴、滾】不要慌張奔跑，風會讓火變大！1. 停：立刻停在原地。2. 趴：馬上雙手掩住臉部趴在地上。3. 滾：左右來回翻滾，直到火勢撲滅。嚴禁用手拍打火勢。4. 若解決且無大礙，請確認目前處境。";
+    options = ["衣物黏在皮膚上", "傷口出現水泡", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "被火包圍無法移動") {
+    advice = "【最後防護】若無路可退，請趴在離火最遠的角落。用厚重衣物或棉被（若能弄濕更好）將自己全身覆蓋。務必將臉部朝下貼緊地面，專注於淺層呼吸，等待消防隊射水救援。";
+    options = ["火場濃煙呼吸困難", "焦慮過度", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "退到其他無火房間") {
+    advice = "【防線建立】立刻關上這扇門，把火擋在外面！尋找毛巾或衣物塞住門縫，並移往有對外窗的位置求救。";
+    options = ["門把發燙", "煙霧進入室內", "回首頁"];
     riskLevel = 10;
   }
 
@@ -231,7 +256,6 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     advice = "【保存體力】做得好。現在請保持冷靜，深呼吸穩定情緒。每隔一段時間再次敲擊信號。若手機還有電力，將其設為省電模式，並每小時檢查一次訊息。";
     options = ["回首頁"];
   }
-
   // 出口受阻：水災延伸
   else if (userInput === "已往高層移動") {
     advice = "【高處待援】確認手機訊號與電量。若夜間請規律閃爍手電筒發出 SOS 訊號。切勿因水面暫時退去就嘗試下樓，等待官方確認安全。";
@@ -244,6 +268,11 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     options = ["已進入避難房間", "回首頁"];
     riskLevel = 10;
   }
+  else if (userInput === "煙霧進入室內") {
+    advice = "【防煙應變】立即採取低姿勢（地表 30 公分內仍有剩餘新鮮空氣）。尋找毛巾或衣物（若有水弄濕更好）徹底塞住所有門縫。若有對外窗，稍微打開窗戶縫隙呼吸，並向外揮舞明顯色彩衣物。絕對不要躲在浴室！";
+    options = ["已採低姿勢", "火場濃煙呼吸困難", "回首頁"];
+    riskLevel = 10;
+  }
 
   // 安全確認
   else if (userInput === "已撤離至室外") {
@@ -252,13 +281,224 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     riskLevel = 2; // 安全撤離，大幅降低風險
   }
 
+  // 8. 深度延伸指令 (第二層)
+  else if (userInput === "怎麼把漂浮物繫在身上？") {
+    advice = "【固定漂浮物】利用皮帶、背包帶或撕開的長條衣物。將繩索穿過漂浮物穩固處，綁在自己的『腋下與胸部』之間。絕對不要綁在腰部（會導致頭下腳上）或脖子（會勒窒息），確保頭部能時刻浮出水面。";
+    options = ["已完成固定", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "身邊無大型漂浮物") {
+    advice = "【替代漂浮物】尋找空寶特瓶（務必旋緊瓶蓋）、密封的塑膠袋、保鮮盒或防潑水背包。將這些充滿空氣的物品塞進外套內部或衣服內，拉上拉鍊或將下擺紮進褲子裡，這能為身體提供重要的臨時浮力。";
+    options = ["已製作臨時浮力衣", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "屋頂沒有出口") {
+    advice = "【防溺應變】絕對不要逃進沒有逃生口的密閉閣樓！ 若水面逼近天花板，立刻尋找對外窗戶，用重物（如椅子、滅火器）擊碎窗戶四角逃生。若無法破窗，請盡可能抬高下巴，讓口鼻貼近天花板剩下的最後空氣層，規律敲擊天花板或牆壁求救。";
+    options = ["已破窗或找到空氣層", "水災導致呼吸困難", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "水災導致呼吸困難") {
+    advice = "【極限求生】1. 盡量仰起頭部，讓口鼻完全貼緊天花板或最高處剩餘的空氣層。 2. 絕對不要驚慌大口喘氣，改用『緩慢且淺』的呼吸節省氧氣，避免吸入水分。 3. 雙手輕輕撥水維持平衡，保留體力。 4. 用硬物規律敲擊天花板發出求救訊號。";
+    options = ["正在執行求生操作", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "火場濃煙呼吸困難") {
+    advice = "【火場防煙極限】1. 絕對不能站立或坐直！立刻將身體完全趴平，口鼻貼緊地面（30 公分內有剩餘氧氣）。 2. 將衣物多層摺疊（若有水弄濕更好）緊緊摀住口鼻，過濾致命碳微粒。 3. 採取「淺而短」的呼吸，千萬不要大口吸氣。 4. 沿著牆壁邊緣爬向有對外窗的位置爭取新鮮空氣。";
+    options = ["正在執行求生操作", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "這種狀態要過多久？") {
+    advice = "【保持狀態】1. 首先保持 72 小時，搜救隊已經在路上。 2. 人體在無水無食物、僅有微弱空氣下，靠著意志力與靜止不動，曾有撐過 5 至 7 天的生存案例。 3. 現在唯一的任務是『節省耗氧量』，每多活一秒，獲救機率就越高。";
+    options = ["如何進一步降低耗氧？", "回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "身邊沒有水怎麼辦？") {
+    advice = "【無水防護】1. 嚴禁為了找水而挖掘或移動，那會吸入更多粉塵。 2. 緊閉嘴巴，完全改用鼻子呼吸，減少口腔水分蒸發。 3. 若口腔極度乾燥，嘗試吞嚥口水，或將舌頭抵住上顎刺激唾液分泌。 4. 嚴禁飲用自己的尿液（會加速身體脫水與腎衰竭）。";
+    options = ["回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "身上沒有多餘衣物怎麼辦？") {
+    advice = "【替代防護】1. 直接拉起目前穿著的衣領、袖口，甚至內衣覆蓋口鼻。 2. 若雙手被困無法拉衣物，將臉部直接埋入自己的胸口、腋下或大腿內側的衣物空隙中，利用現有布料形成過濾屏障。 3. 絕對不要裸露口鼻直接呼吸充滿粉塵的空氣。";
+    options = ["回首頁"];
+    riskLevel = 10;
+  }
+  else if (userInput === "回首頁") {
+    advice = "已回到初始選單。請描述狀況或選擇下方的選項：";
+    options = ["地震"];
+  }
+
   return {
-    type: "地震" as any,
+    type: "其他" as any,
     riskLevel,
-    situationSummary: `[離線應變] ${userInput}`,
-    immediateActions: [{ title: "避難指南", description: advice, priority: riskLevel > 8 ? "CRITICAL" : "HIGH" }],
+    situationSummary: `[離線模式自動回覆] ${userInput}`,
+    immediateActions: [
+      { 
+        title: "避難指引動作", 
+        description: advice, 
+        priority: riskLevel > 8 ? "CRITICAL" : "HIGH"
+      }
+    ],
     survivalProbability: riskLevel > 8 ? 50 : 90,
     longTermAdvice: "請保持手機電力，離線模式將優先引導生存動作。",
     missingInfoRequests: options
   };
+}
+
+// 2. 混合架構：導出給 UI 使用的全新非同步大模型函式
+export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<DisasterAnalysis> {
+  const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
+  
+  const localKnowledge = getLocalKnowledge(lastUserMessage);
+  const expertAdvice = localKnowledge.immediateActions[0]?.description || "";
+  let expertOptions = localKnowledge.missingInfoRequests || [];
+  let expertRiskLevel = localKnowledge.riskLevel;
+
+  // 🔥 核心新增：判斷是不是「沒有命中任何 if/else 規則」，掉到了預設值？
+  // 注意：這裡的比對文字必須跟 getLocalKnowledge 最上面的預設 advice 一模一樣
+  const isFallbackRule = expertAdvice.includes("目前離線。請描述您的狀況");
+
+  let systemPrompt = "";
+
+  if (isFallbackRule) {
+    // 💡 路線 A：自由輸入文字 (LLM 自己想辦法)
+    // 我們讓 LLM 根據使用者的文字，自己產生防災知識
+    systemPrompt = `你是一個專業的災害應變專家。使用者目前遇到以下緊急狀況：
+【使用者狀況】：${lastUserMessage}
+
+請根據此狀況，給出 2 到 3 個最緊急的自救步驟。
+絕對不要輸出任何解釋文字、問候語或 Markdown 標記，只能輸出純 JSON 格式。
+
+請完全依照以下格式輸出（必須包含大括號）：
+{
+  "type": "推斷災害類型(如火災、地震)",
+  "riskLevel": 9,
+  "situationSummary": "用一句話總結現況",
+  "immediateActions": [
+    { "title": "步驟一標題", "description": "具體行動1", "priority": "CRITICAL" },
+    { "title": "步驟二標題", "description": "具體行動2", "priority": "HIGH" }
+  ],
+  "survivalProbability": 50,
+  "longTermAdvice": "簡短後續建議"
+}`;
+    
+    // 自由輸入的情況下，因為沒有按鈕選項，我們給它一個預設的返回按鈕
+    expertOptions = ["受困", "出口受阻", "受傷", "我人安全", "有瓦斯味"]; 
+
+  } else {
+    // 💡 路線 B：命中按鈕的專家規則 (LLM 只做排版)
+    systemPrompt = `你是一個 JSON 轉換器。請將下方的【專家建議】拆解為 2 到 3 個具體步驟。
+絕對不要輸出任何解釋文字、問候語或 Markdown 標記，只能輸出純 JSON 格式。
+
+【專家建議】：${expertAdvice}
+
+請完全依照以下格式輸出（必須包含大括號）：
+{
+  "type": "災害", 
+  "riskLevel": ${expertRiskLevel},
+  "situationSummary": "用一句話總結現況",
+  "immediateActions": [
+    { "title": "步驟一標題", "description": "第一個動作", "priority": "CRITICAL" },
+    { "title": "步驟二標題", "description": "第二個動作", "priority": "HIGH" }
+  ],
+  "survivalProbability": 80,
+  "longTermAdvice": "請保持冷靜等待救援"
+}`;
+  }
+
+  try {
+    const response = await fetch("http://127.0.0.1:1234/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "local-model",
+        messages: [{ role: "user", content: systemPrompt }], // 依然只傳遞單次指令
+        temperature: isFallbackRule ? 0.3 : 0.0, // 自由輸入時給一點點創造力 (0.3)，排版時維持 0.0
+      }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP 錯誤! 狀態碼: ${response.status}`);
+    }
+
+    const data = await response.json();
+    let aiText = data.choices[0].message.content;
+
+    // 清理字串與解析
+    aiText = aiText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+    const jsonStartIndex = aiText.indexOf('{');
+    const jsonEndIndex = aiText.lastIndexOf('}');
+    
+    if (jsonStartIndex === -1 || jsonEndIndex === -1) {
+        throw new Error("模型回覆中完全找不到大括號: " + aiText);
+    }
+
+    const cleanJsonString = aiText.substring(jsonStartIndex, jsonEndIndex + 1);
+    const parsedData = JSON.parse(cleanJsonString);
+
+    // 強制套用選項，防止 LLM 亂生物件導致 UI 壞掉
+    parsedData.missingInfoRequests = expertOptions; 
+    
+    // 如果是路線 B，強制使用專家的風險等級
+    if (!isFallbackRule) {
+      parsedData.riskLevel = expertRiskLevel;
+      parsedData.survivalProbability = expertRiskLevel > 8 ? 50 : 90;
+    } else {
+      // 確保自由輸入時，LLM 沒回傳數字的話有預設值
+      parsedData.riskLevel = parsedData.riskLevel || 8;
+      parsedData.survivalProbability = parsedData.survivalProbability || 50;
+    }
+    
+    parsedData.type = parsedData.type || "其他";
+
+    if (!parsedData.immediateActions || !Array.isArray(parsedData.immediateActions) || parsedData.immediateActions.length === 0) {
+      throw new Error("JSON 中缺少 immediateActions 陣列");
+    }
+
+    return parsedData as DisasterAnalysis;
+
+  } catch (error) {
+    console.error("⚠️ LLM 解析失敗，啟動強化版靜態降級方案", error);
+    
+    let fallbackActions: any[] = []; 
+    
+    // 降級邏輯不變
+    if (expertAdvice.includes("1.")) {
+      const splitByNumbers = expertAdvice.split(/\d\.\s*/).filter(text => text.trim().length > 0);
+      const titleMatch = expertAdvice.match(/【(.*?)】/);
+      const mainTitle = titleMatch ? titleMatch[1] : "避難動作";
+      
+      fallbackActions = splitByNumbers.map((stepDesc, index) => {
+        const cleanDesc = stepDesc.replace(/【.*?】/, '').trim();
+        return {
+          title: index === 0 && splitByNumbers.length > 1 ? "狀況確認" : `${mainTitle}步驟`,
+          description: cleanDesc || stepDesc,
+          priority: (index === 0 ? "CRITICAL" : "HIGH") as "CRITICAL" | "HIGH" 
+        };
+      }).filter(action => action.description.length > 0);
+
+    } else {
+      const splitByPeriods = expertAdvice.split('。').filter(text => text.trim().length > 0);
+      fallbackActions = splitByPeriods.map((stepDesc, index) => ({
+        title: index === 0 ? "首要應變" : "後續動作",
+        description: stepDesc + "。",
+        priority: (index === 0 ? "CRITICAL" : "HIGH") as "CRITICAL" | "HIGH" 
+      }));
+    }
+
+    return {
+      type: "緊急應變" as any,
+      riskLevel: expertRiskLevel,
+      situationSummary: `[離線安全模式] ${lastUserMessage}`,
+      immediateActions: fallbackActions.length > 0 ? fallbackActions : [
+        {
+          title: "避難指引",
+          description: expertAdvice,
+          priority: "CRITICAL" as "CRITICAL" 
+        }
+      ],
+      survivalProbability: expertRiskLevel > 8 ? 50 : 90,
+      longTermAdvice: "目前處於離線狀態，請依照上述步驟確保自身安全。",
+      missingInfoRequests: expertOptions
+    };
+  }
 }

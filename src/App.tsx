@@ -281,7 +281,7 @@ const App: React.FC = () => {
       role: "user",
       content: input || "【傳送了現場照片】",
       timestamp: new Date(),
-      imageBase64: imageToSend, //  關鍵行
+      imageBase64: imageToSend, // 關鍵行
     };
 
     const updatedMessages = [...messages, userMsg];
@@ -289,25 +289,43 @@ const App: React.FC = () => {
     const currentInput = input;
     setInput("");
 
-    // --- 離線邏輯 ---
-    if (isOffline) {
-      const offlineAnalysis = getOfflineAnalysis(currentInput);
-      const assistantMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組（無法處理影像分析）：",
-        analysis: offlineAnalysis,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-      setCurrentAnalysis(offlineAnalysis);
-      speak(offlineAnalysis.immediateActions[0].description);
-      return;
+    setIsAnalyzing(true); // 提早設定 loading 狀態，避免使用者重複點擊
+
+    // 1. 即時判斷：直接問瀏覽器現在有沒有網路
+    const isCurrentlyOffline = true;
+    //const isCurrentlyOffline = !navigator.onLine;
+
+    // --- 狀況 A：明確處於斷網狀態 ---
+    if (isCurrentlyOffline) {
+      console.log("偵測到無網路，直接啟動本地離線大模型...");
+      try {
+        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+
+        const assistantMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組（無法處理影像分析）：",
+          analysis: offlineAnalysis,
+          timestamp: new Date(),
+        };
+        
+        setMessages((prev) => [...prev, assistantMsg]);
+        setCurrentAnalysis(offlineAnalysis);
+        
+        if (offlineAnalysis.immediateActions && offlineAnalysis.immediateActions.length > 0) {
+          speak(offlineAnalysis.immediateActions[0].description);
+        }
+      } catch (err) {
+        console.error("本地離線模型執行失敗", err);
+      } finally {
+        setIsAnalyzing(false);
+      }
+      return; // 執行完就結束，不會往下走到 Gemini
     }
     
-    setIsAnalyzing(true);
-
+    // --- 狀況 B：有網路，嘗試呼叫雲端 Gemini ---
     try {
+      console.log("嘗試使用雲端 Gemini 引擎...");
       const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}`;
 
       // 呼叫分析服務，連同對話歷史、感測器資訊、以及影像 Base64 一併傳入
@@ -321,6 +339,7 @@ const App: React.FC = () => {
           : `分析更新：根據最新資訊，請優先執行以下行動：`,
         analysis,
         timestamp: new Date(),
+        isCloudResponse: true, //  新增這行：明確標記這是來自雲端 Gemini 的訊息
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -335,16 +354,38 @@ const App: React.FC = () => {
       } else if (analysis.missingInfoRequests?.length) {
         speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
       }
+
     } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
+      // 🌟 2. 終極保險 (Fallback)：系統以為有網路，但其實網路很差/DNS壞掉連不上 Gemini
+      console.warn("雲端 Gemini 連線失敗，自動降級切換至本地離線大模型！", error);
+      
+      try {
+        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+        const fallbackMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "分析引擎繁忙中，請嘗試簡短描述您觀察到的新狀況。",
+          content: "⚠️ 雲端伺服器無回應，自動降級至內建緊急應變模組：",
+          analysis: offlineAnalysis,
           timestamp: new Date(),
-        },
-      ]);
+        };
+        setMessages((prev) => [...prev, fallbackMsg]);
+        setCurrentAnalysis(offlineAnalysis);
+        
+        if (offlineAnalysis.immediateActions && offlineAnalysis.immediateActions.length > 0) {
+          speak(offlineAnalysis.immediateActions[0].description);
+        }
+      } catch (fallbackError) {
+        // 如果連本地大模型都崩潰了（極端狀況），才顯示最後的錯誤訊息
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: "系統發生錯誤且離線模組無法啟動，請保持冷靜，並嘗試撥打 119 或 112 求救。",
+            timestamp: new Date(),
+          },
+        ]);
+      }
     } finally {
       setIsAnalyzing(false);
     }

@@ -71,17 +71,20 @@ export function ChatMessageList({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
-                        {m.analysis.missingInfoRequests.map((option, i) => (
-                          <button
-                            key={`btn-${i}`}
-                            onClick={() => onOfflineOption(option)}
-                            className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
+                      {/* ✨ 新增判斷：只有「非雲端回覆（離線狀態）」時，才顯示快捷選項按鈕 */}
+                      {!m.isCloudResponse && (
+                        <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
+                          {m.analysis.missingInfoRequests.map((option, i) => (
+                            <button
+                              key={`btn-${i}`}
+                              onClick={() => onOfflineOption(option)}
+                              className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
+                            >
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
                       {!isOffline && (
                         <button
