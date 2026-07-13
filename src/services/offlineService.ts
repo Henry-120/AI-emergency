@@ -1,5 +1,6 @@
 // src/services/offlineService.ts
 import { DisasterAnalysis, ChatMessage} from "../types";
+import { initLlama } from 'llama-cpp-capacitor';
 
 function getLocalKnowledge(userInput: string): DisasterAnalysis {
   let advice = "目前離線。請描述您的狀況（例如：地震、失火、受困）。";
@@ -406,22 +407,27 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
   }
 
   try {
-    const response = await fetch("http://127.0.0.1:1234/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "local-model",
-        messages: [{ role: "user", content: systemPrompt }], // 依然只傳遞單次指令
-        temperature: isFallbackRule ? 0.3 : 0.0, // 自由輸入時給一點點創造力 (0.3)，排版時維持 0.0
-      }),
+    const formattedMessages = [
+      { role: "system", content: systemPrompt },
+      ...messages.map(msg => ({
+        role: msg.role === "user" ? "user" : "assistant",
+        content: msg.content
+      }))
+    ];
+
+    // 1. 載入模型並獲取 LlamaContext 實例
+    const llamaContext = await initLlama({ 
+      model: "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf" 
     });
 
-    if (!response.ok) {
-        throw new Error(`HTTP 錯誤! 狀態碼: ${response.status}`);
-    }
+    // 2. 執行對話，調用實例上的 completion 方法
+    const result = await llamaContext.completion({
+      messages: formattedMessages as any,
+      temperature: isFallbackRule ? 0.3 : 0.0
+    });
 
-    const data = await response.json();
-    let aiText = data.choices[0].message.content;
+    // 取得模型回傳的文字
+    let aiText = result.text || (result as any).content || "";
 
     // 清理字串與解析
     aiText = aiText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
