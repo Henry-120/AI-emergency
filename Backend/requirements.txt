@@ -1,0 +1,6 @@
+fastapi
+firebase-admin
+httpx
+python-multipart
+sqlalchemy
+uvicorn
