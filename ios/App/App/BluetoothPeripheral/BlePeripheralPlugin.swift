@@ -7,14 +7,31 @@
 //    - 把 BlePeripheralManager 收到的訊息以 Capacitor event 推給 JS
 //
 //  不在本檔案處理藍牙協定細節（那在 BlePeripheralManager.swift）。
-//  插件對 JS 的註冊在同資料夾的 BlePeripheralPlugin.m。
+//
+//  註冊方式：採 Capacitor 6+ 的 CAPBridgedPlugin 協定，純 Swift 完成註冊，
+//  與本專案既有的 RoomRiskARPlugin 一致。舊式的 CAP_PLUGIN 巨集（.m 檔）需要
+//  Objective-C bridging header，而本專案並未設定，故不使用。
+//
+//  addListener / removeAllListeners 由 CAPPlugin 基底類別提供，
+//  不需列進 pluginMethods。
 //
 
 import Foundation
 import Capacitor
 
 @objc(BlePeripheralPlugin)
-public class BlePeripheralPlugin: CAPPlugin {
+public class BlePeripheralPlugin: CAPPlugin, CAPBridgedPlugin {
+
+    public let identifier = "BlePeripheralPlugin"
+
+    /// JS 端 registerPlugin<...>("BlePeripheral") 用的名稱，必須與此一致
+    public let jsName = "BlePeripheral"
+
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "startAdvertising", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopAdvertising", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "isAdvertising", returnType: CAPPluginReturnPromise)
+    ]
 
     /// 對應 JS 端 addListener('messageReceived', ...) 的事件名
     private let MESSAGE_EVENT_NAME = "messageReceived"
