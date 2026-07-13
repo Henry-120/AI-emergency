@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from typing import Literal
 
 # --- 註冊 / 登入 ---
 class RegisterRequest(BaseModel):
@@ -84,6 +85,31 @@ class ChatRecordResponse(ChatRecordBase):
 
     class Config:
         from_attributes = True
+
+# --- AI 傷勢 / 救援需求彙整 ---
+class EmergencySummary(BaseModel):
+    hasInjuries: bool = False
+    injurySummary: str = ""
+    injurySeverity: Literal["unknown", "minor", "moderate", "severe", "critical"] = "unknown"
+    rescueNeeds: List[str] = Field(default_factory=list)
+    isTrapped: bool = False
+    mobilityStatus: Literal["unknown", "mobile", "limited", "immobile"] = "unknown"
+    locationDetails: str = ""
+    urgencyLevel: int = 1
+    confidence: float = 0
+
+class EmergencyChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    timestamp: Optional[datetime] = None
+
+class EmergencyReportUpsert(BaseModel):
+    summary: EmergencySummary
+    messages: List[EmergencyChatMessage] = Field(default_factory=list)
+
+class EmergencyReportResponse(EmergencySummary):
+    userId: int
+    updatedAt: datetime
 
 # --- 氣象局資料回傳格式 ---
 class WeatherAlert(BaseModel):
@@ -170,4 +196,3 @@ class RoomRiskAnalysisResponse(BaseModel):
     overallRiskLevel: int
     objects: List[RoomRiskObject]
     zones: List[RoomRiskZone]
-

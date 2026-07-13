@@ -103,8 +103,8 @@ export function BleMessengerPage({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-100 flex flex-col">
-      <header className="px-5 py-4 border-b border-white/10 flex items-center gap-3">
+    <div className="h-[100dvh] min-h-0 overflow-hidden bg-[#020617] text-slate-100 flex flex-col">
+      <header className="safe-area-top shrink-0 px-3 py-2 sm:px-5 sm:py-4 border-b border-white/10 flex items-center gap-3">
         <button
           onClick={onBack}
           className="w-10 h-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
@@ -119,33 +119,33 @@ export function BleMessengerPage({ onBack }: { onBack: () => void }) {
         </div>
       </header>
 
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] min-h-0">
-        <aside className="border-r border-white/10 p-4 space-y-4">
+      <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain grid grid-cols-1 lg:overflow-hidden lg:grid-cols-[360px_1fr]">
+        <aside className="border-b lg:border-b-0 lg:border-r border-white/10 p-3 sm:p-4 space-y-3 sm:space-y-4">
           <div className="rounded-lg border border-white/10 bg-slate-950/70 p-4">
             <p className="text-xs text-slate-400 mb-3">{status}</p>
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={handleInitialize}
-                className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold"
+                className="min-h-11 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold"
               >
                 初始化
               </button>
               <button
                 onClick={isScanning ? handleStopScan : handleScan}
-                className="px-3 py-2 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-100 text-xs font-bold hover:bg-amber-500/25"
+                className="min-h-11 px-3 py-2 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-100 text-xs font-bold hover:bg-amber-500/25"
               >
                 {isScanning ? "停止掃描" : "掃描"}
               </button>
               <button
                 onClick={handleAdvertise}
-                className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-100 text-xs font-bold hover:bg-cyan-500/20"
+                className="min-h-11 px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-100 text-xs font-bold hover:bg-cyan-500/20"
               >
                 廣播
               </button>
               <button
                 onClick={handleDisconnect}
                 disabled={!connectedId}
-                className="px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-100 text-xs font-bold hover:bg-rose-500/20 disabled:opacity-40"
+                className="min-h-11 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-100 text-xs font-bold hover:bg-rose-500/20 disabled:opacity-40"
               >
                 中斷
               </button>
@@ -184,8 +184,8 @@ export function BleMessengerPage({ onBack }: { onBack: () => void }) {
           </section>
         </aside>
 
-        <section className="min-h-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto p-5 space-y-3">
+        <section className="min-h-[48dvh] lg:min-h-0 flex flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5 space-y-3">
             {messages.length === 0 ? (
               <div className="h-full flex items-center justify-center text-slate-500 text-sm">
                 連線到相容的 Guardian BLE 裝置後即可傳送訊息
@@ -194,7 +194,7 @@ export function BleMessengerPage({ onBack }: { onBack: () => void }) {
               messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`max-w-[78%] rounded-lg px-4 py-3 ${
+                  className={`max-w-[88%] sm:max-w-[78%] break-words rounded-lg px-4 py-3 ${
                     message.isMine
                       ? "ml-auto bg-amber-500 text-black"
                       : "bg-slate-900 border border-white/10"
@@ -215,13 +215,13 @@ export function BleMessengerPage({ onBack }: { onBack: () => void }) {
 
           <form
             onSubmit={handleSend}
-            className="border-t border-white/10 p-4 flex items-center gap-3"
+            className="safe-area-bottom shrink-0 border-t border-white/10 p-3 sm:p-4 flex items-center gap-2 sm:gap-3"
           >
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder="輸入 BLE 訊息..."
-              className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-4 py-3 text-sm outline-none focus:border-amber-500/50"
+              className="min-w-0 flex-1 bg-slate-950 border border-white/10 rounded-lg px-4 py-3 text-base sm:text-sm outline-none focus:border-amber-500/50"
             />
             <button
               disabled={!connectedId || isSending}

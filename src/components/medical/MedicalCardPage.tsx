@@ -43,49 +43,49 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
     setDraft((prev) => ({ ...prev, [key]: value }));
 
   const inputClass =
-    "w-full px-3 py-2 rounded-lg bg-slate-800/60 border border-white/10 text-slate-100 text-sm focus:outline-none focus:border-amber-500/50";
+    "w-full min-w-0 px-3 py-2.5 rounded-lg bg-slate-800/60 border border-white/10 text-slate-100 text-base sm:text-sm focus:outline-none focus:border-amber-500/50";
 
   // ---------- 檢視模式 ----------
   const Row = ({ label, value }: { label: string; value: string }) => (
-    <div className="flex justify-between gap-4 py-2.5 border-b border-white/5">
+    <div className="flex min-w-0 items-start justify-between gap-3 py-2.5 border-b border-white/5">
       <span className="text-xs text-slate-500 shrink-0">{label}</span>
-      <span className="text-sm text-slate-100 text-right whitespace-pre-wrap">
+      <span className="min-w-0 break-words text-sm text-slate-100 text-right whitespace-pre-wrap">
         {value || <span className="text-slate-600">—</span>}
       </span>
     </div>
   );
 
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 bg-[#020617] border-b border-white/5 shrink-0">
+      <header className="safe-area-top flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3 bg-[#020617] border-b border-white/5 shrink-0">
         <button
           onClick={onBack}
-          className="text-slate-400 hover:text-slate-100 text-sm flex items-center gap-2"
+          className="min-h-11 shrink-0 text-slate-400 hover:text-slate-100 text-sm flex items-center gap-2"
         >
           <i className="fas fa-arrow-left"></i> 返回
         </button>
-        <span className="font-bold text-base flex items-center gap-2">
+        <span className="min-w-0 truncate font-bold text-sm sm:text-base flex items-center gap-2">
           <i className="fas fa-notes-medical text-rose-400"></i> 緊急醫療卡
         </span>
         {editing ? (
           <button
             onClick={handleSave}
-            className="px-3 py-1.5 rounded-lg bg-amber-500 text-black text-xs font-bold hover:bg-amber-400"
+            className="min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 text-black text-xs font-bold hover:bg-amber-400"
           >
             儲存
           </button>
         ) : (
           <button
             onClick={startEdit}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-white/10 text-slate-200 text-xs font-semibold hover:bg-slate-700"
+            className="min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-slate-800 border border-white/10 text-slate-200 text-xs font-semibold hover:bg-slate-700"
           >
             <i className="fas fa-pen mr-1"></i> 編輯
           </button>
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-5 safe-area-bottom">
         <div className="max-w-md mx-auto">
           {saved && (
             <div className="mb-4 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg">
@@ -131,7 +131,7 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
                   <input className={inputClass} value={draft.fullName}
                     onChange={(e) => set("fullName", e.target.value)} placeholder="王小明" />
                 </Field>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="生日">
                     <input type="date" className={inputClass} value={draft.birthday}
                       onChange={(e) => set("birthday", e.target.value)} />
@@ -146,7 +146,7 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
                     </select>
                   </Field>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <Field label="血型">
                     <select className={inputClass} value={draft.bloodType}
                       onChange={(e) => set("bloodType", e.target.value)}>
@@ -217,7 +217,7 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
                   <input className={inputClass} value={draft.emergencyContactName}
                     onChange={(e) => set("emergencyContactName", e.target.value)} placeholder="聯絡人姓名" />
                 </Field>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="電話">
                     <input type="tel" className={inputClass} value={draft.emergencyContactPhone}
                       onChange={(e) => set("emergencyContactPhone", e.target.value)} placeholder="0912-345-678" />

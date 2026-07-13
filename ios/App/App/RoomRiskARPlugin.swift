@@ -272,7 +272,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
 
         isAnalyzing = true
         scanButton.isEnabled = false
-        scanButton.setTitle("AI 分析中...", for: .normal)
+        scanButton.setTitle("分析中...", for: .normal)
         statusLabel.text = depthStatus(frame: frame)
 
         guard let imageData = sceneView.snapshot().jpegData(compressionQuality: 0.86) else {
@@ -365,7 +365,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         guard let zones = analysis["zones"] as? [[String: Any]] else { return 0 }
         var renderedCount = 0
 
-        for (zoneIndex, zone) in zones.enumerated() {
+        for zone in selectClearZones(zones) {
             guard let polygon = zone["polygon"] as? [[String: Any]],
                   polygon.count >= 3 else { continue }
 
@@ -374,20 +374,14 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
                       let y = point["y"] as? NSNumber else { return nil }
                 return worldPoint(normalizedX: CGFloat(truncating: x), normalizedY: CGFloat(truncating: y))
             }
-            let worldPoints: [SCNVector3]
-            if projectedPoints.count == polygon.count {
-                worldPoints = projectedPoints
-            } else if let fallback = fallbackFloorPoints(
-                zoneIndex: zoneIndex,
-                zoneCount: zones.count
-            ) {
-                worldPoints = fallback
-            } else {
-                continue
-            }
+            // Never draw an invented rectangle when image-to-floor projection
+            // fails. A missing zone is safer than a confident false overlay.
+            guard projectedPoints.count == polygon.count,
+                  isReasonableFloorZone(projectedPoints) else { continue }
+            let worldPoints = projectedPoints
 
             let type = zone["type"] as? String ?? "caution"
-            let label = zone["label"] as? String ?? "注意區域"
+            let label = shortLabel(for: zone, type: type)
             let color: UIColor = type == "danger"
                 ? .coralRed
                 : type == "safe"
@@ -403,6 +397,67 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
             renderedCount += 1
         }
         return renderedCount
+    }
+
+    private func selectClearZones(_ zones: [[String: Any]]) -> [[String: Any]] {
+        let valid = zones.filter { zone in
+            guard let polygon = zone["polygon"] as? [[String: Any]] else { return false }
+            return normalizedBounds(polygon) != nil
+        }
+        let hazards = valid
+            .filter {
+                let type = $0["type"] as? String
+                return type == "danger" || type == "caution"
+            }
+            .sorted { first, second in
+                let firstPriority = (first["type"] as? String) == "danger" ? 0 : 1
+                let secondPriority = (second["type"] as? String) == "danger" ? 0 : 1
+                if firstPriority != secondPriority { return firstPriority < secondPriority }
+                return normalizedArea(first) > normalizedArea(second)
+            }
+        let safeCandidates = valid
+            .filter { ($0["type"] as? String) == "safe" }
+            .sorted { normalizedArea($0) > normalizedArea($1) }
+
+        // Keep every valid hazard. Only suppress a safe zone when it conflicts
+        // with a hazard; never impose an arbitrary total-zone limit.
+        let nonConflictingSafeZones = safeCandidates.filter { candidate in
+            hazards.allSatisfy { overlapRatio(candidate, $0) < 0.12 }
+        }
+        return hazards + nonConflictingSafeZones
+    }
+
+    private func normalizedArea(_ zone: [String: Any]) -> CGFloat {
+        guard let polygon = zone["polygon"] as? [[String: Any]],
+              let bounds = normalizedBounds(polygon) else { return 0 }
+        return bounds.width * bounds.height
+    }
+
+    private func overlapRatio(_ first: [String: Any], _ second: [String: Any]) -> CGFloat {
+        guard let firstPolygon = first["polygon"] as? [[String: Any]],
+              let secondPolygon = second["polygon"] as? [[String: Any]],
+              let a = normalizedBounds(firstPolygon),
+              let b = normalizedBounds(secondPolygon) else { return 1 }
+        let intersection = a.intersection(b)
+        guard !intersection.isNull else { return 0 }
+        let smallerArea = min(a.width * a.height, b.width * b.height)
+        guard smallerArea > 0 else { return 1 }
+        return intersection.width * intersection.height / smallerArea
+    }
+
+    private func normalizedBounds(_ polygon: [[String: Any]]) -> CGRect? {
+        let points: [CGPoint] = polygon.compactMap { point in
+            guard let x = point["x"] as? NSNumber,
+                  let y = point["y"] as? NSNumber else { return nil }
+            return CGPoint(x: CGFloat(truncating: x), y: CGFloat(truncating: y))
+        }
+        guard points.count >= 3 else { return nil }
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        guard let minX = xs.min(), let maxX = xs.max(),
+              let minY = ys.min(), let maxY = ys.max(),
+              maxX - minX >= 0.04, maxY - minY >= 0.04 else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     private func worldPoint(normalizedX: CGFloat, normalizedY: CGFloat) -> SCNVector3? {
@@ -437,39 +492,35 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         return nil
     }
 
-    private func fallbackFloorPoints(zoneIndex: Int, zoneCount: Int) -> [SCNVector3]? {
-        let planes = Array(horizontalPlaneAnchors.values)
-        guard !planes.isEmpty else { return nil }
-
-        guard let plane = planes.max(by: {
-            ($0.extent.x * $0.extent.z) < ($1.extent.x * $1.extent.z)
-        }) else {
-            return nil
+    private func isReasonableFloorZone(_ points: [SCNVector3]) -> Bool {
+        guard points.count >= 3 else { return false }
+        let yValues = points.map(\.y)
+        guard let minY = yValues.min(), let maxY = yValues.max(), maxY - minY < 0.12 else {
+            return false
         }
-
-        let width = min(max(plane.extent.x * 0.34, 0.24), 0.72)
-        let depth = min(max(plane.extent.z * 0.34, 0.24), 0.72)
-        let availableX = max(0, plane.extent.x - width)
-        let normalizedOffset: Float
-        if zoneCount <= 1 {
-            normalizedOffset = 0
-        } else {
-            normalizedOffset = Float(zoneIndex) / Float(zoneCount - 1) - 0.5
+        var perimeter: Float = 0
+        for index in points.indices {
+            let start = points[index]
+            let end = points[(index + 1) % points.count]
+            let dx = end.x - start.x
+            let dz = end.z - start.z
+            let edge = sqrt(dx * dx + dz * dz)
+            guard edge >= 0.06, edge <= 2.4 else { return false }
+            perimeter += edge
         }
-        let offsetX = normalizedOffset * availableX * 0.8
-        let centerX = plane.center.x + offsetX
-        let centerZ = plane.center.z
+        return perimeter <= 7.2
+    }
 
-        let localCorners = [
-            SIMD4<Float>(centerX - width / 2, 0, centerZ - depth / 2, 1),
-            SIMD4<Float>(centerX + width / 2, 0, centerZ - depth / 2, 1),
-            SIMD4<Float>(centerX + width / 2, 0, centerZ + depth / 2, 1),
-            SIMD4<Float>(centerX - width / 2, 0, centerZ + depth / 2, 1)
-        ]
-
-        return localCorners.map { corner in
-            let world = plane.transform * corner
-            return SCNVector3(world.x, world.y + 0.012, world.z)
+    private func shortLabel(for zone: [String: Any], type: String) -> String {
+        let impactType = zone["impactType"] as? String ?? ""
+        switch impactType {
+        case "topple": return type == "danger" ? "傾倒危險" : "傾倒注意"
+        case "falling": return "掉落物"
+        case "glass": return "玻璃危險"
+        case "blocked_path": return "通道受阻"
+        case "triangle_void": return "可能保護空隙"
+        case "safe_floor": return "相對安全"
+        default: return type == "danger" ? "危險區" : type == "safe" ? "相對安全" : "注意區"
         }
     }
 
@@ -492,8 +543,8 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         )
         let geometry = SCNGeometry(sources: [source], elements: [element])
         let material = SCNMaterial()
-        material.diffuse.contents = color.withAlphaComponent(0.48)
-        material.emission.contents = color.withAlphaComponent(0.16)
+        material.diffuse.contents = color.withAlphaComponent(0.18)
+        material.emission.contents = color.withAlphaComponent(0.06)
         material.isDoubleSided = true
         material.lightingModel = .constant
         geometry.materials = [material]
@@ -516,9 +567,9 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
     private func makeLine(from start: SCNVector3, to end: SCNVector3, color: UIColor) -> SCNNode {
         let vector = SCNVector3(end.x - start.x, end.y - start.y, end.z - start.z)
         let distance = sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)
-        let cylinder = SCNCylinder(radius: 0.009, height: CGFloat(distance))
-        cylinder.radialSegmentCount = 8
-        cylinder.firstMaterial?.diffuse.contents = color
+        let cylinder = SCNCylinder(radius: 0.003, height: CGFloat(distance))
+        cylinder.radialSegmentCount = 6
+        cylinder.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.82)
         cylinder.firstMaterial?.lightingModel = .constant
 
         let node = SCNNode(geometry: cylinder)
@@ -532,32 +583,43 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
     }
 
     private func makeLabelNode(text: String, color: UIColor, points: [SCNVector3]) -> SCNNode {
-        let textGeometry = SCNText(string: text, extrusionDepth: 0.004)
-        textGeometry.font = .systemFont(ofSize: 0.13, weight: .bold)
-        textGeometry.flatness = 0.2
-        textGeometry.firstMaterial?.diffuse.contents = UIColor.white
-        textGeometry.firstMaterial?.lightingModel = .constant
+        let imageSize = CGSize(width: 640, height: 160)
+        let image = UIGraphicsImageRenderer(size: imageSize).image { context in
+            let rect = CGRect(origin: .zero, size: imageSize)
+            UIColor.black.withAlphaComponent(0.78).setFill()
+            UIBezierPath(roundedRect: rect.insetBy(dx: 4, dy: 4), cornerRadius: 48).fill()
+            color.setStroke()
+            let border = UIBezierPath(roundedRect: rect.insetBy(dx: 8, dy: 8), cornerRadius: 44)
+            border.lineWidth = 10
+            border.stroke()
 
-        let textNode = SCNNode(geometry: textGeometry)
-        let bounds = textGeometry.boundingBox
-        let width = bounds.max.x - bounds.min.x
-        textNode.pivot = SCNMatrix4MakeTranslation(width / 2, bounds.min.y, 0)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 52, weight: .bold),
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: paragraph
+            ]
+            let textRect = rect.insetBy(dx: 34, dy: 42)
+            (text as NSString).draw(in: textRect, withAttributes: attributes)
+            context.cgContext.setFillColor(UIColor.clear.cgColor)
+        }
 
+        let plane = SCNPlane(width: 0.34, height: 0.085)
+        plane.cornerRadius = 0.018
+        plane.firstMaterial?.diffuse.contents = image
+        plane.firstMaterial?.lightingModel = .constant
+        plane.firstMaterial?.isDoubleSided = true
+        plane.firstMaterial?.readsFromDepthBuffer = false
+        plane.firstMaterial?.writesToDepthBuffer = false
+        let labelNode = SCNNode(geometry: plane)
         let billboard = SCNBillboardConstraint()
-        billboard.freeAxes = .Y
-        textNode.constraints = [billboard]
+        billboard.freeAxes = .all
+        labelNode.constraints = [billboard]
         let center = averagePoint(points)
-        textNode.position = SCNVector3(center.x, center.y + 0.08, center.z)
-        textNode.scale = SCNVector3(0.55, 0.55, 0.55)
-
-        let bubble = SCNPlane(width: CGFloat(max(width * 0.6, 0.24)), height: 0.10)
-        bubble.cornerRadius = 0.045
-        bubble.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.92)
-        bubble.firstMaterial?.lightingModel = .constant
-        let bubbleNode = SCNNode(geometry: bubble)
-        bubbleNode.position = SCNVector3(0, 0.035, -0.008)
-        textNode.addChildNode(bubbleNode)
-        return textNode
+        labelNode.position = SCNVector3(center.x, center.y + 0.07, center.z)
+        labelNode.renderingOrder = 100
+        return labelNode
     }
 
     private func averagePoint(_ points: [SCNVector3]) -> SCNVector3 {

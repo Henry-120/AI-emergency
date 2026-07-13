@@ -1,7 +1,10 @@
 // src/services/offlineService.ts
 import { DisasterAnalysis, DisasterType } from "../types";
 
-export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
+export function getOfflineAnalysis(
+  userInput: string,
+  conversationText: string = userInput,
+): DisasterAnalysis {
   let advice = "目前離線。請選擇狀況：";
   let options: string[] = [];
   let riskLevel = 8;
@@ -221,6 +224,49 @@ export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
     immediateActions: [{ title: "避難指南", description: advice, priority: riskLevel > 8 ? "CRITICAL" : "HIGH" }],
     survivalProbability: riskLevel > 8 ? 50 : 90,
     longTermAdvice: "請保持手機電力，離線模式將優先引導生存動作。",
-    missingInfoRequests: options
+    missingInfoRequests: options,
+    emergencySummary: buildOfflineEmergencySummary(conversationText, riskLevel),
+  };
+}
+
+function buildOfflineEmergencySummary(
+  conversationText: string,
+  riskLevel: number,
+): DisasterAnalysis["emergencySummary"] {
+  const text = conversationText.replace(/\s+/g, " ");
+  const injuryTerms = [
+    "受傷", "出血", "骨折", "脫臼", "壓傷", "砸傷", "燒傷", "燙傷",
+    "呼吸困難", "意識模糊", "焦慮",
+  ];
+  const matchedInjuries = injuryTerms.filter((term) => text.includes(term));
+  const isTrapped = ["受困", "困住", "無法離開", "出口受阻", "沒有其他出口"]
+    .some((term) => text.includes(term));
+  const immobile = ["無法撤離", "無法移動", "重物無法移除"]
+    .some((term) => text.includes(term));
+  const rescueNeeds: string[] = [];
+  if (isTrapped) rescueNeeds.push("搜救與脫困");
+  if (text.includes("出血")) rescueNeeds.push("止血與緊急醫療");
+  if (["骨折", "脫臼", "無法移動", "無法撤離"].some((term) => text.includes(term))) {
+    rescueNeeds.push("擔架與後送");
+  }
+  if (["呼吸困難", "呼吸越來越難", "吸入傷"].some((term) => text.includes(term))) {
+    rescueNeeds.push("呼吸道與緊急醫療支援");
+  }
+
+  const severe = riskLevel >= 9 || rescueNeeds.length > 0;
+  return {
+    hasInjuries: matchedInjuries.length > 0,
+    injurySummary: matchedInjuries.length
+      ? `離線對話已回報：${[...new Set(matchedInjuries)].join("、")}`
+      : "",
+    injurySeverity: matchedInjuries.length
+      ? severe ? "severe" : "moderate"
+      : "unknown",
+    rescueNeeds: [...new Set(rescueNeeds)],
+    isTrapped,
+    mobilityStatus: immobile ? "immobile" : "unknown",
+    locationDetails: "",
+    urgencyLevel: Math.max(1, Math.min(10, riskLevel)),
+    confidence: matchedInjuries.length || isTrapped ? 0.7 : 0.2,
   };
 }

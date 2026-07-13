@@ -27,7 +27,9 @@ import {
   OfflineSafetyPack,
 } from "./services/offlineSafetyService";
 import {
+  saveEmergencyReportLocally,
   saveUserStatusSnapshot,
+  syncPendingEmergencyReports,
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
 import { RoomRiskAnalysis } from "./types";
@@ -331,6 +333,7 @@ const App: React.FC = () => {
     const handleOnline = () => {
       setIsOffline(false);
       syncPendingUserStatusRecords();
+      syncPendingEmergencyReports();
     };
     const handleOffline = () => setIsOffline(true);
 
@@ -342,6 +345,13 @@ const App: React.FC = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  // App 重啟或重新登入後，自動重試之前未同步的救援摘要。
+  useEffect(() => {
+    if (authUser && navigator.onLine) {
+      syncPendingEmergencyReports();
+    }
+  }, [authUser]);
 
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
@@ -459,7 +469,7 @@ const App: React.FC = () => {
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isAnalyzing) return;
+    if (!authUser || !input.trim() || isAnalyzing) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -475,7 +485,13 @@ const App: React.FC = () => {
     setInput("");
     // --- 離線邏輯開始 ---
     if (isOffline) {
-      const offlineAnalysis = getOfflineAnalysis(currentInput);
+      const offlineAnalysis = getOfflineAnalysis(
+        currentInput,
+        updatedMessages
+          .filter((message) => message.role === "user")
+          .map((message) => message.content)
+          .join("\n"),
+      );
 
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -487,6 +503,11 @@ const App: React.FC = () => {
 
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(offlineAnalysis);
+      saveEmergencyReportLocally(
+        authUser.id,
+        offlineAnalysis.emergencySummary,
+        [...updatedMessages, assistantMsg],
+      ).catch((error) => console.error("離線救援摘要儲存失敗", error));
       speak(offlineAnalysis.immediateActions[0].description);
       return; // 離線模式處理完畢，直接結束
     }
@@ -513,6 +534,16 @@ const App: React.FC = () => {
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(analysis);
 
+      // 無論是否有網路都先寫裝置端；線上時再嘗試同步到後端。
+      saveEmergencyReportLocally(authUser.id, analysis.emergencySummary, [
+        ...updatedMessages,
+        assistantMsg,
+      ])
+        .then(() => {
+          if (navigator.onLine) return syncPendingEmergencyReports();
+        })
+        .catch((error) => console.error("救援摘要本機儲存失敗", error));
+
       if (analysis.immediateActions && analysis.immediateActions.length > 0) {
         const text = `緊急指令${analysis.immediateActions[0].title}`;
         // 優先嘗試 OpenAI，失敗則用原生降級
@@ -525,12 +556,20 @@ const App: React.FC = () => {
         speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
       }
     } catch (error) {
+      console.error("Disaster analysis failed:", error);
+      const detail = error instanceof Error ? error.message : "未知錯誤";
+      const isModelUnavailable = /not found|no longer available|404/i.test(detail);
+      const isQuotaLimited = /quota|resource_exhausted|429/i.test(detail);
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "分析引擎繁忙中，請嘗試簡短描述您觀察到的新狀況。",
+          content: isModelUnavailable
+            ? "分析模型目前不可用，請重新整理後再試；若持續發生，請檢查 Gemini model 設定。"
+            : isQuotaLimited
+              ? "Gemini API 額度暫時用完，請稍後再試或檢查 API 配額。"
+              : "分析服務暫時無法回應，請確認網路後再試。",
           timestamp: new Date(),
         },
       ]);
@@ -581,7 +620,7 @@ const App: React.FC = () => {
 
   // 渲染 UI
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}

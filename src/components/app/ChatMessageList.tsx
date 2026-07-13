@@ -41,7 +41,7 @@ export function ChatMessageList({
 }) {
   return (
     <main
-      className="flex-1 overflow-y-auto px-4 py-6 space-y-6"
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-6 space-y-4 sm:space-y-6"
       ref={scrollRef}
     >
       {messages.map((m) => (
@@ -50,7 +50,7 @@ export function ChatMessageList({
           className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
         >
           <div
-            className={`max-w-[90%] ${m.role === "user" ? "message-gradient-user text-black rounded-2xl rounded-tr-none px-4 py-3 shadow-xl" : ""}`}
+            className={`max-w-[94%] sm:max-w-[90%] min-w-0 break-words ${m.role === "user" ? "message-gradient-user text-black rounded-2xl rounded-tr-none px-4 py-3 shadow-xl" : ""}`}
           >
             {m.role === "assistant" && (
               <div className="space-y-4">

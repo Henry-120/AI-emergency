@@ -78,25 +78,25 @@ export function AppFooter({
   };
 
   return (
-    <footer className="glass-panel p-4 safe-area-bottom">
-      <div className="max-w-xl mx-auto">
+    <footer className="glass-panel shrink-0 px-3 pt-2 sm:p-4 safe-area-bottom">
+      <div className="max-w-xl mx-auto min-w-0">
         {offlineMapStatus && (
-          <div className="mb-3 px-4 py-3 rounded-2xl bg-slate-900/80 border border-amber-500/15 text-[12px] text-amber-100">
+          <div className="mb-2 max-h-16 overflow-y-auto px-3 py-2 rounded-xl bg-slate-900/80 border border-amber-500/15 text-[11px] sm:text-[12px] text-amber-100">
             {offlineMapStatus}
           </div>
         )}
         {downloadedMaps.length > 0 && (
-          <div className="mb-3 grid gap-4">
+          <div className="mb-2 max-h-36 overflow-y-auto overscroll-contain grid gap-2 sm:max-h-52 sm:gap-4">
             <div className="font-bold text-xs text-amber-300 uppercase tracking-wider">
               已下載離線地圖預覽 ({downloadedMaps.length})
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2 sm:gap-4 sm:grid-cols-2">
               {downloadedMaps.map((map) => (
                 <div
                   key={map.map_id}
                   className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 shadow-lg shadow-black/30 transition-all hover:-translate-y-0.5 hover:shadow-2xl"
                 >
-                  <div className="relative h-40 overflow-hidden bg-slate-800 text-slate-200 flex flex-col items-center justify-center gap-2 p-4">
+                  <div className="relative h-20 sm:h-40 overflow-hidden bg-slate-800 text-slate-200 flex flex-col items-center justify-center gap-1 sm:gap-2 p-3 sm:p-4">
                     <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
                       離線地圖預覽
                     </div>
@@ -108,7 +108,7 @@ export function AppFooter({
                       {map.zoom_levels.join(", ")}
                     </div>
                   </div>
-                  <div className="p-4 space-y-2">
+                  <div className="hidden p-4 space-y-2 sm:block">
                     <div className="flex items-center justify-between text-[11px] text-slate-400 uppercase tracking-widest">
                       <span>半徑</span>
                       <span>{map.radius_km} km</span>
@@ -154,14 +154,14 @@ export function AppFooter({
           type="button"
           onClick={onOpenRoomRiskScanner}
           disabled={isAnalyzing}
-          className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 sm:py-3 text-xs sm:text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="開啟 AR 房間風險掃描"
         >
           <i className="fas fa-camera"></i>
           AR 房間風險掃描
         </button>
 
-        <div className="flex gap-2 mb-3 overflow-x-auto pb-1 no-scrollbar">
+        <div className="flex gap-2 mb-2 overflow-x-auto pb-1 no-scrollbar">
           {["出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
             <button
               key={tag}
@@ -178,7 +178,7 @@ export function AppFooter({
             onSubmit(event);
             setFinalTranscript("");
           }}
-          className="relative flex items-center gap-2"
+          className="relative flex min-w-0 items-center gap-2"
         >
           <div className="relative flex-1">
             <input
@@ -186,7 +186,7 @@ export function AppFooter({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="回報進度或回答問題..."
-              className="w-full bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-600 shadow-inner"
+              className="w-full min-w-0 bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-base sm:text-sm text-white caret-amber-400 focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-500 shadow-inner"
               disabled={isAnalyzing}
             />
             <button

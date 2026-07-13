@@ -184,6 +184,13 @@
         padding-top: env(safe-area-inset-top);
       }
 
+      /* WKWebView may report a zero CSS inset even while iOS overlays its
+         status bar. Apply this only inside the packaged Capacitor app. The
+         !important intentionally wins over Tailwind's py-* utilities. */
+      .capacitor-native .safe-area-top {
+        padding-top: max(3.25rem, env(safe-area-inset-top)) !important;
+      }
+
       /* Visible focus for keyboard users; pointer interactions stay clean. */
       :focus-visible {
         outline: 2px solid var(--accent);

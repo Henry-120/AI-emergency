@@ -108,7 +108,11 @@ export function getBackendToken(): string | null {
 }
 
 // ---------- 後端最佳努力同步 ----------
-async function backendRegister(username: string, password: string, email?: string) {
+async function backendRegister(
+  username: string,
+  password: string,
+  email?: string,
+): Promise<boolean> {
   try {
     const res = await fetch(`${BACKEND}/api/auth/register`, {
       method: "POST",
@@ -117,14 +121,23 @@ async function backendRegister(username: string, password: string, email?: strin
     });
     if (res.ok) {
       const data = await res.json();
-      if (data.token) localStorage.setItem(BACKEND_TOKEN_KEY, data.token);
+      if (data.token) {
+        localStorage.setItem(BACKEND_TOKEN_KEY, data.token);
+        return true;
+      }
     }
+    return false;
   } catch {
     // 離線或後端未啟動：忽略，僅使用本機帳號。
+    return false;
   }
 }
 
-async function backendLogin(username: string, password: string) {
+async function backendLogin(
+  username: string,
+  password: string,
+  email?: string,
+): Promise<boolean> {
   try {
     const res = await fetch(`${BACKEND}/api/auth/login`, {
       method: "POST",
@@ -133,10 +146,20 @@ async function backendLogin(username: string, password: string) {
     });
     if (res.ok) {
       const data = await res.json();
-      if (data.token) localStorage.setItem(BACKEND_TOKEN_KEY, data.token);
+      if (data.token) {
+        localStorage.setItem(BACKEND_TOKEN_KEY, data.token);
+        return true;
+      }
     }
+
+    // 帳號可能是後端斷線時先建在本機；後端找不到時自動補註冊。
+    if (res.status === 401) {
+      return backendRegister(username, password, email);
+    }
+    return false;
   } catch {
     // 忽略，繼續使用本機驗證結果。
+    return false;
   }
 }
 
@@ -196,6 +219,6 @@ export async function login(username: string, password: string): Promise<AuthRes
     createdAt: found.createdAt,
   };
   setSession(user);
-  await backendLogin(name, password);
+  await backendLogin(name, password, found.email);
   return { success: true, user };
 }

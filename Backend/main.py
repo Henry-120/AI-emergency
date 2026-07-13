@@ -3,13 +3,15 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Optional
-from .database import SessionLocal, engine
+from .database import SessionLocal, engine, run_lightweight_migrations
 from . import auth, models, schemas
 from .services.cwa_service import CWAService
 from .services.offline_maps_service import offline_maps_service
 from .services.room_risk_service import room_risk_service
 from .services.shelter_service import shelter_service
 import os
+import json
+import datetime
 from pathlib import Path
 
 # Load environment variables from .env files when starting the backend directly.
@@ -28,6 +30,7 @@ for env_file in [Path(__file__).resolve().parent.parent / ".env.local", Path(__f
                     os.environ[key] = value
 
 models.Base.metadata.create_all(bind=engine)
+run_lightweight_migrations()
 app = FastAPI()
 
 app.add_middleware(
@@ -154,6 +157,85 @@ def update_medical_card(
     db.commit()
     db.refresh(card)
     return card
+
+
+# ==================== AI 傷勢 / 救援需求 API ====================
+
+@app.put("/api/emergency-report", response_model=schemas.EmergencyReportResponse)
+def upsert_emergency_report(
+    data: schemas.EmergencyReportUpsert,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """保存 AI 從完整對話彙整的「當前」傷勢與救援需求。"""
+    summary = data.summary
+    report = (
+        db.query(models.EmergencyReport)
+        .filter(models.EmergencyReport.user_id == current_user.id)
+        .first()
+    )
+    if not report:
+        report = models.EmergencyReport(user_id=current_user.id)
+        db.add(report)
+
+    report.has_injuries = summary.hasInjuries
+    report.injury_summary = summary.injurySummary.strip()
+    report.injury_severity = summary.injurySeverity
+    report.rescue_needs = json.dumps(summary.rescueNeeds, ensure_ascii=False)
+    report.is_trapped = summary.isTrapped
+    report.mobility_status = summary.mobilityStatus
+    report.location_details = summary.locationDetails.strip()
+    report.urgency_level = max(1, min(10, summary.urgencyLevel))
+    report.confidence = max(0, min(1, summary.confidence))
+    report.updated_at = datetime.datetime.utcnow()
+    db.flush()
+
+    # 前端每次傳完整對話，重建該報告的快照以避免重複。
+    db.query(models.ChatRecord).filter(
+        models.ChatRecord.emergency_report_id == report.id
+    ).delete(synchronize_session=False)
+    for message in data.messages:
+        db.add(models.ChatRecord(
+            emergency_report_id=report.id,
+            role=message.role,
+            content=message.content,
+            timestamp=message.timestamp or datetime.datetime.utcnow(),
+        ))
+
+    db.commit()
+    db.refresh(report)
+    return {
+        **summary.model_dump(),
+        "urgencyLevel": report.urgency_level,
+        "confidence": report.confidence,
+        "userId": current_user.id,
+        "updatedAt": report.updated_at,
+    }
+
+
+@app.get("/api/emergency-report", response_model=schemas.EmergencyReportResponse)
+def get_emergency_report(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    report = db.query(models.EmergencyReport).filter(
+        models.EmergencyReport.user_id == current_user.id
+    ).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="尚無救援摘要")
+    return {
+        "hasInjuries": report.has_injuries,
+        "injurySummary": report.injury_summary,
+        "injurySeverity": report.injury_severity,
+        "rescueNeeds": json.loads(report.rescue_needs),
+        "isTrapped": report.is_trapped,
+        "mobilityStatus": report.mobility_status,
+        "locationDetails": report.location_details,
+        "urgencyLevel": report.urgency_level,
+        "confidence": report.confidence,
+        "userId": current_user.id,
+        "updatedAt": report.updated_at,
+    }
 
 
 @app.get("/api/weather/latest")
