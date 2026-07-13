@@ -1,53 +1,61 @@
 /**
  * GuardiaAI 藍牙模組 - 統一對外 API（Facade）
  *
- * UI 元件（如 NearbyPeoplePage）應**只 import 此檔**，不直接 import central / peripheral，
+ * UI 元件應**只 import 此檔或 bluetoothInbox**，不直接 import central / peripheral，
  * 這樣未來底層實作改動（例如換套件、改 Swift 介面）不會影響 UI 層。
  *
  * 提供：
- *   - initBluetooth        ：第一次進入功能時呼叫，準備藍牙堆疊
- *   - startBroadcasting    ：開始廣播自己
- *   - stopBroadcasting     ：停止廣播自己
- *   - getStatus            ：取得目前藍牙狀態（給 UI 顯示開關）
- *   - scanNearby           ：掃描附近裝置一輪
- *   - sendMessage          ：傳訊息給某個附近用戶
- *   - subscribeMessages    ：訂閱收訊事件
- *   - generateLocalId      ：產生本機隨機短 ID
+ *   - initBluetooth        ：準備藍牙堆疊
+ *   - startBroadcasting    ：開始讓附近的人看見自己
+ *   - stopBroadcasting     ：停止
+ *   - getStatus            ：目前狀態（給 UI 顯示提示）
+ *   - scanNearby           ：尋找附近的人（可取消、可即時串流結果）
+ *   - stopScan             ：中止目前的掃描
+ *   - sendMessage          ：傳訊息給某個附近的人
+ *   - subscribeMessages    ：訂閱收訊事件（一般 UI 不用，改用 bluetoothInbox）
+ *   - getLocalId           ：本機識別碼（持久化，重開 App 不變）
  */
 
 import {
   canAdvertise,
-  startAdvertising,
-  stopAdvertising,
   getIsAdvertising,
   onMessageReceived,
+  startAdvertising,
+  stopAdvertising,
 } from "./bluetoothPeripheral";
 import {
+  disconnectAll,
   ensureInitialized,
   isBluetoothEnabled,
+  isScanning,
   scanNearby as centralScan,
   sendMessageTo,
+  stopScan as centralStopScan,
+  type ScanOptions,
 } from "./bluetoothCentral";
+import { getOrCreateLocalId } from "./bluetoothIdentity";
 import type {
   BluetoothStatus,
+  ChatRecord,
   IncomingMessage,
   NearbyDevice,
   OutgoingMessage,
 } from "./bluetoothTypes";
 
 /** Re-export 型別供 UI 直接使用 */
-export type { BluetoothStatus, IncomingMessage, NearbyDevice, OutgoingMessage };
-
-// 本機這次 session 的 localId；初始化時隨機產生並保留
-let cachedLocalId = "";
+export type {
+  BluetoothStatus,
+  ChatRecord,
+  IncomingMessage,
+  NearbyDevice,
+  OutgoingMessage,
+  ScanOptions,
+};
 
 /**
- * 初始化藍牙堆疊（請在第一次使用功能時呼叫）
+ * 初始化藍牙堆疊。
  *
- * 這個函式只做：
- *   1. 喚醒 BleClient（要權限）
- *   2. 確認藍牙開關狀態
- * 不會自動開始廣播或掃描；UI 端決定何時 start。
+ * 只喚醒 BleClient（要權限）與確認開關狀態，不會自動開始廣播或掃描。
  */
 export async function initBluetooth(): Promise<void> {
   await ensureInitialized();
@@ -62,18 +70,20 @@ export async function getStatus(): Promise<BluetoothStatus> {
     isNative,
     isEnabled,
     isAdvertising,
-    isScanning: false, // 目前掃描是 one-shot，沒有長駐狀態
+    isScanning: isScanning(),
   };
 }
 
 /**
- * 開始廣播自己。若還沒 localId 會自動產生一個。
- * 之後對方掃到的「名稱」就是這個 localId。
+ * 開始廣播自己。
+ *
+ * 使用持久化的本機識別碼——重開 App 後仍是同一組，對方才認得出你是同一個人，
+ * 既有的對話歷史也才對得起來。
  */
 export async function startBroadcasting(): Promise<{ localId: string; success: boolean }> {
-  if (!cachedLocalId) cachedLocalId = generateLocalId();
-  const success = await startAdvertising(cachedLocalId);
-  return { localId: cachedLocalId, success };
+  const localId = getOrCreateLocalId();
+  const success = await startAdvertising(localId);
+  return { localId, success };
 }
 
 /** 停止廣播自己 */
@@ -81,64 +91,62 @@ export async function stopBroadcasting(): Promise<void> {
   await stopAdvertising();
 }
 
-/** 取得本機 localId（廣播沒開過則為空字串） */
+/** 本機識別碼（持久化；重開 App 不會變） */
 export function getLocalId(): string {
-  return cachedLocalId;
+  return getOrCreateLocalId();
 }
 
 /**
- * 掃描附近裝置一輪
+ * 尋找附近的人。
  *
- * @param onlyGuardiaUsers true = 僅同 App 用戶；false = 所有 BLE 裝置（含耳機等）
+ * 可透過 options.signal 取消，並以 options.onDevice 即時取得每一台掃到的裝置
+ * （不必等整輪結束）。
  */
-export async function scanNearby(onlyGuardiaUsers: boolean): Promise<NearbyDevice[]> {
-  return centralScan(onlyGuardiaUsers);
+export async function scanNearby(options: ScanOptions): Promise<NearbyDevice[]> {
+  return centralScan(options);
+}
+
+/** 中止目前的掃描 */
+export function stopScan(): void {
+  centralStopScan();
+}
+
+/** 斷開所有藍牙連線（離開藍牙功能時呼叫） */
+export async function disconnectAllPeers(): Promise<void> {
+  await disconnectAll();
 }
 
 /**
- * 傳訊息給附近某裝置（必須是同 App 用戶）
+ * 傳訊息給附近某裝置（必須是同 App 用戶）。
  *
- * @param deviceId    對方裝置 ID（從 scanNearby 取得）
- * @param text        訊息內容
- * @param location    （可選）附帶的 GPS 位置
+ * 長訊息會自動分片；連線會保留一小段時間供後續訊息複用。
+ *
+ * @returns 成功時附上實際送出的訊息物件，供呼叫端寫入對話紀錄
  */
 export async function sendMessage(
   deviceId: string,
   text: string,
   location?: { lat: number; lng: number },
-): Promise<{ success: boolean; error?: string }> {
-  if (!cachedLocalId) cachedLocalId = generateLocalId();
+): Promise<{ success: boolean; error?: string; message?: OutgoingMessage }> {
   const message: OutgoingMessage = {
-    from: cachedLocalId,
+    from: getOrCreateLocalId(),
     text,
     location,
     timestamp: Date.now(),
   };
-  return sendMessageTo(deviceId, message);
+
+  const result = await sendMessageTo(deviceId, message);
+  return result.success ? { ...result, message } : result;
 }
 
 /**
  * 訂閱「收到訊息」事件。
  *
- * @returns unsubscribe 函式；元件 unmount 時必須呼叫，否則 listener 會累積導致記憶體洩漏
+ * 一般 UI 不應直接使用——請改用 bluetoothInbox，它會常駐收訊並持久化。
+ * 這個函式是給 bluetoothInbox 自己用的。
  */
 export async function subscribeMessages(
   handler: (msg: IncomingMessage) => void,
 ): Promise<() => void> {
   return onMessageReceived(handler);
-}
-
-/**
- * 產生本機 localId（4 字元隨機字串，廣播封包夠塞且仍有可讀性）
- *
- * 注意：每次 App 啟動會重新產生；若要永久 ID 應改存進 localStorage / SQLite。
- * v1 先用 session-scoped 簡化邏輯。
- */
-export function generateLocalId(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 去除易混淆字元
-  let id = "";
-  for (let i = 0; i < 4; i++) {
-    id += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return id;
 }

@@ -1,45 +1,37 @@
 /**
- * GuardiaAI 藍牙模組 - 點對點聊天面板
+ * GuardiaAI 藍牙模組 - 對話面板
  *
- * 跟某個特定的同 App 用戶聊天。
+ * 與某個附近的人直接傳訊息（不經過網路）。
  *
- * 父元件需傳入：
- *   - 對方資訊（NearbyDevice）
- *   - 屬於這個對話的訊息陣列（父元件統一管理所有對話訊息）
- *   - 送訊息的 callback（會呼叫 bluetoothService.sendMessage）
- *   - 自己的 GPS 位置（送訊息時附帶）
- *   - 返回列表的 callback
+ * 訊息來源是常駐收件匣（bluetoothInbox）——不論使用者離開過幾次頁面，
+ * 對話都完整保留。
+ *
+ * 文案原則：不出現藍牙術語。長度限制以「字數」表達，不是 bytes。
  */
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type {
-  IncomingMessage,
+  ChatRecord,
   NearbyDevice,
-  OutgoingMessage,
 } from "../../services/bluetooth/bluetoothService";
 
 /**
- * 與 bluetoothConstants.ts 的 MAX_MESSAGE_BYTES 對齊。
- * 這是序列化後整包 OutgoingMessage（含 from/timestamp/location JSON）的上限，
- * 而非純訊息文字上限；給使用者一個保守的軟提示即可。
+ * 訊息長度上限（字元數）。
+ *
+ * 長訊息現在會自動分片傳送，所以這不再是 BLE 單包的硬限制，而是一個合理的
+ * 使用上限——災害情境下該講的是「我在三樓，腳被壓住」，不是長篇大論。
  */
-const SOFT_TEXT_BYTE_LIMIT = 140;
-
-/** 訊息列表中的單筆訊息，含「方向」（我傳/別人傳）標記，方便靠左/靠右顯示 */
-export interface ChatItem {
-  direction: "in" | "out";
-  message: OutgoingMessage | IncomingMessage;
-}
+const MAX_TEXT_LENGTH = 200;
 
 interface Props {
   peer: NearbyDevice;
-  messages: ChatItem[];
-  myLocation: { lat: number; lng: number } | null;
+  records: ChatRecord[];
+  hasLocation: boolean;
   onSend: (text: string) => Promise<{ success: boolean; error?: string }>;
   onBack: () => void;
 }
 
-export function ChatPanel({ peer, messages, myLocation, onSend, onBack }: Props) {
+export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -50,14 +42,10 @@ export function ChatPanel({ peer, messages, myLocation, onSend, onBack }: Props)
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [records]);
 
-  /** UTF-8 後的位元組數（中文每字 3 bytes）。BLE GATT 對單包 size 有限制 */
-  const byteLength = useMemo(
-    () => new TextEncoder().encode(input).byteLength,
-    [input],
-  );
-  const tooLong = byteLength > SOFT_TEXT_BYTE_LIMIT;
+  const remaining = MAX_TEXT_LENGTH - input.length;
+  const tooLong = remaining < 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,49 +60,41 @@ export function ChatPanel({ peer, messages, myLocation, onSend, onBack }: Props)
     if (result.success) {
       setInput("");
     } else {
-      setErrorMsg(result.error ?? "傳送失敗");
+      setErrorMsg(result.error ?? "訊息沒有送出去，請再試一次");
     }
   };
 
   return (
     <div className="h-screen flex flex-col bg-[#020617]">
-      {/* 標頭 */}
       <header className="glass-panel px-4 py-3 flex items-center gap-3 border-b border-white/5">
-        <button
-          onClick={onBack}
-          className="text-slate-400 hover:text-white text-sm"
-        >
+        <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
           ← 返回
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-white font-semibold truncate">{peer.name}</div>
-          <div className="text-[11px] text-slate-400">
-            BLE 直連 · {peer.rssi} dBm
-          </div>
+          <div className="text-[11px] text-slate-400">直接連線，不需要網路</div>
         </div>
-        {myLocation && (
+        {hasLocation && (
           <span className="text-[10px] text-amber-300 bg-amber-500/15 px-2 py-1 rounded-full">
-            📍 含位置
+            會附上你的位置
           </span>
         )}
       </header>
 
-      {/* 訊息列表 */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-2"
-      >
-        {messages.length === 0 && (
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        {records.length === 0 && (
           <div className="text-center text-slate-500 text-sm py-8">
-            尚無訊息。傳送第一則訊息試試看。
+            還沒有訊息。傳送第一則訊息給對方。
           </div>
         )}
 
-        {messages.map((item, idx) => {
-          const isMe = item.direction === "out";
+        {records.map((record, idx) => {
+          const isMe = record.direction === "out";
+          const msg = record.message;
+
           return (
             <div
-              key={idx}
+              key={`${msg.timestamp}-${idx}`}
               className={`flex ${isMe ? "justify-end" : "justify-start"}`}
             >
               <div
@@ -125,16 +105,15 @@ export function ChatPanel({ peer, messages, myLocation, onSend, onBack }: Props)
                 }`}
               >
                 <div className="text-sm whitespace-pre-wrap break-words">
-                  {item.message.text}
+                  {msg.text}
                 </div>
-                {item.message.location && (
+                {msg.location && (
                   <div className="text-[10px] mt-1 opacity-70">
-                    📍 {item.message.location.lat.toFixed(4)},{" "}
-                    {item.message.location.lng.toFixed(4)}
+                    位置：{msg.location.lat.toFixed(4)}, {msg.location.lng.toFixed(4)}
                   </div>
                 )}
                 <div className="text-[9px] mt-1 opacity-50">
-                  {new Date(item.message.timestamp).toLocaleTimeString()}
+                  {new Date(msg.timestamp).toLocaleTimeString()}
                 </div>
               </div>
             </div>
@@ -142,14 +121,12 @@ export function ChatPanel({ peer, messages, myLocation, onSend, onBack }: Props)
         })}
       </div>
 
-      {/* 錯誤提示 */}
       {errorMsg && (
         <div className="px-4 py-2 bg-rose-900/30 text-rose-200 text-[12px] border-t border-rose-500/20">
           {errorMsg}
         </div>
       )}
 
-      {/* 輸入區 */}
       <form
         onSubmit={handleSubmit}
         className="px-3 py-3 border-t border-white/5 bg-slate-950/80"
@@ -159,9 +136,9 @@ export function ChatPanel({ peer, messages, myLocation, onSend, onBack }: Props)
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="輸入訊息..."
+            placeholder="輸入訊息…"
             disabled={sending}
-            className={`flex-1 bg-slate-900 border rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none ${
+            className={`flex-1 bg-slate-900 border rounded-xl px-3 py-3 text-sm text-white placeholder-slate-500 focus:outline-none ${
               tooLong
                 ? "border-rose-500/60 focus:border-rose-500"
                 : "border-white/10 focus:border-amber-500/50"
@@ -170,19 +147,22 @@ export function ChatPanel({ peer, messages, myLocation, onSend, onBack }: Props)
           <button
             type="submit"
             disabled={sending || !input.trim() || tooLong}
-            className="px-4 py-2 bg-amber-500/30 text-amber-100 border border-amber-500/40 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-amber-500/40"
+            className="px-5 py-3 bg-amber-500/30 text-amber-100 border border-amber-500/40 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-amber-500/40"
           >
-            {sending ? "傳送中..." : "傳送"}
+            {sending ? "傳送中…" : "傳送"}
           </button>
         </div>
-        {input.length > 0 && (
+
+        {/* 只在接近上限時才提示，平時不用打擾使用者 */}
+        {input.length > MAX_TEXT_LENGTH - 40 && (
           <div
-            className={`mt-1 text-[10px] text-right ${
+            className={`mt-1 text-[11px] text-right ${
               tooLong ? "text-rose-300" : "text-slate-500"
             }`}
           >
-            {byteLength} / {SOFT_TEXT_BYTE_LIMIT} bytes
-            {tooLong && " · 超出 BLE 單包上限，請縮短"}
+            {tooLong
+              ? `訊息太長了，請刪掉 ${-remaining} 個字`
+              : `還可以輸入 ${remaining} 個字`}
           </div>
         )}
       </form>

@@ -5,9 +5,22 @@
  * 的 JS 端對應封裝。
  *
  * 只在 iOS 原生 App 內可用；在瀏覽器中所有方法會回傳「不支援」並靜默忽略。
+ *
+ * 收訊流程（每一步都可能失敗，失敗一律丟棄，絕不讓壞資料進入 UI）：
+ *
+ *   Swift 收到 GATT write
+ *     → base64 字串推給 JS
+ *     → 解 base64 得原始 bytes
+ *     → parseFrame 解析分片標頭
+ *     → FrameReassembler 收齊所有分片
+ *     → UTF-8 解碼成 JSON 字串
+ *     → parseIncomingMessage 驗證欄位
+ *     → 交給 handler
  */
 
 import { registerPlugin, Capacitor, type PluginListenerHandle } from "@capacitor/core";
+import { FrameReassembler, parseFrame } from "./bluetoothChunking";
+import { parseIncomingMessage } from "./bluetoothValidation";
 import type { IncomingMessage } from "./bluetoothTypes";
 
 // ----- 原生插件介面（對應 BlePeripheralPlugin.swift 的 @objc 方法） -----
@@ -17,7 +30,7 @@ interface BlePeripheralPlugin {
   isAdvertising(): Promise<{ isAdvertising: boolean }>;
   addListener(
     eventName: "messageReceived",
-    listener: (event: { message: string; centralId: string; timestamp: number }) => void,
+    listener: (event: { data: string; centralId: string; timestamp: number }) => void,
   ): Promise<PluginListenerHandle>;
   removeAllListeners(): Promise<void>;
 }
@@ -37,7 +50,7 @@ export function canAdvertise(): boolean {
 
 /**
  * 開始廣播自己為 GuardiaAI 使用者
- * @param localId 廣播時附帶的短識別字串（建議 4–8 字元，避免廣播封包過長）
+ * @param localId 廣播時附帶的短識別字串
  */
 export async function startAdvertising(localId: string): Promise<boolean> {
   if (!canAdvertise()) {
@@ -74,13 +87,27 @@ export async function getIsAdvertising(): Promise<boolean> {
   }
 }
 
+/** base64 → 原始 bytes */
+function base64ToBytes(base64: string): Uint8Array | null {
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return null; // 不是合法 base64
+  }
+}
+
 /**
- * 註冊「收到訊息」的監聽器
+ * 註冊「收到訊息」的監聽器。
  *
- * 訊息來源：附近的 Central（通常是別人的手機）透過 GATT write 寫進來，
- * 由 Swift 端 BlePeripheralManager 收到後透過 Capacitor event 推上來。
+ * 訊息來源是附近的 Central（別人的手機）透過 GATT write 寫入。**來源不可信**，
+ * 因此每一層都做檢查，任何一步不合法就丟棄，不讓格式錯誤的資料進到畫面。
  *
- * @returns unregister function；元件 unmount 時務必呼叫，避免 memory leak
+ * @returns unregister function；不再需要時務必呼叫，避免 listener 累積
  */
 export async function onMessageReceived(
   handler: (msg: IncomingMessage) => void,
@@ -89,18 +116,43 @@ export async function onMessageReceived(
     return () => {};
   }
 
+  // 每個監聽器有自己的重組器，避免不同訂閱者互相污染分片狀態
+  const reassembler = new FrameReassembler();
+  const decoder = new TextDecoder();
+
   const listener = await BlePeripheral.addListener("messageReceived", (event) => {
-    // Swift 端把 bytes 轉成 UTF-8 字串後傳上來；我們約定 JS 端發送時
-    // 會把 OutgoingMessage 物件 JSON.stringify，所以這裡反向 parse。
-    try {
-      const parsed = JSON.parse(event.message);
-      handler({
-        ...parsed,
-        centralId: event.centralId,
-      });
-    } catch (err) {
-      console.error("[BLE] 收到無法解析的訊息", event.message, err);
+    const bytes = base64ToBytes(event.data);
+    if (!bytes) {
+      console.warn("[BLE] 收到無法解碼的 base64，已丟棄");
+      return;
     }
+
+    const frame = parseFrame(bytes);
+    if (!frame) {
+      console.warn("[BLE] 收到格式錯誤的分片，已丟棄");
+      return;
+    }
+
+    // 依來源分組重組；尚未收齊時回傳 null，靜靜等下一片
+    const complete = reassembler.add(event.centralId, frame);
+    if (!complete) return;
+
+    // 分片全數到齊後才做 UTF-8 解碼——中途解碼會在多位元組字元的切點出錯
+    let json: string;
+    try {
+      json = decoder.decode(complete);
+    } catch {
+      console.warn("[BLE] 重組後的資料不是合法 UTF-8，已丟棄");
+      return;
+    }
+
+    const message = parseIncomingMessage(json);
+    if (!message) {
+      console.warn("[BLE] 收到欄位不合法的訊息，已丟棄");
+      return;
+    }
+
+    handler({ ...message, centralId: event.centralId });
   });
 
   return () => {

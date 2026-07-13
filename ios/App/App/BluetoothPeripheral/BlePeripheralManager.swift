@@ -48,6 +48,11 @@ class BlePeripheralManager: NSObject, CBPeripheralManagerDelegate {
     private var serviceAdded = false
     private var isAdvertisingRequested = false
 
+    /// 等著透過 notify 推給訂閱者的訊息。
+    /// CoreBluetooth 的傳輸佇列滿載時 updateValue 會回傳 false，訊息必須留在這裡等重送，
+    /// 否則會靜默遺失。
+    private var pendingNotifications: [Data] = []
+
     /// 廣播時要附加的本機短 ID（最多 ~20 bytes，建議 4–8 bytes，例如裝置雜湊）
     /// 由 startAdvertising(localId:) 傳入
     private var pendingLocalId: String = ""
@@ -98,6 +103,33 @@ class BlePeripheralManager: NSObject, CBPeripheralManagerDelegate {
         return peripheralManager.isAdvertising
     }
 
+    /// 主動推一則訊息給所有已訂閱的 Central。
+    ///
+    /// 送不出去時不會遺失：updateValue 回傳 false 代表 CoreBluetooth 的傳輸佇列已滿，
+    /// 此時訊息留在 pendingNotifications，等 peripheralManagerIsReady 回呼再續送。
+    func notify(data: Data) {
+        pendingNotifications.append(data)
+        flushPendingNotifications()
+    }
+
+    // MARK: - 內部：notify 送出佇列
+
+    /// 盡可能把積壓的訊息送出；一遇到佇列滿就停手，等 isReady 回呼再繼續。
+    private func flushPendingNotifications() {
+        guard inboxCharacteristic != nil else { return }
+
+        while let next = pendingNotifications.first {
+            let sent = peripheralManager.updateValue(
+                next,
+                for: inboxCharacteristic,
+                onSubscribedCentrals: nil   // nil = 送給所有訂閱者
+            )
+            // false = 傳輸佇列已滿。保留這筆，等 peripheralManagerIsReady 再送。
+            if !sent { return }
+            pendingNotifications.removeFirst()
+        }
+    }
+
     // MARK: - 內部：啟動流程
 
     /// 嘗試推進廣播啟動流程，依目前狀態走到下一步。
@@ -118,12 +150,16 @@ class BlePeripheralManager: NSObject, CBPeripheralManagerDelegate {
 
     /// 建立並向 peripheralManager 註冊 GuardiaAI 服務。實際完成要等 didAdd 回呼。
     private func addService() {
-        // 收件特徵值：允許 Central write、也支援 notify 讓我們可主動推訊息
+        // 收件特徵值：允許 Central write，並支援 notify 讓我們可主動回推訊息。
+        //
+        // 刻意不宣告 .read／.readable：value 為 nil 的特徵被讀取時，CoreBluetooth 會
+        // 呼叫 didReceiveRead delegate；我們沒有實作它，對方的讀取請求就會永遠等不到
+        // 回應而逾時。未來若要對外暴露緊急醫療摘要，需連同 delegate 一起補上。
         inboxCharacteristic = CBMutableCharacteristic(
             type: BlePeripheralManager.INBOX_CHAR_UUID,
-            properties: [.write, .writeWithoutResponse, .notify, .read],
+            properties: [.write, .writeWithoutResponse, .notify],
             value: nil,
-            permissions: [.writeable, .readable]
+            permissions: [.writeable]
         )
 
         let service = CBMutableService(type: BlePeripheralManager.SERVICE_UUID, primary: true)
@@ -197,16 +233,31 @@ class BlePeripheralManager: NSObject, CBPeripheralManagerDelegate {
     /// 有 Central 對我們的 inbox 特徵寫入資料時被呼叫
     func peripheralManager(_ peripheral: CBPeripheralManager,
                            didReceiveWrite requests: [CBATTRequest]) {
+        // CoreBluetooth 的規則：一次 didReceiveWrite 只能對「陣列中的第一個 request」
+        // 呼叫 respond 一次。對每個 request 都 respond 屬 API 誤用，會拋例外。
+        guard let first = requests.first else { return }
+
         for request in requests {
-            // 只處理我們認得的 inbox 特徵
-            if request.characteristic.uuid == BlePeripheralManager.INBOX_CHAR_UUID,
-               let value = request.value {
-                let centralId = request.central.identifier.uuidString
-                // 回拋給上層（BlePeripheralPlugin → Capacitor event → JS）
-                onMessageReceived?(value, centralId)
-            }
-            // 必須回應 success，否則對方 Central 會收到錯誤
-            peripheralManager.respond(to: request, withResult: .success)
+            guard request.characteristic.uuid == BlePeripheralManager.INBOX_CHAR_UUID,
+                  let value = request.value else { continue }
+            // 回拋給上層（BlePeripheralPlugin → Capacitor event → JS）
+            onMessageReceived?(value, request.central.identifier.uuidString)
         }
+
+        peripheralManager.respond(to: first, withResult: .success)
+    }
+
+    // MARK: - CBPeripheralManagerDelegate：notify 推送
+
+    /// 有 Central 訂閱了我們的 inbox 特徵 → 先前積壓的訊息現在可以送出
+    func peripheralManager(_ peripheral: CBPeripheralManager,
+                           central: CBCentral,
+                           didSubscribeTo characteristic: CBCharacteristic) {
+        flushPendingNotifications()
+    }
+
+    /// CoreBluetooth 的傳輸佇列從滿載恢復 → 繼續送出積壓的訊息
+    func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+        flushPendingNotifications()
     }
 }

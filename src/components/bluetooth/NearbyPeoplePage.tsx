@@ -1,266 +1,254 @@
 /**
  * GuardiaAI 藍牙模組 - 主頁面（附近的人）
  *
- * 整個藍牙功能的入口，職責：
- *   1. 初始化藍牙（首次進入）
- *   2. 提供「開始/停止 廣播自己」開關
- *   3. 提供「同 App 用戶 / 所有 BLE 裝置」切換
- *   4. 提供「掃描」按鈕、顯示掃描結果（用 NearbyDevicesList）
- *   5. 點選同 App 用戶 → 進入 ChatPanel
- *   6. 持有所有對話訊息（Map<fromLocalId, ChatItem[]>），訂閱原生收訊事件
- *
- * 父元件（App.tsx）只需傳入 onBack 與目前 GPS 位置即可。
+ * 與舊版的差異：
+ *   - 進入頁面就自動持續尋找，不必按「掃描」；掃到一個就即時浮現一個
+ *   - 對話歷史來自常駐收件匣（bluetoothInbox），離開頁面訊息不會遺失
+ *   - 畫面上不出現任何藍牙術語（廣播 / 掃描 / RSSI / BLE）
+ *   - 移除「所有藍牙裝置」模式：掃到耳機、手環對求生沒有用途，只會稀釋列表
  */
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
+  disconnectAllPeers,
+  getLocalId,
   initBluetooth,
-  getStatus,
-  startBroadcasting,
-  stopBroadcasting,
   scanNearby,
   sendMessage,
-  subscribeMessages,
-  getLocalId,
+  startBroadcasting,
+  stopBroadcasting,
+  stopScan,
   type BluetoothStatus,
   type NearbyDevice,
-  type IncomingMessage,
 } from "../../services/bluetooth/bluetoothService";
+import {
+  getCachedStatus,
+  getConversation,
+  markAllRead,
+  recordOutgoing,
+  refreshStatusNow,
+  subscribeInbox,
+} from "../../services/bluetooth/bluetoothInbox";
 import { NearbyDevicesList } from "./NearbyDevicesList";
-import { ChatPanel, type ChatItem } from "./ChatPanel";
+import { ChatPanel } from "./ChatPanel";
 
 interface Props {
   onBack: () => void;
   myLocation: { lat: number; lng: number } | null;
 }
 
-export function NearbyPeoplePage({ onBack, myLocation }: Props) {
-  const [status, setStatus] = useState<BluetoothStatus | null>(null);
-  const [onlyGuardiaUsers, setOnlyGuardiaUsers] = useState(true);
-  const [devices, setDevices] = useState<NearbyDevice[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState<string>("");
+/** 一輪掃描結束後，隔多久再自動掃下一輪 */
+const RESCAN_DELAY_MS = 2000;
 
-  /** 進入聊天的對方裝置；null = 顯示列表頁 */
+export function NearbyPeoplePage({ onBack, myLocation }: Props) {
+  const [status, setStatus] = useState<BluetoothStatus | null>(getCachedStatus());
+  const [devices, setDevices] = useState<Map<string, NearbyDevice>>(new Map());
+  const [searching, setSearching] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [chatPeer, setChatPeer] = useState<NearbyDevice | null>(null);
 
-  /**
-   * 所有對話訊息，以對方的 localId 為 key。
-   * 寫入時：自己傳出 = 用 chatPeer.localId；對方傳來 = 用 msg.from。
-   * 兩者皆為對方廣播宣告的短 ID，保證對得起來。
-   */
-  const [chatHistory, setChatHistory] = useState<Map<string, ChatItem[]>>(new Map());
+  /** 收件匣變動時強制重繪（對話內容直接從收件匣讀，不另存一份 state） */
+  const [, onInboxChanged] = useReducer((n: number) => n + 1, 0);
 
-  // ---- 初始化：拉狀態 + 訂閱收訊 ----
+  /** 控制自動尋找迴圈的中止器 */
+  const abortRef = useRef<AbortController | null>(null);
+  /** 元件是否還活著——非同步迴圈不能對已卸載的元件 setState */
+  const aliveRef = useRef(true);
+
+  // ---- 訂閱常駐收件匣（收訊本身在 App 層常駐，這裡只訂閱 UI 更新） ----
   useEffect(() => {
-    let unsubscribe: (() => void) | null = null;
+    markAllRead();
+    const unsub = subscribeInbox(() => {
+      onInboxChanged();
+      setStatus(getCachedStatus());
+    });
+    return unsub;
+  }, []);
+
+  // ---- 進入頁面即自動、持續地尋找附近的人 ----
+  useEffect(() => {
+    aliveRef.current = true;
 
     (async () => {
       try {
         await initBluetooth();
-        const s = await getStatus();
-        setStatus(s);
-
-        unsubscribe = await subscribeMessages((msg: IncomingMessage) => {
-          // 把收到的訊息附加到對方 from 的對話歷史
-          setChatHistory((prev) => {
-            const next = new Map(prev);
-            const list = next.get(msg.from) ?? [];
-            next.set(msg.from, [...list, { direction: "in", message: msg }]);
-            return next;
-          });
-        });
+        refreshStatusNow();
       } catch (err) {
-        console.error("[NearbyPeoplePage] 初始化失敗", err);
-        setScanError("藍牙初始化失敗：" + String(err));
+        console.error("[NearbyPeoplePage] 藍牙啟動失敗", err);
+        if (aliveRef.current) {
+          setErrorMsg("無法啟動附近功能，請確認手機的藍牙已開啟。");
+        }
+        return;
+      }
+
+      // 一輪接一輪地尋找，直到使用者離開頁面
+      while (aliveRef.current) {
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        setSearching(true);
+        try {
+          await scanNearby({
+            onlyGuardiaUsers: true,
+            signal: controller.signal,
+            // 掃到一台就即時加進列表，不必等整輪結束
+            onDevice: (device) => {
+              if (!aliveRef.current) return;
+              setDevices((prev) => new Map(prev).set(device.deviceId, device));
+            },
+          });
+        } catch (err) {
+          if (aliveRef.current) {
+            setErrorMsg("尋找附近的人時發生問題：" + String(err));
+          }
+        }
+
+        if (!aliveRef.current) break;
+        setSearching(false);
+
+        // 稍作間隔再找下一輪，避免藍牙持續滿載耗電
+        await new Promise((r) => setTimeout(r, RESCAN_DELAY_MS));
       }
     })();
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      aliveRef.current = false;
+      abortRef.current?.abort();
+      stopScan();
+      // 離開功能時斷開所有連線，不要讓連線池懸著
+      void disconnectAllPeers();
     };
   }, []);
 
-  // ---- 重新整理狀態（廣播 on/off 後呼叫一次） ----
-  const refreshStatus = useCallback(async () => {
-    const s = await getStatus();
-    setStatus(s);
-  }, []);
-
-  // ---- 切換廣播自己 ----
-  const handleToggleBroadcast = async () => {
+  // ---- 切換「讓附近的人看見我」 ----
+  const handleToggleVisibility = async () => {
     if (!status) return;
-    if (status.isAdvertising) {
-      await stopBroadcasting();
-    } else {
-      const res = await startBroadcasting();
-      if (!res.success) {
-        setScanError("廣播啟動失敗。請確認藍牙已開啟並允許權限。");
-      }
-    }
-    await refreshStatus();
-  };
 
-  // ---- 掃描附近 ----
-  const handleScan = async () => {
-    setScanning(true);
-    setScanError("");
     try {
-      const result = await scanNearby(onlyGuardiaUsers);
-      setDevices(result);
+      if (status.isAdvertising) {
+        await stopBroadcasting();
+      } else {
+        const res = await startBroadcasting();
+        if (!res.success) {
+          setErrorMsg("無法讓附近的人看見你。請確認藍牙已開啟並允許權限。");
+        }
+      }
     } catch (err) {
-      setScanError("掃描失敗：" + String(err));
-    } finally {
-      setScanning(false);
+      setErrorMsg("切換失敗：" + String(err));
     }
+
+    refreshStatusNow();
   };
 
-  // ---- 傳訊息（由 ChatPanel 呼叫） ----
-  const handleSendInChat = async (text: string) => {
-    if (!chatPeer) return { success: false, error: "未選擇對象" };
-    // 對話歷史以對方的 localId 為 key；沒有 localId 表示對方 App 未在前景廣播，無法聊天
-    if (!chatPeer.localId) {
-      return { success: false, error: "對方未提供識別 ID，無法建立對話" };
-    }
+  // ---- 傳訊息 ----
+  const handleSend = useCallback(
+    async (text: string) => {
+      if (!chatPeer?.localId) {
+        return { success: false, error: "對方的 App 不在畫面上，暫時無法傳訊息" };
+      }
 
-    const result = await sendMessage(
-      chatPeer.deviceId,
-      text,
-      myLocation ?? undefined,
-    );
+      const result = await sendMessage(chatPeer.deviceId, text, myLocation ?? undefined);
 
-    if (result.success) {
-      // 把自己傳出的訊息也記到對話歷史（送達不代表對方一定有收到，但 BLE write 成功通常代表已寫入）
-      const peerKey = chatPeer.localId;
-      setChatHistory((prev) => {
-        const next = new Map(prev);
-        const list = next.get(peerKey) ?? [];
-        next.set(peerKey, [
-          ...list,
-          {
-            direction: "out",
-            message: {
-              from: getLocalId(),
-              text,
-              location: myLocation ?? undefined,
-              timestamp: Date.now(),
-            },
-          },
-        ]);
-        return next;
-      });
-    }
+      // 自己傳出的訊息也寫進常駐收件匣，離開頁面後對話才不會只剩一半
+      if (result.success && result.message) {
+        recordOutgoing(chatPeer.localId, result.message);
+      }
 
-    return result;
-  };
+      return { success: result.success, error: result.error };
+    },
+    [chatPeer, myLocation],
+  );
 
-  // ---- 進入聊天頁 ----
+  // ---- 對話頁 ----
   if (chatPeer) {
+    const conversation = chatPeer.localId ? getConversation(chatPeer.localId) : [];
     return (
       <ChatPanel
         peer={chatPeer}
-        messages={chatPeer.localId ? chatHistory.get(chatPeer.localId) ?? [] : []}
-        myLocation={myLocation}
-        onSend={handleSendInChat}
+        records={conversation}
+        hasLocation={Boolean(myLocation)}
+        onSend={handleSend}
         onBack={() => setChatPeer(null)}
       />
     );
   }
 
-  // ---- 列表頁 ----
+  // 非原生環境（瀏覽器）完全無法使用：iOS Safari 不支援 Web Bluetooth，連掃描都不行。
+  // 舊版寫「僅能掃描」是錯的，會誤導使用者以為功能還有一半能用。
+  if (status && !status.isNative) {
+    return (
+      <div className="h-screen flex flex-col bg-[#020617]">
+        <header className="glass-panel px-4 py-3 flex items-center gap-3 border-b border-white/5">
+          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
+            ← 返回
+          </button>
+          <div className="text-white font-bold">附近的人</div>
+        </header>
+        <div className="flex-1 flex items-center justify-center px-8">
+          <p className="text-center text-slate-300 text-sm leading-relaxed">
+            這項功能需要在手機 App 中使用。
+            <br />
+            <span className="text-slate-500">網頁瀏覽器無法使用手機的藍牙。</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const deviceList = Array.from(devices.values()).sort((a, b) => b.rssi - a.rssi);
+  const isVisible = status?.isAdvertising ?? false;
+
   return (
     <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
-      {/* 標頭 */}
       <header className="glass-panel px-4 py-3 border-b border-white/5">
         <div className="flex items-center justify-between mb-2">
-          <button
-            onClick={onBack}
-            className="text-slate-400 hover:text-white text-sm"
-          >
+          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
             ← 返回
           </button>
           <div className="text-white font-bold">附近的人</div>
           <div className="w-12" />
         </div>
 
-        {/* 廣播狀態與切換 */}
-        {status && (
-          <div className="flex items-center justify-between bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2">
-            <div className="flex-1 min-w-0">
-              <div className="text-[11px] text-slate-400 uppercase tracking-wider">
-                我的代號
+        <div className="flex items-center justify-between gap-3 bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2">
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] text-slate-400">我的識別碼</div>
+            <div className="text-sm font-mono text-amber-300">{getLocalId()}</div>
+            {status && !status.isEnabled && (
+              <div className="text-[11px] text-rose-300 mt-1">
+                手機的藍牙未開啟，無法使用此功能
               </div>
-              <div className="text-sm font-mono text-amber-300">
-                {getLocalId() || "尚未廣播"}
-              </div>
-              {!status.isNative && (
-                <div className="text-[10px] text-rose-300 mt-1">
-                  ⚠️ 瀏覽器環境無法廣播自己，僅能掃描
-                </div>
-              )}
-              {status.isNative && !status.isEnabled && (
-                <div className="text-[10px] text-rose-300 mt-1">
-                  ⚠️ 裝置藍牙未開啟
-                </div>
-              )}
-            </div>
-            <button
-              onClick={handleToggleBroadcast}
-              disabled={!status.isNative}
-              className={`shrink-0 px-3 py-2 rounded-xl text-[12px] font-semibold border ${
-                status.isAdvertising
-                  ? "bg-rose-500/20 text-rose-200 border-rose-500/30"
-                  : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
-              } disabled:opacity-40`}
-            >
-              {status.isAdvertising ? "停止廣播" : "開始廣播"}
-            </button>
+            )}
           </div>
-        )}
-      </header>
-
-      {/* 內容區 */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        {/* 掃描範圍切換 */}
-        <div className="flex gap-2 mb-3">
           <button
-            onClick={() => setOnlyGuardiaUsers(true)}
-            className={`flex-1 py-2 rounded-xl text-[12px] font-semibold border ${
-              onlyGuardiaUsers
-                ? "bg-amber-500/20 text-amber-200 border-amber-500/40"
-                : "bg-slate-900/60 text-slate-400 border-white/10"
+            onClick={handleToggleVisibility}
+            className={`shrink-0 px-4 py-2.5 rounded-xl text-[13px] font-semibold border ${
+              isVisible
+                ? "bg-rose-500/20 text-rose-200 border-rose-500/30"
+                : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
             }`}
           >
-            只看 GuardiaAI 用戶
-          </button>
-          <button
-            onClick={() => setOnlyGuardiaUsers(false)}
-            className={`flex-1 py-2 rounded-xl text-[12px] font-semibold border ${
-              !onlyGuardiaUsers
-                ? "bg-amber-500/20 text-amber-200 border-amber-500/40"
-                : "bg-slate-900/60 text-slate-400 border-white/10"
-            }`}
-          >
-            所有藍牙裝置
+            {isVisible ? "停止讓別人看見我" : "讓附近的人看見我"}
           </button>
         </div>
+      </header>
 
-        <button
-          onClick={handleScan}
-          disabled={scanning}
-          className="w-full py-3 mb-4 bg-amber-500/20 text-amber-100 border border-amber-500/40 rounded-xl font-semibold disabled:opacity-40"
-        >
-          {scanning ? "掃描中... (約 8 秒)" : "🔍 掃描附近"}
-        </button>
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        {searching && (
+          <div className="flex items-center gap-2 mb-3 text-[12px] text-slate-400">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            正在尋找附近的人…
+          </div>
+        )}
 
-        {scanError && (
+        {errorMsg && (
           <div className="mb-3 px-3 py-2 bg-rose-900/30 text-rose-200 text-[12px] rounded-xl border border-rose-500/20">
-            {scanError}
+            {errorMsg}
           </div>
         )}
 
         <NearbyDevicesList
-          devices={devices}
+          devices={deviceList}
+          searching={searching}
           onSelectUser={(device) => setChatPeer(device)}
         />
       </div>

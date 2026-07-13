@@ -18,6 +18,7 @@ export function AppHeader({
   onRefreshCwa,
   onShowShelterNavigator,
   onShowNearbyPeople,
+  nearbyUnreadCount,
   onShowMedicalCard,
   onLogout,
 }: {
@@ -35,6 +36,8 @@ export function AppHeader({
   onShowShelterNavigator: () => void;
   /** 藍牙模組：開啟「附近的人」頁面 */
   onShowNearbyPeople: () => void;
+  /** 藍牙模組：未讀訊息數。使用者不在該頁面時，仍需知道有人傳訊息來 */
+  nearbyUnreadCount: number;
   onShowMedicalCard: () => void;
   onLogout: () => void;
 }) {
@@ -112,13 +115,22 @@ export function AppHeader({
               避難導航
             </button>
           )}
-          {/* 藍牙模組：附近的人入口（同 App 用戶 BLE 互傳訊息 + 位置） */}
+          {/* 藍牙模組：附近的人入口。未讀訊息以紅點提示——使用者不在該頁面時，
+              仍必須知道有人傳訊息給他。 */}
           <button
             onClick={onShowNearbyPeople}
-            className="px-3 py-2 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-200 text-xs font-semibold hover:bg-sky-500/20 transition-all"
-            title="掃描並聯絡附近的 GuardiaAI 使用者"
+            className="relative px-3 py-2 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-200 text-xs font-semibold hover:bg-sky-500/20 transition-all"
+            title="找到附近的人，直接傳訊息給他們（不需要網路）"
           >
             附近的人
+            {nearbyUnreadCount > 0 && (
+              <span
+                aria-label={`${nearbyUnreadCount} 則未讀訊息`}
+                className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold"
+              >
+                {nearbyUnreadCount > 99 ? "99+" : nearbyUnreadCount}
+              </span>
+            )}
           </button>
           <button
             onClick={onShowMedicalCard}

@@ -1,14 +1,10 @@
 /**
- * GuardiaAI 藍牙模組 - 附近裝置列表元件
+ * GuardiaAI 藍牙模組 - 附近的人列表
  *
- * 純展示元件，不持有自己狀態。
- * 父元件（NearbyPeoplePage）負責掃描、把結果傳進來、處理點擊。
+ * 純展示元件，不持有自己的狀態。
  *
- * 每一列顯示：
- *   - 名稱（同 App 用戶 = localId；其他裝置 = LocalName 或「無名稱」）
- *   - 訊號強度（RSSI → 條狀視覺）
- *   - 估算距離（依 RSSI 粗估近/中/遠）
- *   - GuardiaAI 用戶會多一個「聊天」按鈕
+ * 文案原則：**畫面上不出現任何藍牙術語**。
+ * 不顯示 RSSI 數值（-67 dBm 對使用者沒有意義），只顯示遠近。
  */
 
 import React from "react";
@@ -16,30 +12,29 @@ import type { NearbyDevice } from "../../services/bluetooth/bluetoothService";
 
 interface Props {
   devices: NearbyDevice[];
-  /** 點選同 App 用戶 → 進入聊天；非 App 用戶不會觸發此 callback */
+  searching: boolean;
   onSelectUser: (device: NearbyDevice) => void;
 }
 
-/** RSSI 轉成可讀距離描述（粗略估計，BLE 訊號受牆面影響很大） */
-function rssiToDistance(rssi: number): string {
-  if (rssi >= -55) return "非常近 (<2m)";
-  if (rssi >= -70) return "近 (~5m)";
-  if (rssi >= -85) return "中 (~10m)";
-  return "遠 (>15m)";
+/** 訊號強度轉成人看得懂的距離。BLE 訊號受牆面影響很大，只能表達趨勢。 */
+function distanceLabel(rssi: number): string {
+  if (rssi >= -55) return "就在旁邊";
+  if (rssi >= -70) return "很近";
+  if (rssi >= -85) return "有點距離";
+  return "較遠";
 }
 
-/** RSSI 轉成 0–100 的訊號強度百分比（用於進度條視覺） */
-function rssiToStrength(rssi: number): number {
-  // RSSI 通常在 -100 (極弱) 到 -30 (極強) 之間
+/** 訊號強度轉成 0–100，用於強度條 */
+function signalStrength(rssi: number): number {
   const clamped = Math.max(-100, Math.min(-30, rssi));
   return Math.round(((clamped + 100) / 70) * 100);
 }
 
-export function NearbyDevicesList({ devices, onSelectUser }: Props) {
+export function NearbyDevicesList({ devices, searching, onSelectUser }: Props) {
   if (devices.length === 0) {
     return (
-      <div className="text-center text-slate-400 text-sm py-8">
-        附近沒有掃到任何裝置
+      <div className="text-center text-slate-400 text-sm py-10">
+        {searching ? "正在尋找附近的人…" : "附近目前沒有找到人"}
       </div>
     );
   }
@@ -47,8 +42,10 @@ export function NearbyDevicesList({ devices, onSelectUser }: Props) {
   return (
     <div className="grid gap-3">
       {devices.map((device) => {
-        const strength = rssiToStrength(device.rssi);
+        const strength = signalStrength(device.rssi);
         const isUser = device.isGuardiaUser;
+        // 對方沒在前景廣播識別碼時無法建立對話
+        const canChat = isUser && Boolean(device.localId);
 
         return (
           <div
@@ -63,8 +60,8 @@ export function NearbyDevicesList({ devices, onSelectUser }: Props) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   {isUser && (
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded-full">
-                      GuardiaAI 用戶
+                    <span className="text-[9px] font-bold tracking-wider text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded-full">
+                      使用同一個 App
                     </span>
                   )}
                   <div className="text-sm font-semibold text-white truncate">
@@ -72,18 +69,22 @@ export function NearbyDevicesList({ devices, onSelectUser }: Props) {
                   </div>
                 </div>
                 <div className="text-[11px] text-slate-400">
-                  {rssiToDistance(device.rssi)} · RSSI {device.rssi} dBm
+                  {distanceLabel(device.rssi)}
                 </div>
               </div>
 
               {isUser && (
                 <button
                   onClick={() => onSelectUser(device)}
-                  disabled={!device.localId}
-                  title={device.localId ? undefined : "對方未在前景廣播 ID，暫無法建立對話"}
-                  className="shrink-0 px-3 py-1.5 bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-xl text-[12px] font-semibold hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-500/20"
+                  disabled={!canChat}
+                  title={
+                    canChat
+                      ? undefined
+                      : "對方的 App 目前不在畫面上，暫時無法傳訊息"
+                  }
+                  className="shrink-0 px-4 py-2 bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-xl text-[13px] font-semibold hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  💬 聊天
+                  傳訊息
                 </button>
               )}
             </div>

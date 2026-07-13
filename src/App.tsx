@@ -31,6 +31,11 @@ import {
 } from "./services/offlineQueueService";
 // 藍牙模組：附近的人功能（BLE App-to-App 訊息 + 位置廣播）
 import { NearbyPeoplePage } from "./components/bluetooth/NearbyPeoplePage";
+import {
+  getUnreadCount,
+  initInbox,
+  subscribeInbox,
+} from "./services/bluetooth/bluetoothInbox";
 import { RoomRiskAnalysis } from "./types";
 import { AuthPage } from "./components/auth/AuthPage";
 import { MedicalCardPage } from "./components/medical/MedicalCardPage";
@@ -66,6 +71,19 @@ const App: React.FC = () => {
     hasInjuries: false,
   });
 
+  // 藍牙收件匣必須在 App 層級常駐。
+  //
+  // 舊版把收訊訂閱寫在「附近的人」頁面裡，使用者一離開該頁面就再也收不到別人傳來的
+  // 訊息。這裡啟動一次、不在 cleanup 取消，讓收訊不受使用者身在哪個畫面影響。
+  useEffect(() => {
+    void initInbox();
+
+    const unsub = subscribeInbox(() => {
+      setBleUnread(getUnreadCount());
+    });
+    return unsub;
+  }, []);
+
   // 每 30 秒先存進本機 SQLite，若有網路再批次同步到後端。
   useEffect(() => {
     const syncInterval = setInterval(() => {
@@ -89,6 +107,8 @@ const App: React.FC = () => {
   const [showShelterNavigator, setShowShelterNavigator] = useState(false);
   // 藍牙模組：是否顯示「附近的人」頁面
   const [showNearbyPeople, setShowNearbyPeople] = useState(false);
+  /** 藍牙未讀訊息數（顯示在 header 的紅點上） */
+  const [bleUnread, setBleUnread] = useState(0);
   const [showRoomRiskScanner, setShowRoomRiskScanner] = useState(false);
   const [roomRiskImageUrl, setRoomRiskImageUrl] = useState<string>("");
   const [roomRiskAnalysis, setRoomRiskAnalysis] =
@@ -604,6 +624,7 @@ const App: React.FC = () => {
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
         onShowNearbyPeople={() => setShowNearbyPeople(true)}
+        nearbyUnreadCount={bleUnread}
         onShowMedicalCard={() => setShowMedicalCard(true)}
         onLogout={handleLogout}
       />

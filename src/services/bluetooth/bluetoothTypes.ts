@@ -42,6 +42,23 @@ export interface IncomingMessage extends OutgoingMessage {
   centralId: string;
 }
 
+/**
+ * 收件匣中的一筆對話紀錄（雙向）。
+ *
+ * 收到的與自己傳出的訊息都存在同一個地方，否則離開頁面後自己傳過的訊息會消失，
+ * 對話只剩一半。
+ */
+export interface ChatRecord {
+  /** in = 對方傳來；out = 自己傳出 */
+  direction: "in" | "out";
+  /**
+   * 這則訊息屬於「和誰的對話」——一律是**對方**的 localId。
+   * 收到時 = message.from；自己傳出時 = 對方的 localId。
+   */
+  peerId: string;
+  message: OutgoingMessage;
+}
+
 /** 藍牙模組整體狀態，UI 用來顯示權限/開關提示 */
 export interface BluetoothStatus {
   /** 是否在原生 iOS App 內運作（false = 瀏覽器，功能受限） */
