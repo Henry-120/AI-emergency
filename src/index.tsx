@@ -1,7 +1,12 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { Capacitor } from '@capacitor/core';
 import App from './App';
+
+if (Capacitor.getPlatform() !== 'web') {
+  document.documentElement.classList.add('capacitor-native');
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

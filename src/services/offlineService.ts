@@ -1,8 +1,9 @@
 // src/services/offlineService.ts
-import { DisasterAnalysis, ChatMessage} from "../types";
+import { DisasterAnalysis, ChatMessage, DisasterType } from "../types";
 import { initLlama } from 'llama-cpp-capacitor';
 
-function getLocalKnowledge(userInput: string): DisasterAnalysis {
+// 1. 本地專家規則庫 (原 getOfflineAnalysis 同步版，重命名為 getLocalKnowledge 作為備用知識庫)
+function getLocalKnowledge(userInput: string, conversationText: string = userInput): DisasterAnalysis {
   let advice = "目前離線。請描述您的狀況（例如：地震、失火、受困）。";
   let options: string[] = [];
   let riskLevel = 8;
@@ -289,7 +290,7 @@ function getLocalKnowledge(userInput: string): DisasterAnalysis {
     riskLevel = 10;
   }
   else if (userInput === "身邊無大型漂浮物") {
-    advice = "【替代漂浮物】尋找空寶特瓶（務必旋緊瓶蓋）、密封的塑膠袋、保鮮盒或防潑水背包。將這些充滿空氣的物品塞進外套內部或衣服內，拉上拉鍊或將下擺紮進褲子裡，這能為身體提供重要的臨時浮力。";
+    advice = "【替代漂浮物】尋找空寶特瓶（務必旋緊瓶蓋）、密封的塑膠袋、保鮮盒 or 防潑水背包。將這些充滿空氣的物品塞進外套內部或衣服內，拉上拉鍊或將下擺紮進褲子裡，這能為身體提供重要的臨時浮力。";
     options = ["已製作臨時浮力衣", "回首頁"];
     riskLevel = 10;
   }
@@ -329,7 +330,7 @@ function getLocalKnowledge(userInput: string): DisasterAnalysis {
   }
 
   return {
-    type: "其他" as any,
+    type: DisasterType.EARTHQUAKE,
     riskLevel,
     situationSummary: `[離線模式自動回覆] ${userInput}`,
     immediateActions: [
@@ -341,28 +342,72 @@ function getLocalKnowledge(userInput: string): DisasterAnalysis {
     ],
     survivalProbability: riskLevel > 8 ? 50 : 90,
     longTermAdvice: "請保持手機電力，離線模式將優先引導生存動作。",
-    missingInfoRequests: options
+    missingInfoRequests: options,
+    emergencySummary: buildOfflineEmergencySummary(conversationText, riskLevel),
   };
 }
 
-// 2. 混合架構：導出給 UI 使用的全新非同步大模型函式
+// 2. 離線對話上下文摘要分析器 (來自 main，配合 getLocalKnowledge 使用)
+function buildOfflineEmergencySummary(
+  conversationText: string,
+  riskLevel: number,
+): DisasterAnalysis["emergencySummary"] {
+  const text = conversationText.replace(/\s+/g, " ");
+  const injuryTerms = [
+    "受傷", "出血", "骨折", "脫臼", "壓傷", "砸傷", "燒傷", "燙傷",
+    "呼吸困難", "意識模糊", "焦慮",
+  ];
+  const matchedInjuries = injuryTerms.filter((term) => text.includes(term));
+  const isTrapped = ["受困", "困住", "無法離開", "出口受阻", "沒有其他出口"]
+    .some((term) => text.includes(term));
+  const immobile = ["無法撤離", "無法移動", "重物無法移除"]
+    .some((term) => text.includes(term));
+  const rescueNeeds: string[] = [];
+  if (isTrapped) rescueNeeds.push("搜救與脫困");
+  if (text.includes("出血")) rescueNeeds.push("止血與緊急醫療");
+  if (["骨折", "脫臼", "無法移動", "無法撤離"].some((term) => text.includes(term))) {
+    rescueNeeds.push("擔架與後送");
+  }
+  if (["呼吸困難", "呼吸越來越難", "吸入傷"].some((term) => text.includes(term))) {
+    rescueNeeds.push("呼吸道與緊急醫療支援");
+  }
+
+  const severe = riskLevel >= 9 || rescueNeeds.length > 0;
+  return {
+    hasInjuries: matchedInjuries.length > 0,
+    injurySummary: matchedInjuries.length
+      ? `離線對話已回報：${[...new Set(matchedInjuries)].join("、")}`
+      : "",
+    injurySeverity: matchedInjuries.length
+      ? severe ? "severe" : "moderate"
+      : "unknown",
+    rescueNeeds: [...new Set(rescueNeeds)],
+    isTrapped,
+    mobilityStatus: immobile ? "immobile" : "unknown",
+    locationDetails: "",
+    urgencyLevel: Math.max(1, Math.min(10, riskLevel)),
+    confidence: matchedInjuries.length || isTrapped ? 0.7 : 0.2,
+  };
+}
+
+// 3. 混合架構：導出給 UI 使用的全新非同步大模型函式 (來自 HEAD)
 export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<DisasterAnalysis> {
   const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
   
-  const localKnowledge = getLocalKnowledge(lastUserMessage);
+  // 串接對話歷史記錄，讓摘要產生器有足夠的上下文做分析
+  const conversationText = messages.map(m => m.content).join(" ");
+  const localKnowledge = getLocalKnowledge(lastUserMessage, conversationText);
   const expertAdvice = localKnowledge.immediateActions[0]?.description || "";
   let expertOptions = localKnowledge.missingInfoRequests || [];
   let expertRiskLevel = localKnowledge.riskLevel;
 
-  // 🔥 核心新增：判斷是不是「沒有命中任何 if/else 規則」，掉到了預設值？
-  // 注意：這裡的比對文字必須跟 getLocalKnowledge 最上面的預設 advice 一模一樣
+  // 🔥 核心：判斷是不是「沒有命中任何 if/else 規則」，掉到了預設值？
   const isFallbackRule = expertAdvice.includes("目前離線。請描述您的狀況");
 
   let systemPrompt = "";
 
   if (isFallbackRule) {
     // 💡 路線 A：自由輸入文字 (LLM 自己想辦法)
-    // 我們讓 LLM 根據使用者的文字，自己產生防災知識
     systemPrompt = `你是一個專業的災害應變專家。使用者目前遇到以下緊急狀況：
 【使用者狀況】：${lastUserMessage}
 
@@ -382,7 +427,7 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
   "longTermAdvice": "簡短後續建議"
 }`;
     
-    // 自由輸入的情況下，因為沒有按鈕選項，我們給它一個預設的返回按鈕
+    // 自由輸入的情況下，預設提供第一層按鈕選項
     expertOptions = ["受困", "出口受阻", "受傷", "我人安全", "有瓦斯味"]; 
 
   } else {
@@ -449,12 +494,14 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
       parsedData.riskLevel = expertRiskLevel;
       parsedData.survivalProbability = expertRiskLevel > 8 ? 50 : 90;
     } else {
-      // 確保自由輸入時，LLM 沒回傳數字的話有預設值
       parsedData.riskLevel = parsedData.riskLevel || 8;
       parsedData.survivalProbability = parsedData.survivalProbability || 50;
     }
     
     parsedData.type = parsedData.type || "其他";
+    
+    // 注入由專家系統產生的離線對話上下文摘要分析，供 UI 及後台警報使用
+    parsedData.emergencySummary = localKnowledge.emergencySummary;
 
     if (!parsedData.immediateActions || !Array.isArray(parsedData.immediateActions) || parsedData.immediateActions.length === 0) {
       throw new Error("JSON 中缺少 immediateActions 陣列");
@@ -467,7 +514,6 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
     
     let fallbackActions: any[] = []; 
     
-    // 降級邏輯不變
     if (expertAdvice.includes("1.")) {
       const splitByNumbers = expertAdvice.split(/\d\.\s*/).filter(text => text.trim().length > 0);
       const titleMatch = expertAdvice.match(/【(.*?)】/);
@@ -504,7 +550,8 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
       ],
       survivalProbability: expertRiskLevel > 8 ? 50 : 90,
       longTermAdvice: "目前處於離線狀態，請依照上述步驟確保自身安全。",
-      missingInfoRequests: expertOptions
+      missingInfoRequests: expertOptions,
+      emergencySummary: localKnowledge.emergencySummary
     };
   }
 }

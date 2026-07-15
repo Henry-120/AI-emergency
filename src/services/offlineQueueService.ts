@@ -5,7 +5,8 @@ import {
   SQLiteDBConnection,
 } from "@capacitor-community/sqlite";
 import { BACKEND } from "./backend";
-import { UserStatus } from "../types";
+import { ChatMessage, EmergencySummary, UserStatus } from "../types";
+import { getBackendToken } from "./authService";
 
 export interface UserStatusSyncRecord {
   id: string;
@@ -19,6 +20,23 @@ export interface UserStatusSyncRecord {
 
 const DB_NAME = "guardia_ai_local";
 const FALLBACK_KEY = "pending_user_status_records";
+const EMERGENCY_FALLBACK_KEY = "emergency_report_sync_queue";
+
+export interface EmergencyReportSyncRecord {
+  id: string;
+  local_user_id: string;
+  summary: EmergencySummary;
+  messages: Array<{
+    role: "user" | "assistant";
+    content: string;
+    timestamp: string;
+  }>;
+  created_at: string;
+  sync_status: "pending" | "synced";
+  retry_count: number;
+  last_error?: string | null;
+  synced_at?: string | null;
+}
 
 let sqliteConnection: SQLiteConnection | null = null;
 let dbConnection: SQLiteDBConnection | null = null;
@@ -146,6 +164,159 @@ export async function syncPendingUserStatusRecords() {
   }
 }
 
+/** 先寫入裝置端；不依賴網路或後端 token。 */
+export async function saveEmergencyReportLocally(
+  localUserId: string,
+  summary: EmergencySummary,
+  messages: ChatMessage[],
+): Promise<EmergencyReportSyncRecord> {
+  const record: EmergencyReportSyncRecord = {
+    id: createRecordId(),
+    local_user_id: localUserId,
+    summary,
+    messages: messages.map(({ role, content, timestamp }) => ({
+      role,
+      content,
+      timestamp: timestamp.toISOString(),
+    })),
+    created_at: new Date().toISOString(),
+    sync_status: "pending",
+    retry_count: 0,
+  };
+
+  if (!isNativeSQLite()) {
+    const records = getEmergencyFallbackRecords();
+    records.push(record);
+    localStorage.setItem(EMERGENCY_FALLBACK_KEY, JSON.stringify(records));
+    return record;
+  }
+
+  const db = await getDb();
+  if (!db) throw new Error("無法開啟裝置端資料庫");
+  await db.run(
+    `INSERT INTO emergency_report_queue (
+      id, local_user_id, summary_json, messages_json, sync_status,
+      retry_count, created_at
+    ) VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
+    [
+      record.id,
+      record.local_user_id,
+      JSON.stringify(record.summary),
+      JSON.stringify(record.messages),
+      record.created_at,
+    ],
+  );
+  return record;
+}
+
+export async function getPendingEmergencyReports(): Promise<EmergencyReportSyncRecord[]> {
+  if (!isNativeSQLite()) {
+    return getEmergencyFallbackRecords().filter(
+      (record) => record.sync_status === "pending",
+    );
+  }
+
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.query(
+    `SELECT id, local_user_id, summary_json, messages_json, created_at,
+            sync_status, retry_count, last_error, synced_at
+     FROM emergency_report_queue
+     WHERE sync_status = 'pending'
+     ORDER BY created_at ASC
+     LIMIT 100`,
+  );
+  return (result.values || []).map((row: any) => ({
+    id: String(row.id),
+    local_user_id: String(row.local_user_id),
+    summary: JSON.parse(String(row.summary_json)),
+    messages: JSON.parse(String(row.messages_json)),
+    created_at: String(row.created_at),
+    sync_status: "pending" as const,
+    retry_count: Number(row.retry_count || 0),
+    last_error: row.last_error ?? null,
+    synced_at: row.synced_at ?? null,
+  }));
+}
+
+/** 依序同步快照，最後一筆會成為後端的當前救援摘要。 */
+export async function syncPendingEmergencyReports() {
+  const token = getBackendToken();
+  if (!token) {
+    return { success: false, synced: 0, error: "missing_backend_token" };
+  }
+
+  const pending = await getPendingEmergencyReports();
+  let synced = 0;
+  for (const record of pending) {
+    try {
+      const response = await fetch(`${BACKEND}/api/emergency-report`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          summary: record.summary,
+          messages: record.messages,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await markEmergencyReportSynced(record.id);
+      synced += 1;
+    } catch (error) {
+      await markEmergencyReportFailed(
+        record.id,
+        error instanceof Error ? error.message : "同步失敗",
+      );
+      // 保持時間順序；舊快照失敗時不越過它寫入新快照。
+      return { success: false, synced, error: "sync_failed" };
+    }
+  }
+  return { success: true, synced };
+}
+
+async function markEmergencyReportSynced(id: string) {
+  const now = new Date().toISOString();
+  if (!isNativeSQLite()) {
+    const records = getEmergencyFallbackRecords().map((record) =>
+      record.id === id
+        ? { ...record, sync_status: "synced" as const, synced_at: now, last_error: null }
+        : record,
+    );
+    localStorage.setItem(EMERGENCY_FALLBACK_KEY, JSON.stringify(records));
+    return;
+  }
+  const db = await getDb();
+  if (!db) return;
+  await db.run(
+    `UPDATE emergency_report_queue
+     SET sync_status = 'synced', synced_at = ?, updated_at = ?, last_error = NULL
+     WHERE id = ?`,
+    [now, now, id],
+  );
+}
+
+async function markEmergencyReportFailed(id: string, error: string) {
+  if (!isNativeSQLite()) {
+    const records = getEmergencyFallbackRecords().map((record) =>
+      record.id === id
+        ? { ...record, retry_count: record.retry_count + 1, last_error: error }
+        : record,
+    );
+    localStorage.setItem(EMERGENCY_FALLBACK_KEY, JSON.stringify(records));
+    return;
+  }
+  const db = await getDb();
+  if (!db) return;
+  await db.run(
+    `UPDATE emergency_report_queue
+     SET retry_count = retry_count + 1, last_error = ?, updated_at = ?
+     WHERE id = ?`,
+    [error, new Date().toISOString(), id],
+  );
+}
+
 async function markUserStatusRecordsSynced(ids: string[]) {
   if (ids.length === 0) return;
 
@@ -222,6 +393,22 @@ async function initDb() {
 
     CREATE INDEX IF NOT EXISTS idx_pending_user_status_sync
       ON pending_user_status(sync_status, created_at);
+
+    CREATE TABLE IF NOT EXISTS emergency_report_queue (
+      id TEXT PRIMARY KEY NOT NULL,
+      local_user_id TEXT NOT NULL,
+      summary_json TEXT NOT NULL,
+      messages_json TEXT NOT NULL,
+      sync_status TEXT NOT NULL DEFAULT 'pending',
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT,
+      synced_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_emergency_report_queue_sync
+      ON emergency_report_queue(sync_status, created_at);
   `);
 
   dbConnection = db;
@@ -231,6 +418,14 @@ async function initDb() {
 function getFallbackRecords(): UserStatusSyncRecord[] {
   try {
     return JSON.parse(localStorage.getItem(FALLBACK_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function getEmergencyFallbackRecords(): EmergencyReportSyncRecord[] {
+  try {
+    return JSON.parse(localStorage.getItem(EMERGENCY_FALLBACK_KEY) || "[]");
   } catch {
     return [];
   }

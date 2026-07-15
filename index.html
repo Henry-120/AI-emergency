@@ -1,67 +1,290 @@
 <!doctype html>
-<html lang="zh-TW">
+<html lang="zh-TW" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>GuardiaAI - 極簡災害應變系統</title>
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#eef1f6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#13171d" media="(prefers-color-scheme: dark)" />
+    <title>GuardiaAI · 災害應變求生助手</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Semantic tokens are exposed to Tailwind so components stay theme-agnostic.
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              bg: "var(--bg)",
+              surface: "var(--surface)",
+              "surface-2": "var(--surface-2)",
+              line: "var(--line)",
+              ink: "var(--ink)",
+              muted: "var(--muted)",
+              primary: "var(--primary)",
+              "primary-ink": "var(--primary-ink)",
+              accent: "var(--accent)",
+              critical: "var(--critical)",
+              "critical-soft": "var(--critical-soft)",
+              "critical-text": "var(--critical-text)",
+              high: "var(--high)",
+              "high-soft": "var(--high-soft)",
+              "high-text": "var(--high-text)",
+              safe: "var(--safe)",
+              "safe-soft": "var(--safe-soft)",
+              "safe-text": "var(--safe-text)",
+              command: "var(--command)",
+              "command-2": "var(--command-2)",
+              "command-ink": "var(--command-ink)",
+              "command-muted": "var(--command-muted)",
+              "command-line": "var(--command-line)",
+            },
+            fontFamily: {
+              sans: ['"Noto Sans TC"', "system-ui", "sans-serif"],
+              data: ['"JetBrains Mono"', "ui-monospace", "monospace"],
+            },
+            borderColor: { DEFAULT: "var(--line)" },
+            ringColor: { DEFAULT: "var(--accent)" },
+            zIndex: {
+              header: "30",
+              sticky: "20",
+              overlay: "40",
+              modal: "50",
+              toast: "60",
+            },
+          },
+        },
+      };
+    </script>
     <style>
-        body {
-            font-family: 'Noto+Sans+TC', sans-serif;
-            background-color: #020617;
-            color: #f8fafc;
-            overflow: hidden; /* 防止手機端出現雙重捲軸 */
-            -webkit-tap-highlight-color: transparent;
+      /* ── Design tokens ─────────────────────────────────────────────
+         Light is the default (best legibility in daylight). Dark applies
+         on system dark mode OR when forced (e.g. low battery in a disaster). */
+      :root {
+        --bg: #eef1f6;
+        --surface: #ffffff;
+        --surface-2: #e4e9f0;
+        --line: #d3dae3;
+        --ink: #1b2026;
+        --muted: #586271;
+        --primary: #1f5fd6;
+        --primary-ink: #ffffff;
+        --accent: #1f5fd6;
+        --critical: #d11f2a;
+        --critical-soft: #fbeaeb;
+        --critical-text: #9c121b;
+        --high: #b45309;
+        --high-soft: #f8ecd9;
+        --high-text: #8a4308;
+        --safe: #157f43;
+        --safe-soft: #e3f3e9;
+        --safe-text: #0f6536;
+        /* Command chrome: a fixed deep "instrument" surface, identical in both
+           themes — the dark frame around the bright guidance canvas. */
+        --command: #10151e;
+        --command-2: #1d2532;
+        --command-ink: #f4f7fb;
+        --command-muted: #97a4b8;
+        --command-line: #2b3443;
+        --overlay: rgba(19, 23, 29, 0.55);
+        --elev-1: 0 1px 2px rgba(19, 23, 29, 0.06), 0 1px 1px rgba(19, 23, 29, 0.04);
+        --elev-2: 0 4px 14px rgba(19, 23, 29, 0.1);
+        color-scheme: light;
+      }
+
+      :root.theme-dark,
+      :root[data-theme="dark"] {
+        --bg: #13171d;
+        --surface: #1c222b;
+        --surface-2: #262e39;
+        --line: #333c49;
+        --ink: #eef2f7;
+        --muted: #9aa6b4;
+        --primary: #2f6fe0;
+        --primary-ink: #ffffff;
+        --accent: #6ba5ff;
+        --critical: #e0454e;
+        --critical-soft: #3a1d20;
+        --critical-text: #ff8f97;
+        --high: #c9781f;
+        --high-soft: #2e2417;
+        --high-text: #f0b676;
+        --safe: #2f9d5b;
+        --safe-soft: #16271d;
+        --safe-text: #79d39a;
+        --overlay: rgba(0, 0, 0, 0.6);
+        --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --elev-2: 0 6px 20px rgba(0, 0, 0, 0.5);
+        color-scheme: dark;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #13171d;
+          --surface: #1c222b;
+          --surface-2: #262e39;
+          --line: #333c49;
+          --ink: #eef2f7;
+          --muted: #9aa6b4;
+          --primary: #2f6fe0;
+          --primary-ink: #ffffff;
+          --accent: #6ba5ff;
+          --critical: #e0454e;
+          --critical-soft: #3a1d20;
+          --critical-text: #ff8f97;
+          --high: #c9781f;
+          --high-soft: #2e2417;
+          --high-text: #f0b676;
+          --safe: #2f9d5b;
+          --safe-soft: #16271d;
+          --safe-text: #79d39a;
+          --overlay: rgba(0, 0, 0, 0.6);
+          --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+          --elev-2: 0 6px 20px rgba(0, 0, 0, 0.5);
+          color-scheme: dark;
         }
-        .gold-glow {
-            box-shadow: 0 0 15px rgba(251, 191, 36, 0.2);
+      }
+
+      html,
+      body,
+      #root {
+        height: 100%;
+      }
+      body {
+        font-family: "Noto Sans TC", system-ui, sans-serif;
+        background-color: var(--bg);
+        color: var(--ink);
+        overflow: hidden; /* App shell owns its own scroll regions */
+        -webkit-tap-highlight-color: transparent;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .font-data {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-feature-settings: "tnum" 1;
+      }
+
+      .safe-area-bottom {
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
+      }
+      .safe-area-top {
+        padding-top: env(safe-area-inset-top);
+      }
+
+      /* WKWebView may report a zero CSS inset even while iOS overlays its
+         status bar. Apply this only inside the packaged Capacitor app. The
+         !important intentionally wins over Tailwind's py-* utilities. */
+      .capacitor-native .safe-area-top {
+        padding-top: max(3.25rem, env(safe-area-inset-top)) !important;
+      }
+
+      /* Visible focus for keyboard users; pointer interactions stay clean. */
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        border-radius: 6px;
+      }
+
+      /* Scrollbars: quiet, neutral, theme-aware (no gold). */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--line);
+        border-radius: 10px;
+      }
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
+
+
+      .glass-panel {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(16px);
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .message-gradient-user {
+        background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+      }
+      .gold-glow {
+        box-shadow: 0 0 15px rgba(251, 191, 36, 0.2);
+      }
+
+      /* ── Motion: state-only, 150–250ms, reduced-motion first-class ── */
+      .animate-in {
+        animation: fadeIn 0.2s ease-out both;
+      }
+      .msg-enter {
+        animation: msgEnter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
         }
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.8);
-            backdrop-filter: blur(16px);
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        to {
+          opacity: 1;
         }
-        .message-gradient-user {
-            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+      }
+      @keyframes msgEnter {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
         }
-        .safe-area-bottom {
-            padding-bottom: env(safe-area-inset-bottom);
+        to {
+          opacity: 1;
+          transform: translateY(0);
         }
-        /* 自定義滾動條 */
-        ::-webkit-scrollbar {
-            width: 4px;
+      }
+      @keyframes pulseRing {
+        0%,
+        100% {
+          opacity: 1;
         }
-        ::-webkit-scrollbar-track {
-            background: transparent;
+        50% {
+          opacity: 0.4;
         }
-        ::-webkit-scrollbar-thumb {
-            background: rgba(251, 191, 36, 0.1);
-            border-radius: 10px;
+      }
+      .pulse-soft {
+        animation: pulseRing 1.6s ease-in-out infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+          scroll-behavior: auto !important;
         }
-        /* 隱藏橫向捲軸 (快捷標籤列) */
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        /* 簡易進場動畫 */
-        .animate-in { animation: animateIn 0.3s ease-out both; }
-        .fade-in { opacity: 0; animation-name: fadeIn; }
-        .zoom-in-95 { transform: scale(0.95); animation-name: zoomIn95; }
-        .slide-in-from-bottom-1 { animation-name: slideUp1; }
-        .slide-in-from-bottom-2 { animation-name: slideUp2; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes zoomIn95 { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        @keyframes slideUp1 { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes slideUp2 { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in,
+        .msg-enter {
+          animation: fadeIn 0.001ms both;
+          transform: none !important;
+        }
+      }
     </style>
     <script type="importmap">
       {
@@ -74,7 +297,29 @@
         }
       }
     </script>
-    <link rel="stylesheet" href="/index.css" />
+    <script>
+      // Low-power fallback: in a disaster, battery is survival. Below 20% and
+      // not charging, force the darker, lower-glare theme. Respects an explicit
+      // user pin via data-theme; progressive, fails silent where unsupported.
+      (function () {
+        if (!navigator.getBattery) return;
+        navigator
+          .getBattery()
+          .then(function (b) {
+            var apply = function () {
+              var root = document.documentElement;
+              if (root.getAttribute("data-theme")) return; // user pinned
+              if (!b.charging && b.level <= 0.2) root.classList.add("theme-dark");
+              else root.classList.remove("theme-dark");
+            };
+            apply();
+            b.addEventListener("levelchange", apply);
+            b.addEventListener("chargingchange", apply);
+          })
+          .catch(function () {});
+      })();
+    </script>
+      <link rel="stylesheet" href="/index.css" />
   </head>
   <body>
     <div id="root"></div>

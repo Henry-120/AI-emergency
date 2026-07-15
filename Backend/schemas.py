@@ -1,6 +1,56 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from typing import Literal
+
+# --- 註冊 / 登入 ---
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserResponse
+
+# --- 緊急醫療卡 (ICE) ---
+class MedicalCardBase(BaseModel):
+    full_name: str = ""
+    birthday: str = ""
+    gender: str = ""
+    blood_type: str = ""
+    height_cm: str = ""
+    weight_kg: str = ""
+    drug_allergies: str = ""
+    food_allergies: str = ""
+    chronic_conditions: str = ""
+    current_medications: str = ""
+    medical_devices: str = ""
+    organ_donor: bool = False
+    emergency_contact_name: str = ""
+    emergency_contact_phone: str = ""
+    emergency_contact_relation: str = ""
+    national_id: str = ""
+    notes: str = ""
+
+class MedicalCardResponse(MedicalCardBase):
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 # --- 用戶狀態同步用 (對應 React 的 UserStatus) ---
 class UserStatusBase(BaseModel):
@@ -35,6 +85,31 @@ class ChatRecordResponse(ChatRecordBase):
 
     class Config:
         from_attributes = True
+
+# --- AI 傷勢 / 救援需求彙整 ---
+class EmergencySummary(BaseModel):
+    hasInjuries: bool = False
+    injurySummary: str = ""
+    injurySeverity: Literal["unknown", "minor", "moderate", "severe", "critical"] = "unknown"
+    rescueNeeds: List[str] = Field(default_factory=list)
+    isTrapped: bool = False
+    mobilityStatus: Literal["unknown", "mobile", "limited", "immobile"] = "unknown"
+    locationDetails: str = ""
+    urgencyLevel: int = 1
+    confidence: float = 0
+
+class EmergencyChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    timestamp: Optional[datetime] = None
+
+class EmergencyReportUpsert(BaseModel):
+    summary: EmergencySummary
+    messages: List[EmergencyChatMessage] = Field(default_factory=list)
+
+class EmergencyReportResponse(EmergencySummary):
+    userId: int
+    updatedAt: datetime
 
 # --- 氣象局資料回傳格式 ---
 class WeatherAlert(BaseModel):
@@ -88,3 +163,36 @@ class CleanupResponse(BaseModel):
 # schemas.py
 class UserStatusBulk(BaseModel):
     records: List[UserStatusCreate]
+
+# --- 室內地震家具風險分析 ---
+class RoomRiskPoint(BaseModel):
+    x: float
+    y: float
+
+class RoomRiskBBox(BaseModel):
+    x: float
+    y: float
+    width: float
+    height: float
+
+class RoomRiskObject(BaseModel):
+    label: str
+    risk: str
+    reason: str
+    recommendation: str
+    bbox: RoomRiskBBox
+
+class RoomRiskZone(BaseModel):
+    id: str
+    type: str
+    impactType: str
+    label: str
+    reason: str
+    sourceObjectLabel: Optional[str] = None
+    polygon: List[RoomRiskPoint]
+
+class RoomRiskAnalysisResponse(BaseModel):
+    summary: str
+    overallRiskLevel: int
+    objects: List[RoomRiskObject]
+    zones: List[RoomRiskZone]

@@ -1,0 +1,18 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: guardia-ai-backend
+    env_file:
+      - .env.local
+    environment:
+      DATABASE_URL: sqlite:////app/data/guardia_ai.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  backend-data:

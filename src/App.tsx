@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { analyzeDisaster } from "./services/geminiService";
-import { ChatMessage, DisasterAnalysis, UserStatus } from "./types";
+import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
 import { fetchLatestAlert, EarthquakeAlert } from "./services/cwaService";
 import { AppFooter } from "./components/app/AppFooter";
 import { AppHeader } from "./components/app/AppHeader";
@@ -8,8 +8,14 @@ import { ChatMessageList } from "./components/app/ChatMessageList";
 import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
 import { BleMessengerPage } from "./components/ble/BleMessengerPage";
+import { RoomRiskScanner } from "./components/room-risk/RoomRiskScanner";
 import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
+import { analyzeRoomRisk } from "./services/roomRiskService";
+import {
+  canUseNativeRoomRiskAR,
+  startNativeRoomRiskAR,
+} from "./services/roomRiskARService";
 import {
   getDownloadedMaps,
   deleteOfflineMap,
@@ -21,11 +27,28 @@ import {
   OfflineSafetyPack,
 } from "./services/offlineSafetyService";
 import {
+  saveEmergencyReportLocally,
   saveUserStatusSnapshot,
+  syncPendingEmergencyReports,
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
+import { RoomRiskAnalysis } from "./types";
+import { AuthPage } from "./components/auth/AuthPage";
+import { MedicalCardPage } from "./components/medical/MedicalCardPage";
+import { getCurrentUser, logout } from "./services/authService";
+import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 
 const App: React.FC = () => {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
+    getCurrentUser(),
+  );
+  const [showMedicalCard, setShowMedicalCard] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    setShowMedicalCard(false);
+    setAuthUser(null);
+  };
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -69,6 +92,12 @@ const App: React.FC = () => {
     useState<OfflineSafetyPack | null>(() => getOfflineSafetyPack());
   const [showShelterNavigator, setShowShelterNavigator] = useState(false);
   const [showBleMessenger, setShowBleMessenger] = useState(false);
+  const [showRoomRiskScanner, setShowRoomRiskScanner] = useState(false);
+  const [roomRiskImageUrl, setRoomRiskImageUrl] = useState<string>("");
+  const [roomRiskAnalysis, setRoomRiskAnalysis] =
+    useState<RoomRiskAnalysis | null>(null);
+  const [roomRiskError, setRoomRiskError] = useState<string>("");
+  const [isRoomRiskAnalyzing, setIsRoomRiskAnalyzing] = useState(false);
 
   const loadDownloadedMaps = async () => {
     const result = await getDownloadedMaps();
@@ -128,6 +157,164 @@ const App: React.FC = () => {
     }
   };
 
+  const getSensorContext = () => {
+    const medicalSummary = summarizeMedicalCard(getMedicalCard());
+    const medicalInfo = medicalSummary ? `, 醫療卡: ${medicalSummary}` : "";
+    return `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? `${userStatus.location.lat.toFixed(5)}, ${userStatus.location.lng.toFixed(5)}` : "無訊號"}${medicalInfo}`;
+  };
+
+  const buildRoomRiskChatSummary = (analysis: RoomRiskAnalysis) => {
+    const riskyObjects = analysis.objects
+      .filter((object) => object.risk !== "low")
+      .slice(0, 3)
+      .map((object) => object.label);
+    const safeZones = analysis.zones
+      .filter((zone) => zone.type === "safe")
+      .slice(0, 2)
+      .map((zone) => zone.label);
+
+    const parts = [];
+    if (riskyObjects.length) {
+      parts.push(`${riskyObjects.join("、")}需要優先處理`);
+    }
+    if (safeZones.length) {
+      parts.push(`${safeZones.join("、")}是相對安全區`);
+    }
+
+    return parts.length ? `${analysis.summary} ${parts.join("；")}。` : analysis.summary;
+  };
+
+  const handleCaptureRoomImage = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setRoomRiskError("請選擇或拍攝圖片檔。");
+      return;
+    }
+
+    if (roomRiskImageUrl) {
+      URL.revokeObjectURL(roomRiskImageUrl);
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+    setRoomRiskImageUrl(imageUrl);
+    setRoomRiskAnalysis(null);
+    setRoomRiskError("");
+    setIsRoomRiskAnalyzing(true);
+
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: "user",
+      content: "已拍攝現場照片，請分析地震時家具擺放風險。",
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    try {
+      const analysis = await analyzeRoomRisk(file, getSensorContext());
+      setRoomRiskAnalysis(analysis);
+
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: buildRoomRiskChatSummary(analysis),
+        roomRiskAnalysis: analysis,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+      speak(analysis.summary);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "房間影像分析失敗，請稍後再試。";
+      setRoomRiskError(message);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: `房間影像分析失敗：${message}`,
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsRoomRiskAnalyzing(false);
+    }
+  };
+
+  const appendRoomRiskAnalysis = (analysis: RoomRiskAnalysis) => {
+    const assistantMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: "assistant",
+      content: buildRoomRiskChatSummary(analysis),
+      roomRiskAnalysis: analysis,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+    speak(analysis.summary);
+  };
+
+  const handleOpenRoomRiskScanner = async () => {
+    if (!canUseNativeRoomRiskAR()) {
+      setShowRoomRiskScanner(true);
+      return;
+    }
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        role: "user",
+        content: "啟動 ARKit 掃描室內地板與家具波及範圍。",
+        timestamp: new Date(),
+      },
+    ]);
+
+    try {
+      const result = await startNativeRoomRiskAR();
+      if (result.analysis) {
+        appendRoomRiskAnalysis(result.analysis);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "ARKit 掃描無法啟動。";
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: `ARKit 掃描失敗：${message}`,
+          timestamp: new Date(),
+        },
+      ]);
+    }
+  };
+
+  const handleCloseRoomRiskScanner = () => {
+    setShowRoomRiskScanner(false);
+    setRoomRiskImageUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return "";
+    });
+    setRoomRiskAnalysis(null);
+    setRoomRiskError("");
+    setIsRoomRiskAnalyzing(false);
+  };
+
+  const handleRetakeRoomRiskImage = () => {
+    setRoomRiskImageUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return "";
+    });
+    setRoomRiskAnalysis(null);
+    setRoomRiskError("");
+    setIsRoomRiskAnalyzing(false);
+  };
+
   useEffect(() => {
     const loadCwaAlert = async () => {
       setCwaError("");
@@ -149,6 +336,7 @@ const App: React.FC = () => {
     const handleOnline = () => {
       setIsOffline(false);
       syncPendingUserStatusRecords();
+      syncPendingEmergencyReports();
     };
     const handleOffline = () => setIsOffline(true);
 
@@ -160,6 +348,13 @@ const App: React.FC = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  // App 重啟或重新登入後，自動重試之前未同步的救援摘要。
+  useEffect(() => {
+    if (authUser && navigator.onLine) {
+      syncPendingEmergencyReports();
+    }
+  }, [authUser]);
 
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
@@ -268,20 +463,20 @@ const App: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 如果文字跟圖片都是空的，或者正在分析中，就不執行
-    if ((!input.trim() && !selectedImage) || isAnalyzing) return;
+    // 合併：同時檢查 authUser 以及確保有輸入文字或選擇了要傳送的圖片
+    if (!authUser || (!input.trim() && !selectedImage) || isAnalyzing) return;
 
-    // 紀錄這次發送要使用的圖片，並立刻清空全局圖片暫存（優化使用者介面體驗）
+    // 紀錄這次發送要使用的圖片，並立刻清空全局圖片暫存
     const imageToSend = selectedImage;
     setSelectedImage(null);
 
-    // 修正：在這裡把 imageBase64 欄位補上去，讓歷史訊息狀態記得圖片資訊
+    // 補上 imageBase64 欄位，讓歷史訊息狀態記得圖片資訊
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
       content: input || "【傳送了現場照片】",
       timestamp: new Date(),
-      imageBase64: imageToSend, // 關鍵行
+      imageBase64: imageToSend,
     };
 
     const updatedMessages = [...messages, userMsg];
@@ -289,11 +484,10 @@ const App: React.FC = () => {
     const currentInput = input;
     setInput("");
 
-    setIsAnalyzing(true); // 提早設定 loading 狀態，避免使用者重複點擊
+    setIsAnalyzing(true);
 
-    // 1. 即時判斷：直接問瀏覽器現在有沒有網路
-    const isCurrentlyOffline = true;
-    //const isCurrentlyOffline = !navigator.onLine;
+    // 1. 即時判斷：檢測瀏覽器目前是否有網路
+    const isCurrentlyOffline = !navigator.onLine;
 
     // --- 狀況 A：明確處於斷網狀態 ---
     if (isCurrentlyOffline) {
@@ -312,6 +506,13 @@ const App: React.FC = () => {
         setMessages((prev) => [...prev, assistantMsg]);
         setCurrentAnalysis(offlineAnalysis);
         
+        // 儲存進本地資料庫，等候背景復網時排程同步
+        saveEmergencyReportLocally(
+          authUser.id,
+          offlineAnalysis.emergencySummary,
+          [...updatedMessages, assistantMsg],
+        ).catch((error) => console.error("離線救援摘要儲存失敗", error));
+
         if (offlineAnalysis.immediateActions && offlineAnalysis.immediateActions.length > 0) {
           speak(offlineAnalysis.immediateActions[0].description);
         }
@@ -320,15 +521,15 @@ const App: React.FC = () => {
       } finally {
         setIsAnalyzing(false);
       }
-      return; // 執行完就結束，不會往下走到 Gemini
+      return; // 結束離線處理，不往下執行雲端 Gemini
     }
     
     // --- 狀況 B：有網路，嘗試呼叫雲端 Gemini ---
     try {
       console.log("嘗試使用雲端 Gemini 引擎...");
-      const sensorContext = `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? "正常" : "無訊號"}`;
+      const sensorContext = getSensorContext();
 
-      // 呼叫分析服務，連同對話歷史、感測器資訊、以及影像 Base64 一併傳入
+      // 呼叫雲端分析服務
       const analysis = await analyzeDisaster(updatedMessages, sensorContext, imageToSend);
 
       const assistantMsg: ChatMessage = {
@@ -339,11 +540,21 @@ const App: React.FC = () => {
           : `分析更新：根據最新資訊，請優先執行以下行動：`,
         analysis,
         timestamp: new Date(),
-        isCloudResponse: true, //  新增這行：明確標記這是來自雲端 Gemini 的訊息
+        isCloudResponse: true,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(analysis);
+
+      // 無論是否有網路都先寫入裝置端 SQLite，線上時再同步至後端伺服器
+      saveEmergencyReportLocally(authUser.id, analysis.emergencySummary, [
+        ...updatedMessages,
+        assistantMsg,
+      ])
+        .then(() => {
+          if (navigator.onLine) return syncPendingEmergencyReports();
+        })
+        .catch((error) => console.error("救援摘要本機儲存失敗", error));
 
       if (analysis.immediateActions && analysis.immediateActions.length > 0) {
         const text = `緊急指令${analysis.immediateActions[0].title}`;
@@ -356,7 +567,7 @@ const App: React.FC = () => {
       }
 
     } catch (error) {
-      // 🌟 2. 終極保險 (Fallback)：系統以為有網路，但其實網路很差/DNS壞掉連不上 Gemini
+      // 🌟 2. 終極保險 (Fallback)：系統判定有網路，但可能遇上訊號死角或 DNS 解析失敗
       console.warn("雲端 Gemini 連線失敗，自動降級切換至本地離線大模型！", error);
       
       try {
@@ -371,17 +582,32 @@ const App: React.FC = () => {
         setMessages((prev) => [...prev, fallbackMsg]);
         setCurrentAnalysis(offlineAnalysis);
         
+        // 降級時同樣寫入本地 SQLite 保存
+        saveEmergencyReportLocally(
+          authUser.id,
+          offlineAnalysis.emergencySummary,
+          [...updatedMessages, fallbackMsg],
+        ).catch((err) => console.error("降級離線救援摘要儲存失敗", err));
+
         if (offlineAnalysis.immediateActions && offlineAnalysis.immediateActions.length > 0) {
           speak(offlineAnalysis.immediateActions[0].description);
         }
       } catch (fallbackError) {
-        // 如果連本地大模型都崩潰了（極端狀況），才顯示最後的錯誤訊息
+        // 若連本地端離線解析也崩潰（極端狀況），則進行最後的錯誤回報並智慧解析 API 錯誤
+        const detail = error instanceof Error ? error.message : "未知錯誤";
+        const isModelUnavailable = /not found|no longer available|404/i.test(detail);
+        const isQuotaLimited = /quota|resource_exhausted|429/i.test(detail);
+
         setMessages((prev) => [
           ...prev,
           {
             id: (Date.now() + 1).toString(),
             role: "assistant",
-            content: "系統發生錯誤且離線模組無法啟動，請保持冷靜，並嘗試撥打 119 或 112 求救。",
+            content: isModelUnavailable
+              ? "分析模型目前不可用，請重新整理後再試；若持續發生，請檢查 Gemini model 設定。"
+              : isQuotaLimited
+                ? "Gemini API 額度暫時用完，請稍後再試或檢查 API 配額。"
+                : "系統發生錯誤且離線模組無法啟動，請保持冷靜，並嘗試撥打 119 或 112 求救。",
             timestamp: new Date(),
           },
         ]);
@@ -395,6 +621,14 @@ const App: React.FC = () => {
     setInput(option);
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
+
+  if (!authUser) {
+    return <AuthPage onAuthed={setAuthUser} />;
+  }
+
+  if (showMedicalCard) {
+    return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
+  }
 
   if (selectedMap) {
     return (
@@ -423,7 +657,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}
@@ -433,10 +667,13 @@ const App: React.FC = () => {
         locationError={locationError}
         offlineSafetyPackReady={Boolean(offlineSafetyPack)}
         userStatus={userStatus}
+        authUser={authUser}
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
         onShowBleMessenger={() => setShowBleMessenger(true)}
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
+        onShowMedicalCard={() => setShowMedicalCard(true)}
+        onLogout={handleLogout}
       />
       <ChatMessageList
         isAnalyzing={isAnalyzing}
@@ -445,11 +682,23 @@ const App: React.FC = () => {
         onOfflineOption={handleOfflineOption}
         scrollRef={scrollRef}
       />
+      {showRoomRiskScanner && (
+        <RoomRiskScanner
+          analysis={roomRiskAnalysis}
+          error={roomRiskError}
+          imageUrl={roomRiskImageUrl}
+          isAnalyzing={isRoomRiskAnalyzing}
+          onCapture={handleCaptureRoomImage}
+          onClose={handleCloseRoomRiskScanner}
+          onRetake={handleRetakeRoomRiskImage}
+        />
+      )}
       <AppFooter
         downloadedMaps={downloadedMaps}
         input={input}
         isAnalyzing={isAnalyzing}
         offlineMapStatus={offlineMapStatus}
+        onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
         onDeleteMap={handleDeleteMap}
         onSubmit={handleSubmit}
         onViewMap={handleViewMap}
