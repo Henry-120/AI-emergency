@@ -24,16 +24,22 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
     }
 
     setBusy(true);
-    const result =
-      mode === "login"
-        ? await login(username, password)
-        : await register(username, password, email);
-    setBusy(false);
+    try {
+      const result =
+        mode === "login"
+          ? await login(username, password)
+          : await register(username, password, email);
 
-    if (result.success && result.user) {
-      onAuthed(result.user);
-    } else {
-      setError(result.error || "發生未知錯誤，請再試一次");
+      if (result.success && result.user) {
+        onAuthed(result.user);
+      } else {
+        setError(result.error || "發生未知錯誤，請再試一次");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "發生未知錯誤，請再試一次";
+      setError(message);
+    } finally {
+      setBusy(false);
     }
   };
 

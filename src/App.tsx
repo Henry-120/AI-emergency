@@ -27,7 +27,7 @@ import {
   OfflineSafetyPack,
 } from "./services/offlineSafetyService";
 import {
-  saveEmergencyReportLocally,
+  saveEmergencyReport,
   saveUserStatusSnapshot,
   syncPendingEmergencyReports,
   syncPendingUserStatusRecords,
@@ -35,20 +35,32 @@ import {
 import { RoomRiskAnalysis } from "./types";
 import { AuthPage } from "./components/auth/AuthPage";
 import { MedicalCardPage } from "./components/medical/MedicalCardPage";
-import { getCurrentUser, logout } from "./services/authService";
+import { RescueMapPage } from "./components/rescue/RescueMapPage";
+import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
     getCurrentUser(),
   );
+  const [isCheckingSession, setIsCheckingSession] = useState(navigator.onLine);
   const [showMedicalCard, setShowMedicalCard] = useState(false);
+  const [showRescueMap, setShowRescueMap] = useState(false);
 
   const handleLogout = () => {
     logout();
     setShowMedicalCard(false);
     setAuthUser(null);
   };
+
+  useEffect(() => {
+    validateSession()
+      .then((user) => {
+        if (!user && navigator.onLine) logout();
+        setAuthUser(user);
+      })
+      .finally(() => setIsCheckingSession(false));
+  }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -67,14 +79,12 @@ const App: React.FC = () => {
     hasInjuries: false,
   });
 
-  // 每 30 秒先存進本機 SQLite，若有網路再批次同步到後端。
+  // 每 30 秒線上直接寫後端；只有離線時才存進本機 SQLite。
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      saveUserStatusSnapshot(userStatus).then(() => {
-        if (navigator.onLine) {
-          syncPendingUserStatusRecords();
-        }
-      });
+      saveUserStatusSnapshot(userStatus).catch((error) =>
+        console.error("狀態儲存失敗", error),
+      );
     }, 30000);
     return () => clearInterval(syncInterval);
   }, [userStatus]);
@@ -332,6 +342,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleOnline = () => {
       setIsOffline(false);
+      validateSession().then((user) => {
+        if (!user) logout();
+        setAuthUser(user);
+      });
       syncPendingUserStatusRecords();
       syncPendingEmergencyReports();
     };
@@ -503,10 +517,11 @@ const App: React.FC = () => {
 
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(offlineAnalysis);
-      saveEmergencyReportLocally(
+      saveEmergencyReport(
         authUser.id,
         offlineAnalysis.emergencySummary,
         [...updatedMessages, assistantMsg],
+        userStatus.location,
       ).catch((error) => console.error("離線救援摘要儲存失敗", error));
       speak(offlineAnalysis.immediateActions[0].description);
       return; // 離線模式處理完畢，直接結束
@@ -535,10 +550,10 @@ const App: React.FC = () => {
       setCurrentAnalysis(analysis);
 
       // 無論是否有網路都先寫裝置端；線上時再嘗試同步到後端。
-      saveEmergencyReportLocally(authUser.id, analysis.emergencySummary, [
+      saveEmergencyReport(authUser.id, analysis.emergencySummary, [
         ...updatedMessages,
         assistantMsg,
-      ])
+      ], userStatus.location)
         .then(() => {
           if (navigator.onLine) return syncPendingEmergencyReports();
         })
@@ -584,12 +599,24 @@ const App: React.FC = () => {
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
 
+  if (isCheckingSession) {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-[#020617] text-slate-400">
+        正在確認線上帳號…
+      </div>
+    );
+  }
+
   if (!authUser) {
     return <AuthPage onAuthed={setAuthUser} />;
   }
 
   if (showMedicalCard) {
     return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
+  }
+
+  if (showRescueMap) {
+    return <RescueMapPage location={userStatus.location} onBack={() => setShowRescueMap(false)} />;
   }
 
   if (selectedMap) {
@@ -636,6 +663,7 @@ const App: React.FC = () => {
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
         onShowMedicalCard={() => setShowMedicalCard(true)}
+        onShowRescueMap={() => setShowRescueMap(true)}
         onLogout={handleLogout}
       />
       <ChatMessageList

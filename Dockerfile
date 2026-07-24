@@ -5,10 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY ?ackend/requirements.txt ./backend/requirements.txt
+COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
-COPY ?ackend ./backend
+COPY backend ./backend
 
 EXPOSE 8000
 

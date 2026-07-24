@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { MedicalCard } from "../../types";
-import { getMedicalCard, saveMedicalCard } from "../../services/medicalCardService";
+import { getMedicalCard, loadMedicalCard, saveMedicalCard } from "../../services/medicalCardService";
 
 const BLOOD_TYPES = ["A", "B", "O", "AB", "不確定"];
 
@@ -24,6 +24,18 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<MedicalCard>(card);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!navigator.onLine) return;
+    loadMedicalCard()
+      .then((onlineCard) => {
+        setCard(onlineCard);
+        setDraft(onlineCard);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "線上醫療卡載入失敗"));
+  }, []);
 
   const startEdit = () => {
     setDraft(card);
@@ -31,12 +43,21 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
     setSaved(false);
   };
 
-  const handleSave = () => {
-    const result = saveMedicalCard(draft);
-    setCard(result);
-    setEditing(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const result = await saveMedicalCard(draft);
+      setCard(result);
+      setEditing(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "醫療卡儲存失敗");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const set = (key: keyof MedicalCard, value: string | boolean) =>
@@ -71,9 +92,10 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
         {editing ? (
           <button
             onClick={handleSave}
+            disabled={saving}
             className="min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 text-black text-xs font-bold hover:bg-amber-400"
           >
-            儲存
+            {saving ? "儲存中…" : "儲存"}
           </button>
         ) : (
           <button
@@ -90,6 +112,11 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
           {saved && (
             <div className="mb-4 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg">
               ✓ 醫療卡已儲存（離線可用）
+            </div>
+          )}
+          {error && (
+            <div className="mb-4 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg">
+              {error}
             </div>
           )}
 
@@ -240,9 +267,9 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
                 </Field>
               </Section>
 
-              <button onClick={handleSave}
+              <button onClick={handleSave} disabled={saving}
                 className="w-full py-3 rounded-xl bg-amber-500 text-black font-bold text-sm hover:bg-amber-400">
-                儲存醫療卡
+                {saving ? "儲存中…" : "儲存醫療卡"}
               </button>
             </div>
           ) : (

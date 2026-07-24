@@ -14,7 +14,7 @@ class LoginRequest(BaseModel):
     password: str
 
 class UserResponse(BaseModel):
-    id: int
+    id: str
     username: str
     email: Optional[str] = None
     created_at: datetime
@@ -106,9 +106,29 @@ class EmergencyChatMessage(BaseModel):
 class EmergencyReportUpsert(BaseModel):
     summary: EmergencySummary
     messages: List[EmergencyChatMessage] = Field(default_factory=list)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class EmergencyReportResponse(EmergencySummary):
-    userId: int
+    userId: str
+    updatedAt: datetime
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    requiresRescue: bool = False
+
+class RescueCaseResponse(BaseModel):
+    userId: str
+    username: str
+    latitude: float
+    longitude: float
+    distanceKm: float
+    urgencyLevel: int
+    injurySeverity: str
+    injurySummary: str = ""
+    rescueNeeds: List[str] = Field(default_factory=list)
+    isTrapped: bool = False
+    mobilityStatus: str = "unknown"
+    locationDetails: str = ""
     updatedAt: datetime
 
 # --- 氣象局資料回傳格式 ---

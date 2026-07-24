@@ -19,6 +19,7 @@ export function AppHeader({
   onRefreshCwa,
   onShowShelterNavigator,
   onShowMedicalCard,
+  onShowRescueMap,
   onLogout,
 }: {
   currentAnalysis: DisasterAnalysis | null;
@@ -35,6 +36,7 @@ export function AppHeader({
   onRefreshCwa: () => void;
   onShowShelterNavigator: () => void;
   onShowMedicalCard: () => void;
+  onShowRescueMap: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -111,6 +113,12 @@ export function AppHeader({
               避難導航
             </button>
           )}
+          <button
+            onClick={onShowRescueMap}
+            className="shrink-0 px-3 py-2 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold hover:bg-red-500/20 transition-all"
+          >
+            救援地圖
+          </button>
           <button
             onClick={onShowBleMessenger}
             className="shrink-0 px-3 py-2 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-100 text-xs font-semibold hover:bg-cyan-500/20 transition-all"

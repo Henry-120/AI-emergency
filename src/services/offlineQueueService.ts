@@ -26,6 +26,8 @@ export interface EmergencyReportSyncRecord {
   id: string;
   local_user_id: string;
   summary: EmergencySummary;
+  latitude?: number | null;
+  longitude?: number | null;
   messages: Array<{
     role: "user" | "assistant";
     content: string;
@@ -54,6 +56,16 @@ export async function saveUserStatusSnapshot(status: UserStatus) {
     longitude: status.location?.lng ?? null,
     client_timestamp: new Date().toISOString(),
   };
+
+  if (navigator.onLine) {
+    const response = await fetch(`${BACKEND}/api/sync/bulk_status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records: [record] }),
+    });
+    if (!response.ok) throw new Error(`線上狀態儲存失敗（HTTP ${response.status}）`);
+    return record;
+  }
 
   await savePendingUserStatus(record);
   return record;
@@ -169,11 +181,14 @@ export async function saveEmergencyReportLocally(
   localUserId: string,
   summary: EmergencySummary,
   messages: ChatMessage[],
+  location: { lat: number; lng: number } | null = null,
 ): Promise<EmergencyReportSyncRecord> {
   const record: EmergencyReportSyncRecord = {
     id: createRecordId(),
     local_user_id: localUserId,
     summary,
+    latitude: location?.lat ?? null,
+    longitude: location?.lng ?? null,
     messages: messages.map(({ role, content, timestamp }) => ({
       role,
       content,
@@ -201,12 +216,46 @@ export async function saveEmergencyReportLocally(
     [
       record.id,
       record.local_user_id,
-      JSON.stringify(record.summary),
+      JSON.stringify({ summary: record.summary, latitude: record.latitude, longitude: record.longitude }),
       JSON.stringify(record.messages),
       record.created_at,
     ],
   );
   return record;
+}
+
+/** 線上直接寫後端；只有裝置離線時才建立本機待同步紀錄。 */
+export async function saveEmergencyReport(
+  localUserId: string,
+  summary: EmergencySummary,
+  messages: ChatMessage[],
+  location: { lat: number; lng: number } | null = null,
+): Promise<void> {
+  if (!navigator.onLine) {
+    await saveEmergencyReportLocally(localUserId, summary, messages, location);
+    return;
+  }
+
+  const token = getBackendToken();
+  if (!token) throw new Error("缺少線上登入憑證，請重新登入");
+  const response = await fetch(`${BACKEND}/api/emergency-report`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      summary,
+      latitude: location?.lat ?? null,
+      longitude: location?.lng ?? null,
+      messages: messages.map(({ role, content, timestamp }) => ({
+        role,
+        content,
+        timestamp: timestamp.toISOString(),
+      })),
+    }),
+  });
+  if (!response.ok) throw new Error(`線上救援摘要儲存失敗（HTTP ${response.status}）`);
 }
 
 export async function getPendingEmergencyReports(): Promise<EmergencyReportSyncRecord[]> {
@@ -226,17 +275,22 @@ export async function getPendingEmergencyReports(): Promise<EmergencyReportSyncR
      ORDER BY created_at ASC
      LIMIT 100`,
   );
-  return (result.values || []).map((row: any) => ({
+  return (result.values || []).map((row: any) => {
+    const stored = JSON.parse(String(row.summary_json));
+    const wrapped = stored && typeof stored === "object" && "summary" in stored;
+    return {
     id: String(row.id),
     local_user_id: String(row.local_user_id),
-    summary: JSON.parse(String(row.summary_json)),
+    summary: wrapped ? stored.summary : stored,
+    latitude: wrapped ? stored.latitude ?? null : null,
+    longitude: wrapped ? stored.longitude ?? null : null,
     messages: JSON.parse(String(row.messages_json)),
     created_at: String(row.created_at),
     sync_status: "pending" as const,
     retry_count: Number(row.retry_count || 0),
     last_error: row.last_error ?? null,
     synced_at: row.synced_at ?? null,
-  }));
+  }});
 }
 
 /** 依序同步快照，最後一筆會成為後端的當前救援摘要。 */
@@ -258,6 +312,8 @@ export async function syncPendingEmergencyReports() {
         },
         body: JSON.stringify({
           summary: record.summary,
+          latitude: record.latitude ?? null,
+          longitude: record.longitude ?? null,
           messages: record.messages,
         }),
       });
