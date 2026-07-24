@@ -140,6 +140,39 @@ export async function sendGuardianMessage(content: string) {
   return message;
 }
 
+const SOS_SIGNATURE = "GUARDIA_SOS";
+
+/** Scan nearby Guardian devices and send a privacy-minimal survival signal. */
+export async function sendAutomaticSurvivalSignal(scanMs = 5000) {
+  await startGuardianScan();
+  await new Promise((resolve) => window.setTimeout(resolve, scanMs));
+  await stopGuardianScan();
+  const targets = Array.from(devices.values());
+  const payload = encodeText(JSON.stringify({
+    sig: SOS_SIGNATURE,
+    alive: true,
+    ts: new Date().toISOString(),
+  }));
+  let sent = 0;
+  for (const target of targets) {
+    try {
+      await connectGuardianDevice(target.id);
+      await BleClient.write(
+        target.id,
+        GUARDIAN_BLE_SERVICE,
+        GUARDIAN_BLE_MESSAGE_CHARACTERISTIC,
+        payload,
+      );
+      sent += 1;
+    } catch (error) {
+      console.warn(`無法傳送存活訊號至 ${target.id}`, error);
+    } finally {
+      await disconnectGuardianDevice().catch(() => {});
+    }
+  }
+  return { discovered: targets.length, sent };
+}
+
 export async function startGuardianAdvertising() {
   throw new Error(
     "目前 @capacitor-community/bluetooth-le 不支援手機端 BLE 廣播。iOS 需要額外實作 CoreBluetooth Peripheral/GATT Server plugin。",
@@ -176,7 +209,9 @@ function handleNotification(value: DataView) {
 
   try {
     const parsed = JSON.parse(raw);
-    content = String(parsed.content || raw);
+    content = parsed.sig === SOS_SIGNATURE && parsed.alive
+      ? "🆘 附近有人存活，需要救援（未附個人資料）"
+      : String(parsed.content || raw);
     id = String(parsed.id || id);
     timestamp = parsed.timestamp ? new Date(parsed.timestamp) : timestamp;
   } catch {

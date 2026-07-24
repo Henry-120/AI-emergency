@@ -1,10 +1,14 @@
 import base64
+import asyncio
 import json
+import logging
 import os
 import re
 from typing import Any, Dict, List
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class RoomRiskService:
@@ -45,17 +49,29 @@ class RoomRiskService:
             },
         }
 
-        async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(
-                endpoint,
-                params={"key": api_key},
-                json=payload,
-            )
-            response.raise_for_status()
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=45) as client:
+                    response = await client.post(
+                        endpoint,
+                        params={"key": api_key},
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                text = self._extract_text(response.json())
+                data = self._parse_json(text)
+                return self._normalize(data)
+            except (httpx.HTTPError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Room-risk Gemini attempt %s failed: %s",
+                    attempt + 1,
+                    exc,
+                )
+                if attempt == 0:
+                    await asyncio.sleep(0.4)
 
-        text = self._extract_text(response.json())
-        data = self._parse_json(text)
-        return self._normalize(data)
+        logger.error("Room-risk Gemini failed twice; returning safe fallback analysis.")
+        return self._fallback_analysis()
 
     def _prompt(self, sensor_context: str) -> str:
         return f"""

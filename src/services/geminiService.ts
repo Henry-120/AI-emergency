@@ -1,11 +1,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DisasterAnalysis, ChatMessage } from "../types";
 
-// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-// 改用 Vite 標準讀取方式
-const ai = new GoogleGenAI({
-  apiKey: import.meta.env.VITE_GEMINI_API_KEY || "",
-});
+// 延遲初始化：沒有 API 金鑰時不要在載入階段就拋錯，避免整個 App 白畫面。
+let aiClient: GoogleGenAI | null = null;
+
+function getAi(): GoogleGenAI {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+  if (!apiKey) {
+    throw new Error(
+      "尚未設定 Gemini API 金鑰，請在專案根目錄的 .env.local 設定 VITE_GEMINI_API_KEY",
+    );
+  }
+  if (!aiClient) {
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
 
 // 使用 Google 維護的 Flash alias，避免固定版本退役後整個聊天失效。
 const GEMINI_MODEL =
@@ -120,7 +130,7 @@ export async function analyzeDisaster(
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: GEMINI_MODEL,
       contents: contents,
       config: {

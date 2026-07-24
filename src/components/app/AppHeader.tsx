@@ -20,6 +20,7 @@ export function AppHeader({
   onShowShelterNavigator,
   onShowMedicalCard,
   onShowRescueMap,
+  onSimulateSevereEarthquake,
   onLogout,
 }: {
   currentAnalysis: DisasterAnalysis | null;
@@ -37,6 +38,7 @@ export function AppHeader({
   onShowShelterNavigator: () => void;
   onShowMedicalCard: () => void;
   onShowRescueMap: () => void;
+  onSimulateSevereEarthquake: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -132,6 +134,13 @@ export function AppHeader({
           >
             <i className="fas fa-notes-medical"></i>
             <span className="hidden sm:inline">醫療卡</span>
+          </button>
+          <button
+            onClick={onSimulateSevereEarthquake}
+            title="測試強震通知、避難語音與 BLE 存活訊號"
+            className="shrink-0 px-3 py-2 rounded-2xl bg-red-600 text-white text-xs font-black hover:bg-red-500 transition-all"
+          >
+            🚨 模擬強震
           </button>
           {authUser && (
             <div className="flex shrink-0 items-center gap-2">
