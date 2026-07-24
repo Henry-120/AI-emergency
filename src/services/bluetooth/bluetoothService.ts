@@ -20,6 +20,7 @@ import {
   canAdvertise,
   getIsAdvertising,
   onMessageReceived,
+  onSosPacketReceived,
   startAdvertising,
   stopAdvertising,
 } from "./bluetoothPeripheral";
@@ -30,6 +31,7 @@ import {
   isScanning,
   scanNearby as centralScan,
   sendMessageTo,
+  sendSosPacket,
   stopScan as centralStopScan,
   type ScanOptions,
 } from "./bluetoothCentral";
@@ -153,6 +155,25 @@ export async function subscribeMessages(
   handler: (msg: IncomingMessage) => void,
 ): Promise<() => void> {
   return onMessageReceived(handler);
+}
+
+/**
+ * 傳一個 SOS 中繼封包給附近某裝置。給 sosRelay 引擎使用，一般 UI 不需要。
+ */
+export async function sendSos(
+  deviceId: string,
+  packetBytes: Uint8Array,
+): Promise<{ success: boolean; error?: string }> {
+  return sendSosPacket(deviceId, packetBytes);
+}
+
+/**
+ * 訂閱「收到 SOS 中繼封包」事件。給 sosRelay 引擎使用，一般 UI 不需要。
+ */
+export async function subscribeSosPackets(
+  handler: (packetBytes: Uint8Array, centralId: string) => void,
+): Promise<() => void> {
+  return onSosPacketReceived(handler);
 }
 
 /**

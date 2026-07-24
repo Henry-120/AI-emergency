@@ -51,6 +51,21 @@ export const MAX_MESSAGE_BYTES = 2000;
 /** 分片重組逾時。超過此時間仍未收齊的分片會被丟棄，避免殘片永久佔用記憶體。 */
 export const CHUNK_REASSEMBLY_TIMEOUT_MS = 10000;
 
+/**
+ * 訊息種類判別 byte。
+ *
+ * 收發雙方共用同一條 GATT characteristic（見 GUARDIA_INBOX_CHAR_UUID），
+ * 但走的是兩種完全不同的協定：「附近的人」聊天是明文 JSON，SOS 中繼是
+ * 二進位加密封包。重組完成後的第一個 byte 用來判斷該交給哪一邊解析，
+ * 不去用格式猜的（例如硬猜「像不像 JSON」）——猜測式判斷在對方封包格式
+ * 剛好符合猜測條件時會誤判，這裡改用明確的 tag。
+ *
+ * 這個 byte 加在分片重組**之前**（即訊息本體的最前面），與
+ * bluetoothChunking 的分片標頭是不同層。
+ */
+export const PACKET_KIND_CHAT = 0x01;
+export const PACKET_KIND_SOS = 0x02;
+
 // ---------------------------------------------------------------------------
 // 連線
 // ---------------------------------------------------------------------------

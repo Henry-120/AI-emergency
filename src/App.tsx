@@ -47,6 +47,7 @@ import {
   subscribeInbox,
 } from "./services/bluetooth/bluetoothInbox";
 import { sendAutomaticSurvivalSignal } from "./services/bluetooth/bluetoothService";
+import { initSosRelay } from "./services/sos/sosRelay";
 import { RoomRiskAnalysis } from "./types";
 import { AuthPage } from "./components/auth/AuthPage";
 import { MedicalCardPage } from "./components/medical/MedicalCardPage";
@@ -109,6 +110,12 @@ const App: React.FC = () => {
       setBleUnread(getUnreadCount());
     });
     return unsub;
+  }, []);
+
+  // SOS 多跳中繼引擎：同樣要在 App 層級常駐，不綁在「附近的人」頁面的生命週期——
+  // 幫別人中繼求救封包，不需要使用者剛好開著那個畫面。
+  useEffect(() => {
+    void initSosRelay();
   }, []);
 
   useEffect(() => {

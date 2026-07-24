@@ -216,3 +216,22 @@ class RoomRiskAnalysisResponse(BaseModel):
     overallRiskLevel: int
     objects: List[RoomRiskObject]
     zones: List[RoomRiskZone]
+
+# --- SOS 多跳中繼 ---
+class SosReportRequest(BaseModel):
+    """
+    中繼者（有網路的那個人）把整包 SOS/ALERT 封包原封不動送來。
+    packet 是 base64 的完整封包 bytes（14 bytes 明文標頭 + 加密內容），
+    後端才解得開，中繼者本人也解不開自己轉發的內容。
+    """
+    packet: str = Field(..., description="base64 編碼的完整封包（標頭+加密內容）")
+
+class SosReportResponse(BaseModel):
+    """
+    回傳一個簽章過的 ACK 封包給呼叫端（中繼者）。
+    中繼者應把這個 ackPacket 當成一般的中繼封包繼續往外傳播，
+    讓它有機會沿路傳回原本發送求救的裝置。
+    """
+    success: bool
+    ack_packet: str = Field(..., description="base64 編碼的 ACK 封包，交給呼叫端繼續中繼")
+    duplicate: bool = False

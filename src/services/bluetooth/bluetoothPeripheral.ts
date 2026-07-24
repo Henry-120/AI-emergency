@@ -21,6 +21,7 @@
 import { registerPlugin, Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { FrameReassembler, parseFrame } from "./bluetoothChunking";
 import { parseIncomingMessage } from "./bluetoothValidation";
+import { PACKET_KIND_CHAT, PACKET_KIND_SOS } from "./bluetoothConstants";
 import type { IncomingMessage } from "./bluetoothTypes";
 
 // ----- 原生插件介面（對應 BlePeripheralPlugin.swift 的 @objc 方法） -----
@@ -102,23 +103,22 @@ function base64ToBytes(base64: string): Uint8Array | null {
 }
 
 /**
- * 註冊「收到訊息」的監聽器。
+ * 收到一則完整重組後的訊息時，依第一個 byte（訊息種類）分流。
  *
- * 訊息來源是附近的 Central（別人的手機）透過 GATT write 寫入。**來源不可信**，
- * 因此每一層都做檢查，任何一步不合法就丟棄，不讓格式錯誤的資料進到畫面。
- *
- * @returns unregister function；不再需要時務必呼叫，避免 listener 累積
+ * 聊天與 SOS 共用同一條 characteristic，靠這個 tag byte 區分——見
+ * bluetoothConstants.ts 的 PACKET_KIND_CHAT / PACKET_KIND_SOS 說明。
  */
-export async function onMessageReceived(
-  handler: (msg: IncomingMessage) => void,
-): Promise<() => void> {
-  if (!canAdvertise()) {
-    return () => {};
-  }
+type RawMessageHandler = (kind: number, body: Uint8Array, centralId: string) => void;
 
-  // 每個監聽器有自己的重組器，避免不同訂閱者互相污染分片狀態
+/**
+ * 註冊底層的原生收訊監聽器：base64 解碼 → 分片解析 → 依來源重組。
+ *
+ * 每個呼叫端各自擁有獨立的 FrameReassembler，彼此重組狀態不互相污染；
+ * 代價是同一個原生事件會被每個訂閱者各自重組一次，但求救/心跳事件頻率低，
+ * 換取的是聊天與 SOS 兩條邏輯完全不需要共用狀態、互不干擾。
+ */
+async function subscribeRawMessages(onComplete: RawMessageHandler): Promise<() => void> {
   const reassembler = new FrameReassembler();
-  const decoder = new TextDecoder();
 
   const listener = await BlePeripheral.addListener("messageReceived", (event) => {
     const bytes = base64ToBytes(event.data);
@@ -135,12 +135,40 @@ export async function onMessageReceived(
 
     // 依來源分組重組；尚未收齊時回傳 null，靜靜等下一片
     const complete = reassembler.add(event.centralId, frame);
-    if (!complete) return;
+    if (!complete || complete.byteLength === 0) return;
+
+    onComplete(complete[0], complete.subarray(1), event.centralId);
+  });
+
+  return () => {
+    listener.remove();
+  };
+}
+
+/**
+ * 註冊「收到聊天訊息」的監聽器（「附近的人」用）。
+ *
+ * 訊息來源是附近的 Central（別人的手機）透過 GATT write 寫入。**來源不可信**，
+ * 因此每一層都做檢查，任何一步不合法就丟棄，不讓格式錯誤的資料進到畫面。
+ *
+ * @returns unregister function；不再需要時務必呼叫，避免 listener 累積
+ */
+export async function onMessageReceived(
+  handler: (msg: IncomingMessage) => void,
+): Promise<() => void> {
+  if (!canAdvertise()) {
+    return () => {};
+  }
+
+  const decoder = new TextDecoder();
+
+  return subscribeRawMessages((kind, body, centralId) => {
+    if (kind !== PACKET_KIND_CHAT) return; // 不是聊天訊息（例如 SOS 封包），不歸這裡管
 
     // 分片全數到齊後才做 UTF-8 解碼——中途解碼會在多位元組字元的切點出錯
     let json: string;
     try {
-      json = decoder.decode(complete);
+      json = decoder.decode(body);
     } catch {
       console.warn("[BLE] 重組後的資料不是合法 UTF-8，已丟棄");
       return;
@@ -152,10 +180,27 @@ export async function onMessageReceived(
       return;
     }
 
-    handler({ ...message, centralId: event.centralId });
+    handler({ ...message, centralId });
   });
+}
 
-  return () => {
-    listener.remove();
-  };
+/**
+ * 註冊「收到 SOS 中繼封包」的監聽器。
+ *
+ * 只交出原始 bytes（已編碼、已加密），不在這一層解析——封包標頭解析與內容
+ * 解密是 sosProtocol / sosCrypto 的職責，這裡只負責「這是一包 SOS 流量」的判斷。
+ *
+ * @returns unregister function
+ */
+export async function onSosPacketReceived(
+  handler: (packetBytes: Uint8Array, centralId: string) => void,
+): Promise<() => void> {
+  if (!canAdvertise()) {
+    return () => {};
+  }
+
+  return subscribeRawMessages((kind, body, centralId) => {
+    if (kind !== PACKET_KIND_SOS) return; // 不是 SOS 封包（例如聊天訊息），不歸這裡管
+    handler(body, centralId);
+  });
 }

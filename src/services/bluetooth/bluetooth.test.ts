@@ -17,6 +17,7 @@ import {
 } from "./bluetoothChunking";
 import { isValidMessage, parseIncomingMessage } from "./bluetoothValidation";
 import { generateLocalId, isValidLocalId } from "./bluetoothIdentity";
+import { PACKET_KIND_CHAT, PACKET_KIND_SOS } from "./bluetoothConstants";
 import type { OutgoingMessage } from "./bluetoothTypes";
 
 const NOW = Date.UTC(2026, 6, 13);
@@ -295,6 +296,66 @@ describe("訊息的完整往返", () => {
 
     const json = new TextDecoder().decode(complete!);
     expect(parseIncomingMessage(json, NOW)).toEqual(original);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 聊天 / SOS 共用同一條 characteristic 時的判別 byte
+//
+// 見 bluetoothConstants.ts 的 PACKET_KIND_CHAT / PACKET_KIND_SOS 說明：
+// 兩種完全不同的協定（明文 JSON vs 二進位加密封包）共用同一條 GATT
+// characteristic，靠訊息本體最前面的一個 tag byte 分流，而不是用格式去猜。
+// ---------------------------------------------------------------------------
+
+describe("聊天 / SOS 判別 byte", () => {
+  /** 模擬 bluetoothCentral.writeFramedPayload：body 前面加一個 kind byte 再分片 */
+  function frameWithKind(kind: number, body: Uint8Array): Uint8Array[] {
+    const withKind = new Uint8Array(body.byteLength + 1);
+    withKind[0] = kind;
+    withKind.set(body, 1);
+    return splitIntoFrames(generateFrameId(), withKind, 40);
+  }
+
+  /** 模擬 bluetoothPeripheral.subscribeRawMessages：重組後取出 kind byte + 本體 */
+  function reassembleWithKind(frames: Uint8Array[]): { kind: number; body: Uint8Array } {
+    const reassembler = new FrameReassembler();
+    let complete: Uint8Array | null = null;
+    for (const frame of frames) {
+      complete = reassembler.add("peer-1", parseFrame(frame)!, NOW) ?? complete;
+    }
+    return { kind: complete![0], body: complete!.subarray(1) };
+  }
+
+  it("PACKET_KIND_CHAT 與 PACKET_KIND_SOS 是不同的 byte", () => {
+    expect(PACKET_KIND_CHAT).not.toBe(PACKET_KIND_SOS);
+  });
+
+  it("聊天訊息重組後可正確還原並標示為 CHAT", () => {
+    const original = validMessage({ text: "測試訊息" });
+    const jsonBytes = new TextEncoder().encode(JSON.stringify(original));
+
+    const { kind, body } = reassembleWithKind(frameWithKind(PACKET_KIND_CHAT, jsonBytes));
+
+    expect(kind).toBe(PACKET_KIND_CHAT);
+    expect(parseIncomingMessage(new TextDecoder().decode(body), NOW)).toEqual(original);
+  });
+
+  it("SOS 二進位封包重組後可正確還原並標示為 SOS（即使內容不是合法 JSON）", () => {
+    // 模擬加密後的二進位內容：刻意包含非 UTF-8 合法序列，證明不會被誤判成聊天訊息
+    const binaryBody = new Uint8Array([0x01, 0x02, 0xff, 0xfe, 0x00, 0x10, 0x20]);
+
+    const { kind, body } = reassembleWithKind(frameWithKind(PACKET_KIND_SOS, binaryBody));
+
+    expect(kind).toBe(PACKET_KIND_SOS);
+    expect(body).toEqual(binaryBody);
+  });
+
+  it("收到的 kind 若跟訂閱者要的不一樣，訂閱者應該忽略（不強行解析）", () => {
+    const sosBody = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+    const { kind } = reassembleWithKind(frameWithKind(PACKET_KIND_SOS, sosBody));
+
+    // 聊天訂閱者收到這個事件時，只看 kind 就該直接跳過，不該嘗試 UTF-8 解碼
+    expect(kind === PACKET_KIND_CHAT).toBe(false);
   });
 });
 

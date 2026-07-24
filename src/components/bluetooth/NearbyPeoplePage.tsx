@@ -31,6 +31,7 @@ import {
 } from "../../services/bluetooth/bluetoothInbox";
 import { NearbyDevicesList } from "./NearbyDevicesList";
 import { ChatPanel } from "./ChatPanel";
+import { SosPanel } from "./SosPanel";
 
 interface Props {
   onBack: () => void;
@@ -46,6 +47,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
   const [searching, setSearching] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [chatPeer, setChatPeer] = useState<NearbyDevice | null>(null);
+  const [showSos, setShowSos] = useState(false);
 
   /** 收件匣變動時強制重繪（對話內容直接從收件匣讀，不另存一份 state） */
   const [, onInboxChanged] = useReducer((n: number) => n + 1, 0);
@@ -159,6 +161,11 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
     [chatPeer, myLocation],
   );
 
+  // ---- 求救頁 ----
+  if (showSos) {
+    return <SosPanel onBack={() => setShowSos(false)} myLocation={myLocation} />;
+  }
+
   // ---- 對話頁 ----
   if (chatPeer) {
     const conversation = chatPeer.localId ? getConversation(chatPeer.localId) : [];
@@ -206,7 +213,12 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
             ← 返回
           </button>
           <div className="text-white font-bold">附近的人</div>
-          <div className="w-12" />
+          <button
+            onClick={() => setShowSos(true)}
+            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-rose-500/20 text-rose-200 border border-rose-500/30"
+          >
+            求救
+          </button>
         </div>
 
         <div className="flex items-center justify-between gap-3 bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2">

@@ -19,6 +19,8 @@ import {
   GUARDIA_SERVICE_UUID,
   MAX_FRAME_BYTES,
   MAX_MESSAGE_BYTES,
+  PACKET_KIND_CHAT,
+  PACKET_KIND_SOS,
   SCAN_THROTTLE_MS,
 } from "./bluetoothConstants";
 import { generateFrameId, splitIntoFrames } from "./bluetoothChunking";
@@ -229,23 +231,24 @@ export async function disconnectAll(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * 傳訊息給某個附近的同 App 用戶。
+ * 把一段已經加上「訊息種類」判別 byte 的 bytes 分片寫入對方的 inbox 特徵值。
  *
- * 訊息會被序列化成 JSON，視長度自動分片，逐片寫入對方的 inbox 特徵值。
- * 連線在傳送後保留一段時間（見 CONNECTION_IDLE_TIMEOUT_MS），供後續訊息複用。
- *
- * @param deviceId 對方裝置 ID（從 scanNearby 取得）
- * @param message  要傳的訊息物件
+ * 聊天訊息與 SOS 封包共用這條傳輸機制——分片、連線複用、逾時斷線都相同，
+ * 差別只在 kind byte 讓收方知道該怎麼解析。
  */
-export async function sendMessageTo(
+async function writeFramedPayload(
   deviceId: string,
-  message: OutgoingMessage,
+  kind: number,
+  body: Uint8Array,
 ): Promise<{ success: boolean; error?: string }> {
   await ensureInitialized();
 
-  const payload = new TextEncoder().encode(JSON.stringify(message));
+  const payload = new Uint8Array(body.byteLength + 1);
+  payload[0] = kind;
+  payload.set(body, 1);
+
   if (payload.byteLength > MAX_MESSAGE_BYTES) {
-    return { success: false, error: `訊息過長（>${MAX_MESSAGE_BYTES} bytes）` };
+    return { success: false, error: `內容過長（>${MAX_MESSAGE_BYTES} bytes）` };
   }
 
   let frames: Uint8Array[];
@@ -287,4 +290,37 @@ export async function sendMessageTo(
 
     return { success: false, error: errMsg };
   }
+}
+
+/**
+ * 傳訊息給某個附近的同 App 用戶。
+ *
+ * 訊息會被序列化成 JSON，視長度自動分片，逐片寫入對方的 inbox 特徵值。
+ * 連線在傳送後保留一段時間（見 CONNECTION_IDLE_TIMEOUT_MS），供後續訊息複用。
+ *
+ * @param deviceId 對方裝置 ID（從 scanNearby 取得）
+ * @param message  要傳的訊息物件
+ */
+export async function sendMessageTo(
+  deviceId: string,
+  message: OutgoingMessage,
+): Promise<{ success: boolean; error?: string }> {
+  const body = new TextEncoder().encode(JSON.stringify(message));
+  return writeFramedPayload(deviceId, PACKET_KIND_CHAT, body);
+}
+
+/**
+ * 傳一個 SOS 中繼封包（已編碼、已加密的 bytes）給附近某裝置。
+ *
+ * 對方不一定是「同 App 認識的朋友」，只是任何願意幫忙轉發的陌生人——
+ * 因此這裡不做任何身分或內容檢查，原封不動送出即可，中繼者本來就解不開內容。
+ *
+ * @param deviceId    對方裝置 ID
+ * @param packetBytes 已編碼的完整封包（sosProtocol.encodePacket 的輸出）
+ */
+export async function sendSosPacket(
+  deviceId: string,
+  packetBytes: Uint8Array,
+): Promise<{ success: boolean; error?: string }> {
+  return writeFramedPayload(deviceId, PACKET_KIND_SOS, packetBytes);
 }

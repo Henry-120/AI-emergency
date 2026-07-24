@@ -42,11 +42,18 @@ export interface BackendKeys {
 /**
  * 目前設定的後端金鑰。
  *
- * **尚未設定。** 後端產生金鑰後填入此處（或改由建置時的環境變數注入）。
- * 未設定時，發送求救會明確失敗——這是刻意的：與其送出一個沒有加密、
- * 讓沿途所有陌生人都讀得到你的位置和病史的封包，不如直接拒絕送出。
+ * ⚠️ 這是**測試用**金鑰組，僅供本機開發與展示端到端流程使用，
+ * 私鑰對應存於 `Backend/sos_keys.py`（同樣標註 TEST ONLY）。
+ * 正式上線前，後端必須重新產生一組金鑰、私鑰絕不進版控，
+ * 並把新的公鑰換到這裡（見檔案開頭的產生方式）。
  */
-export const BACKEND_KEYS: BackendKeys | null = null;
+export const BACKEND_KEYS: BackendKeys | null = {
+  version: 1,
+  encryptionPublicKey:
+    "BFLpfLUJBH9Y4waLLC27L7IHq8rrNKu66J9rXEBXcaVfL/G+aryU6zVE4tcsAICU4jr1XpBcMvR3MQxD5nwZX6k=",
+  ackVerifyPublicKey:
+    "BBZ+AeOEavOek2TAjwh/Z0QezFPkW14vBljbWaVMPX0XtGHposje0eqQEQOZ3YuWYmP+Tj9+vWq20MoeN0CnP4Y=",
+};
 
 /** 取得後端金鑰；未設定時拋出可讀的錯誤 */
 export function requireBackendKeys(): BackendKeys {
