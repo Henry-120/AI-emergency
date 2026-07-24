@@ -1,10 +1,14 @@
 import base64
+import asyncio
 import json
+import logging
 import os
 import re
 from typing import Any, Dict, List
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class RoomRiskService:
@@ -45,17 +49,29 @@ class RoomRiskService:
             },
         }
 
-        async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(
-                endpoint,
-                params={"key": api_key},
-                json=payload,
-            )
-            response.raise_for_status()
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=45) as client:
+                    response = await client.post(
+                        endpoint,
+                        params={"key": api_key},
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                text = self._extract_text(response.json())
+                data = self._parse_json(text)
+                return self._normalize(data)
+            except (httpx.HTTPError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Room-risk Gemini attempt %s failed: %s",
+                    attempt + 1,
+                    exc,
+                )
+                if attempt == 0:
+                    await asyncio.sleep(0.4)
 
-        text = self._extract_text(response.json())
-        data = self._parse_json(text)
-        return self._normalize(data)
+        logger.error("Room-risk Gemini failed twice; returning safe fallback analysis.")
+        return self._fallback_analysis()
 
     def _prompt(self, sensor_context: str) -> str:
         return f"""
@@ -132,7 +148,7 @@ class RoomRiskService:
 6. 每個風險都要給出具體改善建議。
 
 地面區域繪製規則，必須嚴格遵守：
-1. zones 的 polygon 只能畫在照片中可見的地板平面上。
+1. 每個 danger 或 caution 區域必須對應至少一個 sourceObjectLabel，表示該區域是由哪個家具或物件造成的風險。
 2. 每個 high 或 medium 風險家具至少建立一個對應 danger zone。
 3. 家具傾倒區必須從家具底部接觸地面的左右兩側開始，朝可能傾倒方向延伸到地板，長度約等於家具可見高度。
 4. 掉落物區域要畫在物件正下方地板，並稍微向外擴張。
@@ -172,6 +188,7 @@ class RoomRiskService:
     def _normalize(self, data: Dict[str, Any]) -> Dict[str, Any]:
         objects = [self._normalize_object(item) for item in data.get("objects", [])]
         zones = [self._normalize_zone(item, index) for index, item in enumerate(data.get("zones", []))]
+        zones = [zone for zone in zones if len(zone["polygon"]) >= 3]
 
         return {
             "summary": str(data.get("summary") or "已完成室內地震家具風險分析。"),
@@ -197,8 +214,15 @@ class RoomRiskService:
         }
 
     def _normalize_zone(self, item: Dict[str, Any], index: int) -> Dict[str, Any]:
-        zone_type = item.get("type") if item.get("type") in {"danger", "caution", "safe"} else "caution"
-        impact_types = {"topple", "falling", "glass", "blocked_path", "safe_floor"}
+        raw_zone_type = item.get("type")
+        # The model uses potential_safe for triangle voids. Expose it as the
+        # existing safe UI category, while preserving triangle_void below.
+        zone_type = "safe" if raw_zone_type == "potential_safe" else raw_zone_type
+        if zone_type not in {"danger", "caution", "safe"}:
+            zone_type = "caution"
+        impact_types = {
+            "topple", "falling", "glass", "blocked_path", "safe_floor", "triangle_void"
+        }
         impact_type = item.get("impactType")
         if impact_type not in impact_types:
             impact_type = "safe_floor" if zone_type == "safe" else "topple"
@@ -208,13 +232,8 @@ class RoomRiskService:
             for point in polygon
             if isinstance(point, dict)
         ]
-        if len(points) < 3:
-            points = [
-                {"x": 0.1, "y": 0.1},
-                {"x": 0.9, "y": 0.1},
-                {"x": 0.9, "y": 0.9},
-                {"x": 0.1, "y": 0.9},
-            ]
+        # Do not invent a full-image polygon. Invalid zones are removed by
+        # _normalize so AR never displays a fabricated floor region.
 
         return {
             "id": str(item.get("id") or f"zone-{index + 1}"),

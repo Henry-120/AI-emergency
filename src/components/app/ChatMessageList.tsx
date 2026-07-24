@@ -41,7 +41,7 @@ export function ChatMessageList({
 }) {
   return (
     <main
-      className="flex-1 overflow-y-auto px-4 py-6 space-y-6"
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-6 space-y-4 sm:space-y-6"
       ref={scrollRef}
     >
       {messages.map((m) => (
@@ -50,13 +50,27 @@ export function ChatMessageList({
           className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
         >
           <div
-            className={`max-w-[90%] ${m.role === "user" ? "message-gradient-user text-black rounded-2xl rounded-tr-none px-4 py-3 shadow-xl" : ""}`}
+            className={`max-w-[94%] sm:max-w-[90%] min-w-0 break-words ${m.role === "user" ? "message-gradient-user text-black rounded-2xl rounded-tr-none px-4 py-3 shadow-xl" : ""}`}
           >
             {m.role === "assistant" && (
               <div className="space-y-4">
                 <p className="text-sm font-medium leading-relaxed text-slate-200">
                   {m.content}
                 </p>
+
+                {m.analysis?.situationSummary && (
+                  <div className="p-4 bg-slate-500/10 border border-slate-400/20 rounded-xl">
+                    <div className="flex items-center gap-2 text-slate-300 mb-2">
+                      <i className="fas fa-circle-info text-xs"></i>
+                      <span className="text-[10px] font-bold uppercase tracking-wider">
+                        狀況分析
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-100 leading-relaxed">
+                      {m.analysis.situationSummary}
+                    </p>
+                  </div>
+                )}
 
                 {m.analysis?.missingInfoRequests &&
                   m.analysis.missingInfoRequests.length > 0 && (

@@ -150,3 +150,47 @@ export async function subscribeMessages(
 ): Promise<() => void> {
   return onMessageReceived(handler);
 }
+
+/**
+ * 強震發生時自動發出的「存活訊號」。
+ *
+ * 由 App.tsx 的地震警報邏輯觸發：掃描附近的同 App 使用者，對每一位送出一則
+ * 帶位置的訊號。對方會在「附近的人」的對話中收到，得知你在附近、需要留意。
+ *
+ * 取代 main 原本建在殘缺舊 BLE 上的同名函式——舊版的 startGuardianAdvertising
+ * 直接 throw，手機無法對外廣播，兩機互相掃不到，這個自動訊號其實發不出去。
+ * 本版改用能真正運作的模組（可廣播、分片、驗證）。
+ *
+ * 註：這裡送的是明文的近距離訊號，用於「讓附近的人知道我在」。真正要把求救
+ * 傳到外界（多跳中繼 + 加密）是 src/services/sos 的職責，需後端金鑰後才啟用。
+ *
+ * @param location 目前位置（可選，會附在訊號中）
+ * @param scanMs   掃描附近的時間
+ * @returns discovered = 掃到的同 App 人數；sent = 成功送達的則數
+ */
+export async function sendAutomaticSurvivalSignal(
+  location?: { lat: number; lng: number },
+  scanMs = 5000,
+): Promise<{ discovered: number; sent: number }> {
+  await initBluetooth();
+
+  const devices = await scanNearby({
+    onlyGuardiaUsers: true,
+    durationMs: scanMs,
+  });
+
+  // 只發給能識別身分的同 App 使用者（對方需在前景廣播其 localId）
+  const targets = devices.filter((d) => d.isGuardiaUser && d.localId);
+
+  let sent = 0;
+  for (const target of targets) {
+    const res = await sendMessage(
+      target.deviceId,
+      "【自動存活訊號】我在強震影響範圍內，目前透過藍牙自動通知附近的人。",
+      location,
+    );
+    if (res.success) sent += 1;
+  }
+
+  return { discovered: targets.length, sent };
+}

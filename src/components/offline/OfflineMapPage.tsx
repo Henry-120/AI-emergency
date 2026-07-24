@@ -67,12 +67,12 @@ export function OfflineMapPage({
   }, [map]);
 
   return (
-    <div className="h-screen flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
-      <header className="border-b border-white/10 bg-[#020617] px-4 py-3">
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
+      <header className="safe-area-top shrink-0 border-b border-white/10 bg-[#020617] px-3 py-2 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between gap-3">
           <button
             onClick={onBack}
-            className="w-10 h-10 rounded-xl border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+            className="w-11 h-11 shrink-0 rounded-xl border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
             aria-label="返回"
           >
             <i className="fas fa-arrow-left text-sm"></i>
@@ -92,11 +92,11 @@ export function OfflineMapPage({
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        <section className="grid grid-cols-2 gap-3 text-[12px]">
+      <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4 space-y-3 sm:space-y-4 safe-area-bottom">
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
             <div className="text-slate-500">中心座標</div>
-            <div className="mt-1 font-mono text-slate-200">
+            <div className="mt-1 break-all font-mono text-slate-200">
               {map.center_latitude.toFixed(5)}, {map.center_longitude.toFixed(5)}
             </div>
           </div>

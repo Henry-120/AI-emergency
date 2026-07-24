@@ -2,5 +2,5 @@ fastapi
 firebase-admin
 httpx
 python-multipart
-sqlalchemy
+requests
 uvicorn

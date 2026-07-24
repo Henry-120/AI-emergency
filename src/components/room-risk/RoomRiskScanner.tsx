@@ -374,8 +374,8 @@ export function RoomRiskScanner({
   };
 
   return (
-    <section className="fixed inset-0 z-40 flex flex-col bg-[#07111f]">
-      <div className="flex items-center justify-between border-b border-white/10 bg-[#07111f]/95 px-4 py-3">
+    <section className="fixed inset-0 z-40 flex min-h-0 flex-col bg-[#07111f] safe-area-top">
+      <div className="shrink-0 flex items-center justify-between border-b border-white/10 bg-[#07111f]/95 px-3 py-2 sm:px-4 sm:py-3">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
             AR Floor Guide
@@ -385,14 +385,14 @@ export function RoomRiskScanner({
         <button
           type="button"
           onClick={onClose}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-300 active:scale-95"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-300 active:scale-95"
           aria-label="關閉房間風險掃描"
         >
           <i className="fas fa-times"></i>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain safe-area-bottom">
         <div className="mx-auto max-w-3xl px-3 py-3 sm:px-4">
           <div className="mb-3 flex items-center justify-center gap-2 text-[11px] font-bold">
             <span className="rounded-full bg-[#ff6770]/15 px-3 py-1.5 text-[#ffb7bc]">
@@ -406,19 +406,19 @@ export function RoomRiskScanner({
             </span>
           </div>
 
-          <div className="relative min-h-[52vh] overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl shadow-black/30">
+          <div className="relative min-h-[42dvh] sm:min-h-[52vh] overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl shadow-black/30">
             {imageUrl ? (
               <img
                 src={imageUrl}
                 alt="現場掃描影像"
-                className="block max-h-[64vh] min-h-[52vh] w-full object-contain"
+                className="block max-h-[64dvh] min-h-[42dvh] sm:min-h-[52vh] w-full object-contain"
               />
             ) : (
               <video
                 ref={videoRef}
                 muted
                 playsInline
-                className="block min-h-[52vh] w-full object-cover"
+                className="block min-h-[42dvh] sm:min-h-[52vh] w-full object-cover"
                 aria-label="後鏡頭即時預覽"
               />
             )}

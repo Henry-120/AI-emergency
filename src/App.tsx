@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import { analyzeDisaster } from "./services/geminiService";
 import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
-import { fetchLatestAlert, EarthquakeAlert } from "./services/cwaService";
+import {
+  fetchLatestAlert,
+  EarthquakeAlert,
+  isSevereNearbyEarthquake,
+} from "./services/cwaService";
+import {
+  notifyEarthquakeAlert,
+  onEarthquakeNotificationTapped,
+} from "./services/notificationService";
 import { AppFooter } from "./components/app/AppFooter";
 import { AppHeader } from "./components/app/AppHeader";
 import { ChatMessageList } from "./components/app/ChatMessageList";
@@ -26,7 +34,9 @@ import {
   OfflineSafetyPack,
 } from "./services/offlineSafetyService";
 import {
+  saveEmergencyReport,
   saveUserStatusSnapshot,
+  syncPendingEmergencyReports,
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
 // 藍牙模組：附近的人功能（BLE App-to-App 訊息 + 位置廣播）
@@ -36,23 +46,36 @@ import {
   initInbox,
   subscribeInbox,
 } from "./services/bluetooth/bluetoothInbox";
+import { sendAutomaticSurvivalSignal } from "./services/bluetooth/bluetoothService";
 import { RoomRiskAnalysis } from "./types";
 import { AuthPage } from "./components/auth/AuthPage";
 import { MedicalCardPage } from "./components/medical/MedicalCardPage";
-import { getCurrentUser, logout } from "./services/authService";
+import { RescueMapPage } from "./components/rescue/RescueMapPage";
+import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
     getCurrentUser(),
   );
+  const [isCheckingSession, setIsCheckingSession] = useState(navigator.onLine);
   const [showMedicalCard, setShowMedicalCard] = useState(false);
+  const [showRescueMap, setShowRescueMap] = useState(false);
 
   const handleLogout = () => {
     logout();
     setShowMedicalCard(false);
     setAuthUser(null);
   };
+
+  useEffect(() => {
+    validateSession()
+      .then((user) => {
+        if (!user && navigator.onLine) logout();
+        setAuthUser(user);
+      })
+      .finally(() => setIsCheckingSession(false));
+  }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -70,6 +93,10 @@ const App: React.FC = () => {
     location: null,
     hasInjuries: false,
   });
+  const userStatusRef = useRef(userStatus);
+  const earthquakeAlertRef = useRef<EarthquakeAlert | null>(null);
+  const notifiedEarthquakeRef = useRef<string | null>(null);
+  const sosEarthquakeRef = useRef<string | null>(null);
 
   // 藍牙收件匣必須在 App 層級常駐。
   //
@@ -84,14 +111,19 @@ const App: React.FC = () => {
     return unsub;
   }, []);
 
-  // 每 30 秒先存進本機 SQLite，若有網路再批次同步到後端。
+  useEffect(() => {
+    userStatusRef.current = userStatus;
+  }, [userStatus]);
+  useEffect(() => {
+    earthquakeAlertRef.current = earthquakeAlert;
+  }, [earthquakeAlert]);
+
+  // 每 30 秒線上直接寫後端；只有離線時才存進本機 SQLite。
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      saveUserStatusSnapshot(userStatus).then(() => {
-        if (navigator.onLine) {
-          syncPendingUserStatusRecords();
-        }
-      });
+      saveUserStatusSnapshot(userStatus).catch((error) =>
+        console.error("狀態儲存失敗", error),
+      );
     }, 30000);
     return () => clearInterval(syncInterval);
   }, [userStatus]);
@@ -172,6 +204,19 @@ const App: React.FC = () => {
     } else {
       setCwaError("CWA 即時地震警報載入失敗。請稍後重新整理。");
     }
+  };
+
+  const handleSimulateSevereEarthquake = () => {
+    const location = userStatus.location || { lat: 25.033, lng: 121.5654 };
+    notifiedEarthquakeRef.current = null;
+    sosEarthquakeRef.current = null;
+    setEarthquakeAlert({
+      magnitude: 6.5,
+      location: "模擬強震（測試資料）",
+      time: new Date().toISOString(),
+      epicenterLat: location.lat,
+      epicenterLng: location.lng,
+    });
   };
 
   const getSensorContext = () => {
@@ -352,7 +397,12 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleOnline = () => {
       setIsOffline(false);
+      validateSession().then((user) => {
+        if (!user) logout();
+        setAuthUser(user);
+      });
       syncPendingUserStatusRecords();
+      syncPendingEmergencyReports();
     };
     const handleOffline = () => setIsOffline(true);
 
@@ -364,6 +414,13 @@ const App: React.FC = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  // App 重啟或重新登入後，自動重試之前未同步的救援摘要。
+  useEffect(() => {
+    if (authUser && navigator.onLine) {
+      syncPendingEmergencyReports();
+    }
+  }, [authUser]);
 
   const speak = (text: string) => {
     window.speechSynthesis.cancel();
@@ -388,6 +445,70 @@ const App: React.FC = () => {
 
     window.speechSynthesis.speak(utterance);
   };
+
+  const announceEarthquakeSafety = () => {
+    const alert = earthquakeAlertRef.current;
+    const instruction = alert
+      ? `偵測到規模 ${alert.magnitude} 強震，${alert.location}。請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。`
+      : "請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。";
+    setMessages((previous) => [...previous, {
+      id: `earthquake-${Date.now()}`,
+      role: "assistant",
+      content: `🚨 ${instruction}`,
+      timestamp: new Date(),
+    }]);
+    speak(instruction);
+  };
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    onEarthquakeNotificationTapped(() => {
+      void handleRefreshCwa();
+      announceEarthquakeSafety();
+    }).then((remove) => { cleanup = remove; });
+    return () => cleanup?.();
+  }, []);
+
+  useEffect(() => {
+    if (!earthquakeAlert) return;
+    const location = userStatusRef.current.location;
+    if (!isSevereNearbyEarthquake(earthquakeAlert, location)) return;
+    const key = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
+
+    if (notifiedEarthquakeRef.current !== key) {
+      notifiedEarthquakeRef.current = key;
+      void notifyEarthquakeAlert(earthquakeAlert);
+    }
+    if (sosEarthquakeRef.current !== key) {
+      sosEarthquakeRef.current = key;
+      setMessages((previous) => [...previous, {
+        id: `sos-start-${Date.now()}`,
+        role: "assistant",
+        content: "⚠️ 強震影響範圍內，正在透過 BLE 尋找附近 Guardia 裝置並傳送匿名存活訊號。",
+        timestamp: new Date(),
+      }]);
+      void sendAutomaticSurvivalSignal(
+        userStatusRef.current.location ?? undefined,
+      ).then(({ sent }) => {
+        setMessages((previous) => [...previous, {
+          id: `sos-result-${Date.now()}`,
+          role: "assistant",
+          content: sent > 0
+            ? `✅ 已向 ${sent} 個附近裝置傳送匿名存活訊號。`
+            : "目前沒有找到可接收訊號的 Guardia BLE 裝置；請保持藍牙開啟並嘗試手動傳送。",
+          timestamp: new Date(),
+        }]);
+      }).catch((error) => {
+        console.error("BLE 自動存活訊號失敗", error);
+        setMessages((previous) => [...previous, {
+          id: `sos-error-${Date.now()}`,
+          role: "assistant",
+          content: "BLE 自動存活訊號傳送失敗，請開啟 BLE 頁面手動傳送。",
+          timestamp: new Date(),
+        }]);
+      });
+    }
+  }, [earthquakeAlert]);
 
   const getGeolocationErrorMessage = (
     err: GeolocationPositionError,
@@ -481,7 +602,7 @@ const App: React.FC = () => {
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isAnalyzing) return;
+    if (!authUser || !input.trim() || isAnalyzing) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -497,7 +618,13 @@ const App: React.FC = () => {
     setInput("");
     // --- 離線邏輯開始 ---
     if (isOffline) {
-      const offlineAnalysis = getOfflineAnalysis(currentInput);
+      const offlineAnalysis = getOfflineAnalysis(
+        currentInput,
+        updatedMessages
+          .filter((message) => message.role === "user")
+          .map((message) => message.content)
+          .join("\n"),
+      );
 
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -509,6 +636,12 @@ const App: React.FC = () => {
 
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(offlineAnalysis);
+      saveEmergencyReport(
+        authUser.id,
+        offlineAnalysis.emergencySummary,
+        [...updatedMessages, assistantMsg],
+        userStatus.location,
+      ).catch((error) => console.error("離線救援摘要儲存失敗", error));
       speak(offlineAnalysis.immediateActions[0].description);
       return; // 離線模式處理完畢，直接結束
     }
@@ -535,6 +668,16 @@ const App: React.FC = () => {
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(analysis);
 
+      // 無論是否有網路都先寫裝置端；線上時再嘗試同步到後端。
+      saveEmergencyReport(authUser.id, analysis.emergencySummary, [
+        ...updatedMessages,
+        assistantMsg,
+      ], userStatus.location)
+        .then(() => {
+          if (navigator.onLine) return syncPendingEmergencyReports();
+        })
+        .catch((error) => console.error("救援摘要本機儲存失敗", error));
+
       if (analysis.immediateActions && analysis.immediateActions.length > 0) {
         const text = `緊急指令${analysis.immediateActions[0].title}`;
         // 優先嘗試 OpenAI，失敗則用原生降級
@@ -547,12 +690,20 @@ const App: React.FC = () => {
         speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
       }
     } catch (error) {
+      console.error("Disaster analysis failed:", error);
+      const detail = error instanceof Error ? error.message : "未知錯誤";
+      const isModelUnavailable = /not found|no longer available|404/i.test(detail);
+      const isQuotaLimited = /quota|resource_exhausted|429/i.test(detail);
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "分析引擎繁忙中，請嘗試簡短描述您觀察到的新狀況。",
+          content: isModelUnavailable
+            ? "分析模型目前不可用，請重新整理後再試；若持續發生，請檢查 Gemini model 設定。"
+            : isQuotaLimited
+              ? "Gemini API 額度暫時用完，請稍後再試或檢查 API 配額。"
+              : "分析服務暫時無法回應，請確認網路後再試。",
           timestamp: new Date(),
         },
       ]);
@@ -567,12 +718,24 @@ const App: React.FC = () => {
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
 
+  if (isCheckingSession) {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-[#020617] text-slate-400">
+        正在確認線上帳號…
+      </div>
+    );
+  }
+
   if (!authUser) {
     return <AuthPage onAuthed={setAuthUser} />;
   }
 
   if (showMedicalCard) {
     return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
+  }
+
+  if (showRescueMap) {
+    return <RescueMapPage location={userStatus.location} onBack={() => setShowRescueMap(false)} />;
   }
 
   if (selectedMap) {
@@ -609,7 +772,7 @@ const App: React.FC = () => {
 
   // 渲染 UI
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}
@@ -626,6 +789,8 @@ const App: React.FC = () => {
         onShowNearbyPeople={() => setShowNearbyPeople(true)}
         nearbyUnreadCount={bleUnread}
         onShowMedicalCard={() => setShowMedicalCard(true)}
+        onShowRescueMap={() => setShowRescueMap(true)}
+        onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
         onLogout={handleLogout}
       />
       <ChatMessageList

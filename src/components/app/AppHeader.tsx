@@ -20,6 +20,8 @@ export function AppHeader({
   onShowNearbyPeople,
   nearbyUnreadCount,
   onShowMedicalCard,
+  onShowRescueMap,
+  onSimulateSevereEarthquake,
   onLogout,
 }: {
   currentAnalysis: DisasterAnalysis | null;
@@ -39,16 +41,18 @@ export function AppHeader({
   /** 藍牙模組：未讀訊息數。使用者不在該頁面時，仍需知道有人傳訊息來 */
   nearbyUnreadCount: number;
   onShowMedicalCard: () => void;
+  onShowRescueMap: () => void;
+  onSimulateSevereEarthquake: () => void;
   onLogout: () => void;
 }) {
   return (
-    <header className="z-50 shadow-lg">
-      <div className="flex items-center justify-between px-4 py-3 bg-[#020617] border-b border-white/5">
-        <div className="flex items-center gap-2">
+    <header className="z-50 shrink-0 shadow-lg safe-area-top bg-[#020617]">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3 border-b border-white/5">
+        <div className="flex shrink-0 items-center gap-2">
           <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
             <i className="fas fa-shield-alt text-black text-xs"></i>
           </div>
-          <span className="font-bold text-lg tracking-tight">
+          <span className="font-bold text-lg tracking-tight text-white">
             Guardia<span className="text-amber-500">AI</span>
             {isOffline && (
               <span className="ml-2 text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full">
@@ -58,7 +62,7 @@ export function AppHeader({
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="order-3 flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar sm:order-none sm:w-auto sm:max-w-[75%] sm:gap-3">
           {currentAnalysis && (
             <div className="flex items-center gap-2 animate-in fade-in duration-500">
               <div className="text-right">
@@ -73,12 +77,12 @@ export function AppHeader({
             </div>
           )}
           {locationError ? (
-            <div className="text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
+            <div className="max-w-[70vw] shrink-0 truncate text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
               {locationError}
             </div>
           ) : earthquakeAlert ? (
             <div className="flex items-center gap-2">
-              <div className="text-[10px] text-amber-100 bg-slate-800/80 px-3 py-1 rounded-full border border-amber-500/20">
+              <div className="max-w-[68vw] truncate text-[10px] text-amber-100 bg-slate-800/80 px-3 py-1 rounded-full border border-amber-500/20" title={`CWA：${earthquakeAlert.location} ${earthquakeAlert.magnitude.toFixed(1)} 級`}>
                 CWA：{earthquakeAlert.location}{" "}
                 {earthquakeAlert.magnitude.toFixed(1)} 級
               </div>
@@ -91,11 +95,11 @@ export function AppHeader({
               </button>
             </div>
           ) : cwaError ? (
-            <div className="text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
+            <div className="max-w-[70vw] shrink-0 truncate text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
               {cwaError}
             </div>
           ) : userStatus.location ? (
-            <div className="text-[10px] text-slate-300 bg-slate-800/80 px-3 py-1 rounded-full border border-white/10">
+            <div className="shrink-0 text-[10px] text-slate-300 bg-slate-800/80 px-3 py-1 rounded-full border border-white/10">
               目前定位：{userStatus.location.lat.toFixed(4)},{" "}
               {userStatus.location.lng.toFixed(4)}
             </div>
@@ -103,23 +107,30 @@ export function AppHeader({
           <button
             onClick={onDownloadOfflineSafetyPack}
             disabled={isDownloadingMap}
-            className="px-3 py-2 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs font-semibold hover:bg-amber-500/20 transition-all disabled:opacity-40"
+            className="shrink-0 px-3 py-2 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs font-semibold hover:bg-amber-500/20 transition-all disabled:opacity-40"
           >
             {isDownloadingMap ? "下載中..." : "下載避難包"}
           </button>
           {offlineSafetyPackReady && (
             <button
               onClick={onShowShelterNavigator}
-              className="px-3 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs font-semibold hover:bg-emerald-500/20 transition-all"
+              className="shrink-0 px-3 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs font-semibold hover:bg-emerald-500/20 transition-all"
             >
               避難導航
             </button>
           )}
           {/* 藍牙模組：附近的人入口。未讀訊息以紅點提示——使用者不在該頁面時，
               仍必須知道有人傳訊息給他。 */}
+          {/* main 新增：救援地圖（走後端 API，與藍牙無關） */}
+          <button
+            onClick={onShowRescueMap}
+            className="shrink-0 px-3 py-2 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold hover:bg-red-500/20 transition-all"
+          >
+            救援地圖
+          </button>
           <button
             onClick={onShowNearbyPeople}
-            className="relative px-3 py-2 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-200 text-xs font-semibold hover:bg-sky-500/20 transition-all"
+            className="relative shrink-0 px-3 py-2 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-200 text-xs font-semibold hover:bg-sky-500/20 transition-all"
             title="找到附近的人，直接傳訊息給他們（不需要網路）"
           >
             附近的人
@@ -135,13 +146,20 @@ export function AppHeader({
           <button
             onClick={onShowMedicalCard}
             title="緊急醫療卡"
-            className="px-3 py-2 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs font-semibold hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
+            className="shrink-0 px-3 py-2 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs font-semibold hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
           >
             <i className="fas fa-notes-medical"></i>
             <span className="hidden sm:inline">醫療卡</span>
           </button>
+          <button
+            onClick={onSimulateSevereEarthquake}
+            title="測試強震通知、避難語音與 BLE 存活訊號"
+            className="shrink-0 px-3 py-2 rounded-2xl bg-red-600 text-white text-xs font-black hover:bg-red-500 transition-all"
+          >
+            🚨 模擬強震
+          </button>
           {authUser && (
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <span
                 className="text-[11px] text-slate-300 max-w-[80px] truncate hidden sm:inline"
                 title={authUser.username}
@@ -157,7 +175,7 @@ export function AppHeader({
               </button>
             </div>
           )}
-          <button className="w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
+          <button className="w-8 h-8 shrink-0 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
             <i className="fas fa-phone-alt text-red-500 text-xs"></i>
           </button>
         </div>

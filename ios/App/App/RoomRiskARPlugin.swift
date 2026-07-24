@@ -54,11 +54,16 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
     private let closeButton = UIButton(type: .system)
     private let clearButton = UIButton(type: .system)
     private let legendStack = UIStackView()
+    private let captureGuide = UIView()
+    private let captureGuideLabel = UILabel()
+    private let readinessProgress = UIProgressView(progressViewStyle: .default)
+    private let readinessLabel = UILabel()
     private let zoneRoot = SCNNode()
     private var isAnalyzing = false
     private var latestAnalysis: [String: Any]?
     private var detectedHorizontalPlanes = 0
     private var horizontalPlaneAnchors: [UUID: ARPlaneAnchor] = [:]
+    private var lastGuidanceUpdate: TimeInterval = 0
 
     var onFinish: (([String: Any]?) -> Void)?
 
@@ -138,6 +143,41 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         legendStack.addArrangedSubview(makeLegend(title: "安全", color: .mintGreen))
         view.addSubview(legendStack)
 
+        captureGuide.translatesAutoresizingMaskIntoConstraints = false
+        captureGuide.isUserInteractionEnabled = false
+        captureGuide.layer.cornerRadius = 22
+        captureGuide.layer.borderWidth = 2
+        captureGuide.layer.borderColor = UIColor.white.withAlphaComponent(0.72).cgColor
+        captureGuide.backgroundColor = UIColor.clear
+        view.addSubview(captureGuide)
+
+        captureGuideLabel.text = "讓家具、家具底部與前方地板都進入框內"
+        captureGuideLabel.textColor = .white
+        captureGuideLabel.backgroundColor = UIColor.black.withAlphaComponent(0.62)
+        captureGuideLabel.font = .systemFont(ofSize: 13, weight: .bold)
+        captureGuideLabel.textAlignment = .center
+        captureGuideLabel.numberOfLines = 2
+        captureGuideLabel.layer.cornerRadius = 14
+        captureGuideLabel.clipsToBounds = true
+        captureGuideLabel.translatesAutoresizingMaskIntoConstraints = false
+        captureGuide.addSubview(captureGuideLabel)
+
+        readinessLabel.text = "步驟 1/3｜慢慢左右移動，先建立地板"
+        readinessLabel.textColor = .white
+        readinessLabel.backgroundColor = UIColor.black.withAlphaComponent(0.58)
+        readinessLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        readinessLabel.textAlignment = .center
+        readinessLabel.layer.cornerRadius = 15
+        readinessLabel.clipsToBounds = true
+        readinessLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(readinessLabel)
+
+        readinessProgress.progress = 0.08
+        readinessProgress.trackTintColor = UIColor.white.withAlphaComponent(0.22)
+        readinessProgress.progressTintColor = .honeyYellow
+        readinessProgress.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(readinessProgress)
+
         scanButton.setTitle("分析地面風險", for: .normal)
         scanButton.setImage(UIImage(systemName: "viewfinder"), for: .normal)
         scanButton.tintColor = UIColor(red: 0.02, green: 0.20, blue: 0.16, alpha: 1)
@@ -148,6 +188,8 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         scanButton.configuration?.imagePadding = 9
         scanButton.translatesAutoresizingMaskIntoConstraints = false
         scanButton.addTarget(self, action: #selector(scanTapped), for: .touchUpInside)
+        scanButton.isEnabled = false
+        scanButton.alpha = 0.5
         view.addSubview(scanButton)
 
         clearButton.setImage(UIImage(systemName: "arrow.counterclockwise"), for: .normal)
@@ -189,6 +231,25 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
             legendStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -28),
             legendStack.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 10),
             legendStack.heightAnchor.constraint(equalToConstant: 32),
+
+            captureGuide.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 42),
+            captureGuide.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -42),
+            captureGuide.topAnchor.constraint(equalTo: legendStack.bottomAnchor, constant: 34),
+            captureGuide.bottomAnchor.constraint(equalTo: readinessLabel.topAnchor, constant: -20),
+
+            captureGuideLabel.leadingAnchor.constraint(equalTo: captureGuide.leadingAnchor, constant: 18),
+            captureGuideLabel.trailingAnchor.constraint(equalTo: captureGuide.trailingAnchor, constant: -18),
+            captureGuideLabel.topAnchor.constraint(equalTo: captureGuide.topAnchor, constant: 14),
+            captureGuideLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 38),
+
+            readinessLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 38),
+            readinessLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -38),
+            readinessLabel.bottomAnchor.constraint(equalTo: readinessProgress.topAnchor, constant: -8),
+            readinessLabel.heightAnchor.constraint(equalToConstant: 38),
+
+            readinessProgress.leadingAnchor.constraint(equalTo: readinessLabel.leadingAnchor, constant: 12),
+            readinessProgress.trailingAnchor.constraint(equalTo: readinessLabel.trailingAnchor, constant: -12),
+            readinessProgress.bottomAnchor.constraint(equalTo: scanButton.topAnchor, constant: -18),
 
             scanButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             scanButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -18),
@@ -256,6 +317,10 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         zoneRoot.childNodes.forEach { $0.removeFromParentNode() }
         latestAnalysis = nil
         statusLabel.text = "已清除標記，請重新掃描地板"
+        captureGuide.isHidden = false
+        readinessLabel.isHidden = false
+        readinessProgress.isHidden = false
+        updateScanAvailability(isReady: false)
         runSession(reset: false)
     }
 
@@ -271,8 +336,11 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         }
 
         isAnalyzing = true
+        captureGuide.isHidden = true
+        readinessLabel.isHidden = true
+        readinessProgress.isHidden = true
         scanButton.isEnabled = false
-        scanButton.setTitle("AI 分析中...", for: .normal)
+        scanButton.setTitle("分析中...", for: .normal)
         statusLabel.text = depthStatus(frame: frame)
 
         guard let imageData = sceneView.snapshot().jpegData(compressionQuality: 0.86) else {
@@ -301,6 +369,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
                 }
                 self.isAnalyzing = false
                 self.scanButton.isEnabled = true
+                self.scanButton.alpha = 1
                 self.scanButton.setTitle("重新分析", for: .normal)
             }
         }
@@ -365,7 +434,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         guard let zones = analysis["zones"] as? [[String: Any]] else { return 0 }
         var renderedCount = 0
 
-        for (zoneIndex, zone) in zones.enumerated() {
+        for zone in selectClearZones(zones) {
             guard let polygon = zone["polygon"] as? [[String: Any]],
                   polygon.count >= 3 else { continue }
 
@@ -374,20 +443,14 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
                       let y = point["y"] as? NSNumber else { return nil }
                 return worldPoint(normalizedX: CGFloat(truncating: x), normalizedY: CGFloat(truncating: y))
             }
-            let worldPoints: [SCNVector3]
-            if projectedPoints.count == polygon.count {
-                worldPoints = projectedPoints
-            } else if let fallback = fallbackFloorPoints(
-                zoneIndex: zoneIndex,
-                zoneCount: zones.count
-            ) {
-                worldPoints = fallback
-            } else {
-                continue
-            }
+            // Never draw an invented rectangle when image-to-floor projection
+            // fails. A missing zone is safer than a confident false overlay.
+            guard projectedPoints.count == polygon.count,
+                  isReasonableFloorZone(projectedPoints) else { continue }
+            let worldPoints = projectedPoints
 
             let type = zone["type"] as? String ?? "caution"
-            let label = zone["label"] as? String ?? "注意區域"
+            let label = shortLabel(for: zone, type: type)
             let color: UIColor = type == "danger"
                 ? .coralRed
                 : type == "safe"
@@ -403,6 +466,67 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
             renderedCount += 1
         }
         return renderedCount
+    }
+
+    private func selectClearZones(_ zones: [[String: Any]]) -> [[String: Any]] {
+        let valid = zones.filter { zone in
+            guard let polygon = zone["polygon"] as? [[String: Any]] else { return false }
+            return normalizedBounds(polygon) != nil
+        }
+        let hazards = valid
+            .filter {
+                let type = $0["type"] as? String
+                return type == "danger" || type == "caution"
+            }
+            .sorted { first, second in
+                let firstPriority = (first["type"] as? String) == "danger" ? 0 : 1
+                let secondPriority = (second["type"] as? String) == "danger" ? 0 : 1
+                if firstPriority != secondPriority { return firstPriority < secondPriority }
+                return normalizedArea(first) > normalizedArea(second)
+            }
+        let safeCandidates = valid
+            .filter { ($0["type"] as? String) == "safe" }
+            .sorted { normalizedArea($0) > normalizedArea($1) }
+
+        // Keep every valid hazard. Only suppress a safe zone when it conflicts
+        // with a hazard; never impose an arbitrary total-zone limit.
+        let nonConflictingSafeZones = safeCandidates.filter { candidate in
+            hazards.allSatisfy { overlapRatio(candidate, $0) < 0.12 }
+        }
+        return hazards + nonConflictingSafeZones
+    }
+
+    private func normalizedArea(_ zone: [String: Any]) -> CGFloat {
+        guard let polygon = zone["polygon"] as? [[String: Any]],
+              let bounds = normalizedBounds(polygon) else { return 0 }
+        return bounds.width * bounds.height
+    }
+
+    private func overlapRatio(_ first: [String: Any], _ second: [String: Any]) -> CGFloat {
+        guard let firstPolygon = first["polygon"] as? [[String: Any]],
+              let secondPolygon = second["polygon"] as? [[String: Any]],
+              let a = normalizedBounds(firstPolygon),
+              let b = normalizedBounds(secondPolygon) else { return 1 }
+        let intersection = a.intersection(b)
+        guard !intersection.isNull else { return 0 }
+        let smallerArea = min(a.width * a.height, b.width * b.height)
+        guard smallerArea > 0 else { return 1 }
+        return intersection.width * intersection.height / smallerArea
+    }
+
+    private func normalizedBounds(_ polygon: [[String: Any]]) -> CGRect? {
+        let points: [CGPoint] = polygon.compactMap { point in
+            guard let x = point["x"] as? NSNumber,
+                  let y = point["y"] as? NSNumber else { return nil }
+            return CGPoint(x: CGFloat(truncating: x), y: CGFloat(truncating: y))
+        }
+        guard points.count >= 3 else { return nil }
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        guard let minX = xs.min(), let maxX = xs.max(),
+              let minY = ys.min(), let maxY = ys.max(),
+              maxX - minX >= 0.04, maxY - minY >= 0.04 else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     private func worldPoint(normalizedX: CGFloat, normalizedY: CGFloat) -> SCNVector3? {
@@ -437,39 +561,35 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         return nil
     }
 
-    private func fallbackFloorPoints(zoneIndex: Int, zoneCount: Int) -> [SCNVector3]? {
-        let planes = Array(horizontalPlaneAnchors.values)
-        guard !planes.isEmpty else { return nil }
-
-        guard let plane = planes.max(by: {
-            ($0.extent.x * $0.extent.z) < ($1.extent.x * $1.extent.z)
-        }) else {
-            return nil
+    private func isReasonableFloorZone(_ points: [SCNVector3]) -> Bool {
+        guard points.count >= 3 else { return false }
+        let yValues = points.map(\.y)
+        guard let minY = yValues.min(), let maxY = yValues.max(), maxY - minY < 0.12 else {
+            return false
         }
-
-        let width = min(max(plane.extent.x * 0.34, 0.24), 0.72)
-        let depth = min(max(plane.extent.z * 0.34, 0.24), 0.72)
-        let availableX = max(0, plane.extent.x - width)
-        let normalizedOffset: Float
-        if zoneCount <= 1 {
-            normalizedOffset = 0
-        } else {
-            normalizedOffset = Float(zoneIndex) / Float(zoneCount - 1) - 0.5
+        var perimeter: Float = 0
+        for index in points.indices {
+            let start = points[index]
+            let end = points[(index + 1) % points.count]
+            let dx = end.x - start.x
+            let dz = end.z - start.z
+            let edge = sqrt(dx * dx + dz * dz)
+            guard edge >= 0.06, edge <= 2.4 else { return false }
+            perimeter += edge
         }
-        let offsetX = normalizedOffset * availableX * 0.8
-        let centerX = plane.center.x + offsetX
-        let centerZ = plane.center.z
+        return perimeter <= 7.2
+    }
 
-        let localCorners = [
-            SIMD4<Float>(centerX - width / 2, 0, centerZ - depth / 2, 1),
-            SIMD4<Float>(centerX + width / 2, 0, centerZ - depth / 2, 1),
-            SIMD4<Float>(centerX + width / 2, 0, centerZ + depth / 2, 1),
-            SIMD4<Float>(centerX - width / 2, 0, centerZ + depth / 2, 1)
-        ]
-
-        return localCorners.map { corner in
-            let world = plane.transform * corner
-            return SCNVector3(world.x, world.y + 0.012, world.z)
+    private func shortLabel(for zone: [String: Any], type: String) -> String {
+        let impactType = zone["impactType"] as? String ?? ""
+        switch impactType {
+        case "topple": return type == "danger" ? "傾倒危險" : "傾倒注意"
+        case "falling": return "掉落物"
+        case "glass": return "玻璃危險"
+        case "blocked_path": return "通道受阻"
+        case "triangle_void": return "可能保護空隙"
+        case "safe_floor": return "相對安全"
+        default: return type == "danger" ? "危險區" : type == "safe" ? "相對安全" : "注意區"
         }
     }
 
@@ -492,8 +612,8 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         )
         let geometry = SCNGeometry(sources: [source], elements: [element])
         let material = SCNMaterial()
-        material.diffuse.contents = color.withAlphaComponent(0.48)
-        material.emission.contents = color.withAlphaComponent(0.16)
+        material.diffuse.contents = color.withAlphaComponent(0.18)
+        material.emission.contents = color.withAlphaComponent(0.06)
         material.isDoubleSided = true
         material.lightingModel = .constant
         geometry.materials = [material]
@@ -516,9 +636,9 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
     private func makeLine(from start: SCNVector3, to end: SCNVector3, color: UIColor) -> SCNNode {
         let vector = SCNVector3(end.x - start.x, end.y - start.y, end.z - start.z)
         let distance = sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)
-        let cylinder = SCNCylinder(radius: 0.009, height: CGFloat(distance))
-        cylinder.radialSegmentCount = 8
-        cylinder.firstMaterial?.diffuse.contents = color
+        let cylinder = SCNCylinder(radius: 0.003, height: CGFloat(distance))
+        cylinder.radialSegmentCount = 6
+        cylinder.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.82)
         cylinder.firstMaterial?.lightingModel = .constant
 
         let node = SCNNode(geometry: cylinder)
@@ -532,32 +652,43 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
     }
 
     private func makeLabelNode(text: String, color: UIColor, points: [SCNVector3]) -> SCNNode {
-        let textGeometry = SCNText(string: text, extrusionDepth: 0.004)
-        textGeometry.font = .systemFont(ofSize: 0.13, weight: .bold)
-        textGeometry.flatness = 0.2
-        textGeometry.firstMaterial?.diffuse.contents = UIColor.white
-        textGeometry.firstMaterial?.lightingModel = .constant
+        let imageSize = CGSize(width: 640, height: 160)
+        let image = UIGraphicsImageRenderer(size: imageSize).image { context in
+            let rect = CGRect(origin: .zero, size: imageSize)
+            UIColor.black.withAlphaComponent(0.78).setFill()
+            UIBezierPath(roundedRect: rect.insetBy(dx: 4, dy: 4), cornerRadius: 48).fill()
+            color.setStroke()
+            let border = UIBezierPath(roundedRect: rect.insetBy(dx: 8, dy: 8), cornerRadius: 44)
+            border.lineWidth = 10
+            border.stroke()
 
-        let textNode = SCNNode(geometry: textGeometry)
-        let bounds = textGeometry.boundingBox
-        let width = bounds.max.x - bounds.min.x
-        textNode.pivot = SCNMatrix4MakeTranslation(width / 2, bounds.min.y, 0)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 52, weight: .bold),
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: paragraph
+            ]
+            let textRect = rect.insetBy(dx: 34, dy: 42)
+            (text as NSString).draw(in: textRect, withAttributes: attributes)
+            context.cgContext.setFillColor(UIColor.clear.cgColor)
+        }
 
+        let plane = SCNPlane(width: 0.34, height: 0.085)
+        plane.cornerRadius = 0.018
+        plane.firstMaterial?.diffuse.contents = image
+        plane.firstMaterial?.lightingModel = .constant
+        plane.firstMaterial?.isDoubleSided = true
+        plane.firstMaterial?.readsFromDepthBuffer = false
+        plane.firstMaterial?.writesToDepthBuffer = false
+        let labelNode = SCNNode(geometry: plane)
         let billboard = SCNBillboardConstraint()
-        billboard.freeAxes = .Y
-        textNode.constraints = [billboard]
+        billboard.freeAxes = .all
+        labelNode.constraints = [billboard]
         let center = averagePoint(points)
-        textNode.position = SCNVector3(center.x, center.y + 0.08, center.z)
-        textNode.scale = SCNVector3(0.55, 0.55, 0.55)
-
-        let bubble = SCNPlane(width: CGFloat(max(width * 0.6, 0.24)), height: 0.10)
-        bubble.cornerRadius = 0.045
-        bubble.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.92)
-        bubble.firstMaterial?.lightingModel = .constant
-        let bubbleNode = SCNNode(geometry: bubble)
-        bubbleNode.position = SCNVector3(0, 0.035, -0.008)
-        textNode.addChildNode(bubbleNode)
-        return textNode
+        labelNode.position = SCNVector3(center.x, center.y + 0.07, center.z)
+        labelNode.renderingOrder = 100
+        return labelNode
     }
 
     private func averagePoint(_ points: [SCNVector3]) -> SCNVector3 {
@@ -571,9 +702,82 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
 
     private func finishAnalysisWithError(_ message: String) {
         isAnalyzing = false
-        scanButton.isEnabled = true
+        captureGuide.isHidden = false
+        readinessLabel.isHidden = false
+        readinessProgress.isHidden = false
+        updateGuidance()
         scanButton.setTitle("分析地面風險", for: .normal)
         showMessage("分析失敗", detail: message)
+    }
+
+    private func updateGuidance() {
+        guard !isAnalyzing, latestAnalysis == nil,
+              let frame = sceneView.session.currentFrame else { return }
+
+        let trackingIsNormal: Bool
+        switch frame.camera.trackingState {
+        case .normal:
+            trackingIsNormal = true
+        default:
+            trackingIsNormal = false
+        }
+
+        let largestPlaneArea = horizontalPlaneAnchors.values
+            .map { CGFloat($0.extent.x * $0.extent.z) }
+            .max() ?? 0
+        let floorHits = visibleFloorHitCount()
+
+        if !trackingIsNormal {
+            statusLabel.text = "追蹤尚未穩定，請放慢移動速度"
+            readinessLabel.text = "步驟 1/3｜慢慢左右移動，不要快速晃動"
+            readinessProgress.progressTintColor = .honeyYellow
+            readinessProgress.setProgress(0.12, animated: true)
+            captureGuide.layer.borderColor = UIColor.white.withAlphaComponent(0.55).cgColor
+            updateScanAvailability(isReady: false)
+        } else if detectedHorizontalPlanes == 0 || largestPlaneArea < 0.35 {
+            statusLabel.text = "正在建立地板範圍"
+            readinessLabel.text = "步驟 1/3｜鏡頭朝下，左右掃過更多地板"
+            readinessProgress.progressTintColor = .honeyYellow
+            readinessProgress.setProgress(detectedHorizontalPlanes > 0 ? 0.38 : 0.22, animated: true)
+            captureGuide.layer.borderColor = UIColor.honeyYellow.cgColor
+            updateScanAvailability(isReady: false)
+        } else if floorHits < 2 {
+            statusLabel.text = "已有地板，請調整取景角度"
+            readinessLabel.text = "步驟 2/3｜後退一點，同時拍到家具底部與地板"
+            readinessProgress.progressTintColor = .honeyYellow
+            readinessProgress.setProgress(0.66, animated: true)
+            captureGuide.layer.borderColor = UIColor.honeyYellow.cgColor
+            updateScanAvailability(isReady: false)
+        } else {
+            statusLabel.text = "取景完成，可以開始分析"
+            readinessLabel.text = "步驟 3/3｜保持畫面穩定，按下分析"
+            readinessProgress.setProgress(1, animated: true)
+            readinessProgress.progressTintColor = .mintGreen
+            captureGuide.layer.borderColor = UIColor.mintGreen.cgColor
+            updateScanAvailability(isReady: true)
+        }
+    }
+
+    private func visibleFloorHitCount() -> Int {
+        let samplePoints = [
+            CGPoint(x: sceneView.bounds.width * 0.30, y: sceneView.bounds.height * 0.68),
+            CGPoint(x: sceneView.bounds.width * 0.50, y: sceneView.bounds.height * 0.72),
+            CGPoint(x: sceneView.bounds.width * 0.70, y: sceneView.bounds.height * 0.68)
+        ]
+        return samplePoints.reduce(0) { count, point in
+            guard let query = sceneView.raycastQuery(
+                from: point,
+                allowing: .existingPlaneGeometry,
+                alignment: .horizontal
+            ) else { return count }
+            return count + (sceneView.session.raycast(query).isEmpty ? 0 : 1)
+        }
+    }
+
+    private func updateScanAvailability(isReady: Bool) {
+        scanButton.isEnabled = isReady
+        scanButton.alpha = isReady ? 1 : 0.5
+        scanButton.setTitle(isReady ? "開始分析" : "尚未完成取景", for: .normal)
     }
 
     private func showMessage(_ title: String, detail: String) {
@@ -587,7 +791,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         DispatchQueue.main.async {
             self.horizontalPlaneAnchors[plane.identifier] = plane
             self.detectedHorizontalPlanes = self.horizontalPlaneAnchors.count
-            self.statusLabel.text = "已找到地板，可以開始分析"
+            self.updateGuidance()
         }
     }
 
@@ -596,6 +800,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         DispatchQueue.main.async {
             self.horizontalPlaneAnchors[plane.identifier] = plane
             self.detectedHorizontalPlanes = self.horizontalPlaneAnchors.count
+            self.updateGuidance()
         }
     }
 
@@ -604,6 +809,15 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         DispatchQueue.main.async {
             self.horizontalPlaneAnchors.removeValue(forKey: plane.identifier)
             self.detectedHorizontalPlanes = self.horizontalPlaneAnchors.count
+            self.updateGuidance()
+        }
+    }
+
+    func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+        guard time - lastGuidanceUpdate >= 0.35 else { return }
+        lastGuidanceUpdate = time
+        DispatchQueue.main.async { [weak self] in
+            self?.updateGuidance()
         }
     }
 }

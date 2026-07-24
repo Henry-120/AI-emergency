@@ -339,7 +339,7 @@ export function MapLibreShelterMap({
           <div>PMTiles</div>
         </div>
       </div>
-      <div ref={containerRef} className="h-[58vh] min-h-[360px] w-full" />
+      <div ref={containerRef} className="h-[42dvh] min-h-[280px] w-full sm:h-[58vh] sm:min-h-[360px]" />
     </section>
   );
 }
