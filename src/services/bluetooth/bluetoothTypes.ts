@@ -25,11 +25,24 @@ export interface NearbyDevice {
 }
 
 /** 傳出去的訊息 payload。透過 BLE GATT write 傳送（會被序列化成 JSON） */
+/**
+ * 訊息種類。
+ *
+ * chat     ：一般的手動聊天訊息
+ * survival ：強震時自動發出的「存活訊號」。收方會辨識並醒目顯示成求救提示，
+ *            而非普通訊息——保留 main 舊 BLE「🆘 附近有人存活，需要救援」的語意。
+ */
+export type MessageKind = "chat" | "survival";
+
 export interface OutgoingMessage {
   /** 發送者的 localId */
   from: string;
   /** 訊息內容（純文字） */
   text: string;
+  /**
+   * 訊息種類。省略時視為 "chat"（相容舊訊息，不填即普通聊天）。
+   */
+  kind?: MessageKind;
   /** 發送者目前 GPS 位置（可選，沒網或定位失敗時可省略） */
   location?: { lat: number; lng: number };
   /** 發送時間（client 端 ms） */

@@ -91,19 +91,27 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
         {records.map((record, idx) => {
           const isMe = record.direction === "out";
           const msg = record.message;
+          // 存活訊號要醒目呈現成求救提示，不是普通聊天
+          // （保留 main 舊 BLE「🆘 附近有人存活，需要救援」的語意）
+          const isSurvival = msg.kind === "survival";
+
+          const bubbleClass = isSurvival
+            ? "bg-rose-600/25 text-rose-50 border border-rose-500/50"
+            : isMe
+              ? "bg-amber-500/20 text-amber-50 border border-amber-500/30"
+              : "bg-slate-800 text-slate-100 border border-white/5";
 
           return (
             <div
               key={`${msg.timestamp}-${idx}`}
               className={`flex ${isMe ? "justify-end" : "justify-start"}`}
             >
-              <div
-                className={`max-w-[75%] rounded-2xl px-3 py-2 ${
-                  isMe
-                    ? "bg-amber-500/20 text-amber-50 border border-amber-500/30"
-                    : "bg-slate-800 text-slate-100 border border-white/5"
-                }`}
-              >
+              <div className={`max-w-[75%] rounded-2xl px-3 py-2 ${bubbleClass}`}>
+                {isSurvival && (
+                  <div className="text-[11px] font-bold text-rose-200 mb-1">
+                    🆘 {isMe ? "已發出存活訊號" : "附近有人存活，需要救援"}
+                  </div>
+                )}
                 <div className="text-sm whitespace-pre-wrap break-words">
                   {msg.text}
                 </div>

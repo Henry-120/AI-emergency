@@ -60,6 +60,11 @@ export function isValidMessage(
   if (typeof msg.text !== "string") return false;
   if (msg.text.length > MAX_TEXT_LENGTH) return false;
 
+  // kind：可選；存在時只接受已知值（來源是不可信裝置，不放行任意字串）
+  if (msg.kind !== undefined && msg.kind !== "chat" && msg.kind !== "survival") {
+    return false;
+  }
+
   // timestamp：必須是合理範圍內的數字，否則 new Date() 會產出 Invalid Date
   if (!isFiniteNumber(msg.timestamp)) return false;
   if (msg.timestamp < MIN_TIMESTAMP) return false;

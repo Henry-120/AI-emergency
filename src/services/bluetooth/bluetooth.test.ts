@@ -68,6 +68,13 @@ describe("isValidMessage", () => {
     expect(isValidMessage(validMessage({ location: { lat: 0, lng: 999 } }), NOW)).toBe(false);
   });
 
+  it("接受合法的 kind（chat / survival），拒絕未知的 kind", () => {
+    expect(isValidMessage(validMessage({ kind: "chat" }), NOW)).toBe(true);
+    expect(isValidMessage(validMessage({ kind: "survival" }), NOW)).toBe(true);
+    // 來源是不可信裝置，任意 kind 字串一律擋下
+    expect(isValidMessage({ ...validMessage(), kind: "hack" }, NOW)).toBe(false);
+  });
+
   it("拒絕座標欄位型別錯誤的訊息", () => {
     const bad = { ...validMessage(), location: { lat: "25.03", lng: 121.56 } };
     expect(isValidMessage(bad, NOW)).toBe(false);

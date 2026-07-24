@@ -38,6 +38,7 @@ import type {
   BluetoothStatus,
   ChatRecord,
   IncomingMessage,
+  MessageKind,
   NearbyDevice,
   OutgoingMessage,
 } from "./bluetoothTypes";
@@ -47,6 +48,7 @@ export type {
   BluetoothStatus,
   ChatRecord,
   IncomingMessage,
+  MessageKind,
   NearbyDevice,
   OutgoingMessage,
   ScanOptions,
@@ -127,10 +129,12 @@ export async function sendMessage(
   deviceId: string,
   text: string,
   location?: { lat: number; lng: number },
+  kind: MessageKind = "chat",
 ): Promise<{ success: boolean; error?: string; message?: OutgoingMessage }> {
   const message: OutgoingMessage = {
     from: getOrCreateLocalId(),
     text,
+    kind,
     location,
     timestamp: Date.now(),
   };
@@ -186,8 +190,9 @@ export async function sendAutomaticSurvivalSignal(
   for (const target of targets) {
     const res = await sendMessage(
       target.deviceId,
-      "【自動存活訊號】我在強震影響範圍內，目前透過藍牙自動通知附近的人。",
+      "我在強震影響範圍內，透過藍牙自動通知附近的人。",
       location,
+      "survival", // 標記為存活訊號 → 收方會醒目顯示成求救提示，而非普通聊天
     );
     if (res.success) sent += 1;
   }
