@@ -19,4 +19,6 @@ mkdirSync(targetDirectory, { recursive: true });
 const target = resolve(targetDirectory, basename(source));
 copyFileSync(source, target);
 
+execFileSync("node", ["scripts/patch-llama-ios.mjs"], { stdio: "inherit" });
+
 console.log(`離線模型已加入 iOS App：${target}`);

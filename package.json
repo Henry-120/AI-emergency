@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "ios:sync-model": "node scripts/sync-ios-model.mjs"
+    "ios:sync-model": "node scripts/sync-ios-model.mjs",
+    "postinstall": "node scripts/patch-llama-ios.mjs"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.2.0",
