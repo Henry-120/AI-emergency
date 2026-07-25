@@ -590,36 +590,36 @@ const App: React.FC = () => {
     // 立即在 UI 顯示使用者訊息
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
-    const currentInput = input;
     setInput("");
     // --- 離線邏輯開始 ---
     if (isOffline) {
-      const offlineAnalysis = getOfflineAnalysis(
-        currentInput,
-        updatedMessages
-          .filter((message) => message.role === "user")
-          .map((message) => message.content)
-          .join("\n"),
-      );
-
-      const assistantMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組：",
-        analysis: offlineAnalysis,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-      setCurrentAnalysis(offlineAnalysis);
-      saveEmergencyReport(
-        authUser.id,
-        offlineAnalysis.emergencySummary,
-        [...updatedMessages, assistantMsg],
-        userStatus.location,
-      ).catch((error) => console.error("離線救援摘要儲存失敗", error));
-      speak(offlineAnalysis.immediateActions[0].description);
-      return; // 離線模式處理完畢，直接結束
+      setIsAnalyzing(true);
+      try {
+        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+        const assistantMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "⚠️ 偵測到目前無網路連線，已啟動裝置端離線應變模型：",
+          analysis: offlineAnalysis,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        setCurrentAnalysis(offlineAnalysis);
+        await saveEmergencyReport(
+          authUser.id,
+          offlineAnalysis.emergencySummary,
+          [...updatedMessages, assistantMsg],
+          userStatus.location,
+        );
+        if (offlineAnalysis.immediateActions.length) {
+          speak(offlineAnalysis.immediateActions[0].description);
+        }
+      } catch (error) {
+        console.error("離線應變模型失敗", error);
+      } finally {
+        setIsAnalyzing(false);
+      }
+      return;
     }
     // --- 離線邏輯結束 ---
     setIsAnalyzing(true);
@@ -667,22 +667,35 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.error("Disaster analysis failed:", error);
-      const detail = error instanceof Error ? error.message : "未知錯誤";
-      const isModelUnavailable = /not found|no longer available|404/i.test(detail);
-      const isQuotaLimited = /quota|resource_exhausted|429/i.test(detail);
-      setMessages((prev) => [
-        ...prev,
-        {
+      try {
+        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+        const fallbackMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: isModelUnavailable
-            ? "分析模型目前不可用，請重新整理後再試；若持續發生，請檢查 Gemini model 設定。"
-            : isQuotaLimited
-              ? "Gemini API 額度暫時用完，請稍後再試或檢查 API 配額。"
-              : "分析服務暫時無法回應，請確認網路後再試。",
+          content: "⚠️ 雲端模型無法回應，已自動切換裝置端離線應變模型：",
+          analysis: offlineAnalysis,
           timestamp: new Date(),
-        },
-      ]);
+        };
+        setMessages((prev) => [...prev, fallbackMsg]);
+        setCurrentAnalysis(offlineAnalysis);
+        await saveEmergencyReport(
+          authUser.id,
+          offlineAnalysis.emergencySummary,
+          [...updatedMessages, fallbackMsg],
+          userStatus.location,
+        );
+        if (offlineAnalysis.immediateActions.length) {
+          speak(offlineAnalysis.immediateActions[0].description);
+        }
+      } catch (fallbackError) {
+        console.error("離線模型降級也失敗", fallbackError);
+        setMessages((prev) => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "雲端與離線分析暫時無法使用，請保持冷靜並撥打 119 或 112。",
+          timestamp: new Date(),
+        }]);
+      }
     } finally {
       setIsAnalyzing(false);
     }

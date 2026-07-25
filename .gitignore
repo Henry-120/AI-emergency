@@ -40,3 +40,6 @@ __pycache__
 
 # SQLite local database
 *.db
+
+# Local LLM weights (large, installed into the iOS app separately)
+models/*.gguf

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ios:sync-model": "node scripts/sync-ios-model.mjs"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.2.0",
@@ -15,9 +16,11 @@
     "@capacitor/core": "^8.2.0",
     "@capacitor/ios": "^8.2.0",
     "@capacitor/local-notifications": "^8.0.2",
+    "@capacitor/preferences": "^8.0.1",
     "@google/genai": "^1.40.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "llama-cpp-capacitor": "^0.2.2",
     "maplibre-gl": "^5.24.0",
     "pmtiles": "^4.4.1",
     "react": "^19.2.4",
