@@ -19,6 +19,8 @@ export function AppHeader({
   onRefreshCwa,
   onShowShelterNavigator,
   onShowMedicalCard,
+  onShowRescueMap,
+  onSimulateSevereEarthquake,
   onLogout,
 }: {
   currentAnalysis: DisasterAnalysis | null;
@@ -35,6 +37,8 @@ export function AppHeader({
   onRefreshCwa: () => void;
   onShowShelterNavigator: () => void;
   onShowMedicalCard: () => void;
+  onShowRescueMap: () => void;
+  onSimulateSevereEarthquake: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -112,6 +116,12 @@ export function AppHeader({
             </button>
           )}
           <button
+            onClick={onShowRescueMap}
+            className="shrink-0 px-3 py-2 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold hover:bg-red-500/20 transition-all"
+          >
+            救援地圖
+          </button>
+          <button
             onClick={onShowBleMessenger}
             className="shrink-0 px-3 py-2 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-100 text-xs font-semibold hover:bg-cyan-500/20 transition-all"
           >
@@ -124,6 +134,13 @@ export function AppHeader({
           >
             <i className="fas fa-notes-medical"></i>
             <span className="hidden sm:inline">醫療卡</span>
+          </button>
+          <button
+            onClick={onSimulateSevereEarthquake}
+            title="測試強震通知、避難語音與 BLE 存活訊號"
+            className="shrink-0 px-3 py-2 rounded-2xl bg-red-600 text-white text-xs font-black hover:bg-red-500 transition-all"
+          >
+            🚨 模擬強震
           </button>
           {authUser && (
             <div className="flex shrink-0 items-center gap-2">

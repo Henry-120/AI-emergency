@@ -26,6 +26,9 @@ dist-ssr
 # Env files
 .env
 .env.local
+.env.*
+!.env.example
+firebase-service-account*.json
 
 # Python
 .venv/
