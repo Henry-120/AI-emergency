@@ -1,13 +1,23 @@
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+<<<<<<< HEAD
 from typing import Optional
 from . import auth, schemas
+=======
+from sqlalchemy.orm import Session
+from typing import Optional
+from .database import SessionLocal, engine
+from . import auth, models, schemas
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 from .services.cwa_service import CWAService
 from .services.offline_maps_service import offline_maps_service
 from .services.room_risk_service import room_risk_service
 from .services.shelter_service import shelter_service
+<<<<<<< HEAD
 from .services.firebase_service import firebase_service
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 import os
 from pathlib import Path
 
@@ -26,6 +36,10 @@ for env_file in [Path(__file__).resolve().parent.parent / ".env.local", Path(__f
                 if key and key not in os.environ:
                     os.environ[key] = value
 
+<<<<<<< HEAD
+=======
+models.Base.metadata.create_all(bind=engine)
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 app = FastAPI()
 
 app.add_middleware(
@@ -45,11 +59,27 @@ app.add_middleware(
 cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
 
+<<<<<<< HEAD
+=======
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 # ==================== 認證 / 帳號 API ====================
 
 def get_current_user(
     authorization: Optional[str] = Header(default=None),
+<<<<<<< HEAD
 ) -> dict:
+=======
+    db: Session = Depends(get_db),
+) -> models.User:
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     """從 Authorization: Bearer <token> 標頭解析出目前登入的使用者。"""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="尚未登入")
@@ -57,19 +87,28 @@ def get_current_user(
     payload = auth.decode_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="登入憑證無效或已過期")
+<<<<<<< HEAD
     user = firebase_service.get_user(str(payload["uid"]))
+=======
+    user = db.query(models.User).filter(models.User.id == payload["uid"]).first()
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     if not user:
         raise HTTPException(status_code=401, detail="使用者不存在")
     return user
 
 
 @app.post("/api/auth/register", response_model=schemas.AuthResponse)
+<<<<<<< HEAD
 def register(data: schemas.RegisterRequest):
+=======
+def register(data: schemas.RegisterRequest, db: Session = Depends(get_db)):
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     username = data.username.strip()
     if len(username) < 2:
         raise HTTPException(status_code=400, detail="帳號至少需 2 個字元")
     if len(data.password) < 6:
         raise HTTPException(status_code=400, detail="密碼至少需 6 個字元")
+<<<<<<< HEAD
     email = (data.email or "").strip() or None
     try:
         user = firebase_service.create_user(
@@ -82,20 +121,51 @@ def register(data: schemas.RegisterRequest):
             raise HTTPException(status_code=409, detail="此 Email 已被註冊") from exc
         raise
     token = auth.create_token(user["id"], user["username"])
+=======
+    if db.query(models.User).filter(models.User.username == username).first():
+        raise HTTPException(status_code=409, detail="此帳號已被註冊")
+    email = (data.email or "").strip() or None
+    if email and db.query(models.User).filter(models.User.email == email).first():
+        raise HTTPException(status_code=409, detail="此 Email 已被註冊")
+
+    user = models.User(
+        username=username,
+        email=email,
+        password_hash=auth.hash_password(data.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    db.add(models.MedicalCard(user_id=user.id, full_name=username))
+    db.commit()
+    token = auth.create_token(user.id, user.username)
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     return {"token": token, "user": user}
 
 
 @app.post("/api/auth/login", response_model=schemas.AuthResponse)
+<<<<<<< HEAD
 def login(data: schemas.LoginRequest):
     user = firebase_service.get_user_by_username(data.username.strip())
     if not user or not auth.verify_password(data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
     token = auth.create_token(user["id"], user["username"])
+=======
+def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == data.username.strip()).first()
+    if not user or not auth.verify_password(data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
+    token = auth.create_token(user.id, user.username)
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     return {"token": token, "user": user}
 
 
 @app.get("/api/auth/me", response_model=schemas.UserResponse)
+<<<<<<< HEAD
 def get_me(current_user: dict = Depends(get_current_user)):
+=======
+def get_me(current_user: models.User = Depends(get_current_user)):
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     return current_user
 
 
@@ -103,14 +173,32 @@ def get_me(current_user: dict = Depends(get_current_user)):
 
 @app.get("/api/medical-card", response_model=schemas.MedicalCardResponse)
 def get_medical_card(
+<<<<<<< HEAD
     current_user: dict = Depends(get_current_user),
 ):
     return firebase_service.get_medical_card(current_user)
+=======
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    card = (
+        db.query(models.MedicalCard)
+        .filter(models.MedicalCard.user_id == current_user.id)
+        .first()
+    )
+    if not card:
+        card = models.MedicalCard(user_id=current_user.id, full_name=current_user.username)
+        db.add(card)
+        db.commit()
+        db.refresh(card)
+    return card
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 
 @app.put("/api/medical-card", response_model=schemas.MedicalCardResponse)
 def update_medical_card(
     data: schemas.MedicalCardBase,
+<<<<<<< HEAD
     current_user: dict = Depends(get_current_user),
 ):
     return firebase_service.update_medical_card(current_user["id"], data)
@@ -147,6 +235,24 @@ def get_nearby_rescue_cases(
     """回傳救難隊位置周圍、由 AI 判定需要救援且有 GPS 的案件。"""
     radius_km = max(1, min(radius_km, 200))
     return firebase_service.get_nearby_rescue_cases(latitude, longitude, radius_km)
+=======
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    card = (
+        db.query(models.MedicalCard)
+        .filter(models.MedicalCard.user_id == current_user.id)
+        .first()
+    )
+    if not card:
+        card = models.MedicalCard(user_id=current_user.id)
+        db.add(card)
+    for field, value in data.dict().items():
+        setattr(card, field, value)
+    db.commit()
+    db.refresh(card)
+    return card
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 
 @app.get("/api/weather/latest")
@@ -160,6 +266,7 @@ async def get_weather_list():
 
 
 @app.post("/api/sync/status")
+<<<<<<< HEAD
 async def sync_status(status: schemas.UserStatusCreate):
     document_id = firebase_service.save_user_status(status)
     return {"status": "saved", "id": document_id}
@@ -168,6 +275,21 @@ async def sync_status(status: schemas.UserStatusCreate):
 @app.post("/api/sync/bulk_status")
 def sync_bulk_status(data: schemas.UserStatusBulk):
     firebase_service.save_user_status_bulk(data.records)
+=======
+async def sync_status(status: schemas.UserStatusCreate, db: Session = Depends(get_db)):
+    new_status = models.UserStatus(**status.dict())
+    db.add(new_status)
+    db.commit()
+    return {"status": "saved"}
+
+
+@app.post("/api/sync/bulk_status")
+def sync_bulk_status(data: schemas.UserStatusBulk, db: Session = Depends(get_db)):
+    for item in data.records:
+        db_status = models.UserStatus(**item.dict())
+        db.add(db_status)
+    db.commit()
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     return {"message": f"Successfully synced {len(data.records)} records"}
 
 

@@ -22,12 +22,21 @@ export function ShelterNavigatorPage({
   const nearest = rankedShelters[0];
 
   return (
+<<<<<<< HEAD
     <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
       <header className="safe-area-top shrink-0 border-b border-white/10 bg-[#020617] px-3 py-2 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between gap-3">
           <button
             onClick={onBack}
             className="w-11 h-11 shrink-0 rounded-xl border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+=======
+    <div className="h-screen flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
+      <header className="border-b border-white/10 bg-[#020617] px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={onBack}
+            className="w-10 h-10 rounded-xl border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
             aria-label="返回"
           >
             <i className="fas fa-arrow-left text-sm"></i>
@@ -45,6 +54,7 @@ export function ShelterNavigatorPage({
         </div>
       </header>
 
+<<<<<<< HEAD
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4 space-y-3 sm:space-y-4 safe-area-bottom">
         <MapLibreShelterMap shelters={rankedShelters} location={location} />
 
@@ -54,12 +64,27 @@ export function ShelterNavigatorPage({
               建議前往
             </div>
             <h2 className="mt-2 break-words text-xl sm:text-2xl font-black text-white">
+=======
+      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <MapLibreShelterMap shelters={rankedShelters} location={location} />
+
+        {nearest ? (
+          <section className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-amber-300">
+              建議前往
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-white">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               {nearest.name}
             </h2>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-black/20 p-3">
                 <div className="text-[11px] text-slate-400">距離</div>
+<<<<<<< HEAD
                 <div className="mt-1 text-lg sm:text-2xl font-mono font-bold text-amber-300">
+=======
+                <div className="mt-1 text-2xl font-mono font-bold text-amber-300">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                   {nearest.distance_km !== undefined
                     ? `${nearest.distance_km.toFixed(2)} km`
                     : "未知"}
@@ -67,7 +92,11 @@ export function ShelterNavigatorPage({
               </div>
               <div className="rounded-xl bg-black/20 p-3">
                 <div className="text-[11px] text-slate-400">方向</div>
+<<<<<<< HEAD
                 <div className="mt-1 text-lg sm:text-2xl font-mono font-bold text-amber-300">
+=======
+                <div className="mt-1 text-2xl font-mono font-bold text-amber-300">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                   {nearest.bearing_deg !== undefined
                     ? `${headingText(nearest.bearing_deg)} ${nearest.bearing_deg.toFixed(0)}°`
                     : "定位中"}

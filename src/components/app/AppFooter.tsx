@@ -12,6 +12,11 @@ export function AppFooter({
   onSubmit,
   onViewMap,
   setInput,
+<<<<<<< HEAD
+=======
+  autoStartVoiceInput = false,
+  onAutoStartHandled,
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 }: {
   downloadedMaps: MapInfo[];
   input: string;
@@ -22,6 +27,11 @@ export function AppFooter({
   onSubmit: (event: React.FormEvent) => void;
   onViewMap: (map: MapInfo) => void;
   setInput: (value: string) => void;
+<<<<<<< HEAD
+=======
+  autoStartVoiceInput?: boolean;
+  onAutoStartHandled?: () => void;
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -30,6 +40,11 @@ export function AppFooter({
     typeof createSpeechRecognizer
   > | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+<<<<<<< HEAD
+=======
+  const silenceTimerRef = useRef<number | null>(null);
+  const finalTranscriptRef = useRef("");
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
   useEffect(() => {
     const SpeechRecognition =
@@ -38,11 +53,107 @@ export function AppFooter({
     setSpeechSupported(Boolean(SpeechRecognition));
 
     return () => {
+<<<<<<< HEAD
+=======
+      if (silenceTimerRef.current) {
+        window.clearTimeout(silenceTimerRef.current);
+      }
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
       recognizerRef.current?.stop();
     };
   }, []);
 
+<<<<<<< HEAD
   const toggleRecording = () => {
+=======
+  useEffect(() => {
+    if (!autoStartVoiceInput || !speechSupported) {
+      return;
+    }
+
+    if (!recognizerRef.current) {
+      recognizerRef.current = createSpeechRecognizer(
+        (text, isFinal) => {
+          setInput(text);
+          if (isFinal) {
+            finalTranscriptRef.current = text;
+            setFinalTranscript(text);
+          }
+          if (silenceTimerRef.current) {
+            window.clearTimeout(silenceTimerRef.current);
+          }
+          silenceTimerRef.current = window.setTimeout(() => {
+            if (recognizerRef.current) {
+              recognizerRef.current.stop();
+              setIsRecording(false);
+              const transcript = finalTranscriptRef.current.trim();
+              if (transcript) {
+                setInput(transcript);
+                setFinalTranscript(transcript);
+                formRef.current?.requestSubmit();
+              }
+            }
+          }, 2000);
+        },
+        (error) => {
+          console.error("Speech error:", error);
+          setIsRecording(false);
+          alert(`語音辨識錯誤：${error}`);
+        },
+      );
+    }
+
+    recognizerRef.current.start();
+    setFinalTranscript("");
+    finalTranscriptRef.current = "";
+    setIsRecording(true);
+    onAutoStartHandled?.();
+  }, [autoStartVoiceInput, onAutoStartHandled, speechSupported]);
+
+  const clearSilenceTimer = () => {
+    if (silenceTimerRef.current) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  };
+
+  const doHapticFeedback = async () => {
+    try {
+      // Prefer navigator.vibrate for web/mobile web
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        (navigator as any).vibrate?.(50);
+        return;
+      }
+
+      // Fallback: try dynamic import of Capacitor Haptics for native builds
+      const win: any = window as any;
+      if (win?.Capacitor && win?.Capacitor.isNativePlatform && win?.Capacitor.isNativePlatform()) {
+        try {
+          // avoid static analysis by splitting module specifier
+          const moduleName = "@" + "capacitor/haptics";
+          const mod: any = await import(moduleName);
+          const Haptics = mod?.Haptics || mod?.default || mod;
+          if (Haptics && typeof Haptics.impact === "function") {
+            Haptics.impact({ style: "MEDIUM" });
+            return;
+          }
+        } catch (e) {
+          // ignore dynamic import failures
+        }
+      }
+    } catch (e) {
+      // ignore failures
+    }
+  };
+
+  const stopRecording = () => {
+    clearSilenceTimer();
+    recognizerRef.current?.stop();
+    setIsRecording(false);
+  };
+
+  const startRecording = () => {
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     if (!recognizerRef.current) {
       if (!speechSupported) {
         alert(
@@ -55,9 +166,28 @@ export function AppFooter({
         (text, isFinal) => {
           setInput(text);
           if (isFinal) {
+<<<<<<< HEAD
             setIsRecording(false);
             setFinalTranscript(text);
           }
+=======
+            finalTranscriptRef.current = text;
+            setFinalTranscript(text);
+          }
+          clearSilenceTimer();
+          silenceTimerRef.current = window.setTimeout(() => {
+            if (recognizerRef.current) {
+              recognizerRef.current.stop();
+              setIsRecording(false);
+              const transcript = finalTranscriptRef.current.trim();
+              if (transcript) {
+                setInput(transcript);
+                setFinalTranscript(transcript);
+                formRef.current?.requestSubmit();
+              }
+            }
+          }, 2000);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
         },
         (error) => {
           console.error("Speech error:", error);
@@ -67,6 +197,7 @@ export function AppFooter({
       );
     }
 
+<<<<<<< HEAD
     if (!isRecording) {
       recognizerRef.current.start();
       setFinalTranscript("");
@@ -82,21 +213,57 @@ export function AppFooter({
       <div className="max-w-xl mx-auto min-w-0">
         {offlineMapStatus && (
           <div className="mb-2 max-h-16 overflow-y-auto px-3 py-2 rounded-xl bg-slate-900/80 border border-amber-500/15 text-[11px] sm:text-[12px] text-amber-100">
+=======
+    recognizerRef.current.start();
+    setFinalTranscript("");
+    finalTranscriptRef.current = "";
+    setIsRecording(true);
+    doHapticFeedback();
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+      doHapticFeedback();
+      return;
+    }
+
+    startRecording();
+  };
+
+  return (
+    <footer className="glass-panel p-4 safe-area-bottom">
+      <div className="max-w-xl mx-auto">
+        {offlineMapStatus && (
+          <div className="mb-3 px-4 py-3 rounded-2xl bg-slate-900/80 border border-amber-500/15 text-[12px] text-amber-100">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
             {offlineMapStatus}
           </div>
         )}
         {downloadedMaps.length > 0 && (
+<<<<<<< HEAD
           <div className="mb-2 max-h-36 overflow-y-auto overscroll-contain grid gap-2 sm:max-h-52 sm:gap-4">
             <div className="font-bold text-xs text-amber-300 uppercase tracking-wider">
               已下載離線地圖預覽 ({downloadedMaps.length})
             </div>
             <div className="grid gap-2 sm:gap-4 sm:grid-cols-2">
+=======
+          <div className="mb-3 grid gap-4">
+            <div className="font-bold text-xs text-amber-300 uppercase tracking-wider">
+              已下載離線地圖預覽 ({downloadedMaps.length})
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               {downloadedMaps.map((map) => (
                 <div
                   key={map.map_id}
                   className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 shadow-lg shadow-black/30 transition-all hover:-translate-y-0.5 hover:shadow-2xl"
                 >
+<<<<<<< HEAD
                   <div className="relative h-20 sm:h-40 overflow-hidden bg-slate-800 text-slate-200 flex flex-col items-center justify-center gap-1 sm:gap-2 p-3 sm:p-4">
+=======
+                  <div className="relative h-40 overflow-hidden bg-slate-800 text-slate-200 flex flex-col items-center justify-center gap-2 p-4">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                     <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
                       離線地圖預覽
                     </div>
@@ -108,7 +275,11 @@ export function AppFooter({
                       {map.zoom_levels.join(", ")}
                     </div>
                   </div>
+<<<<<<< HEAD
                   <div className="hidden p-4 space-y-2 sm:block">
+=======
+                  <div className="p-4 space-y-2">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                     <div className="flex items-center justify-between text-[11px] text-slate-400 uppercase tracking-widest">
                       <span>半徑</span>
                       <span>{map.radius_km} km</span>
@@ -154,14 +325,22 @@ export function AppFooter({
           type="button"
           onClick={onOpenRoomRiskScanner}
           disabled={isAnalyzing}
+<<<<<<< HEAD
           className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 sm:py-3 text-xs sm:text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+=======
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           aria-label="開啟 AR 房間風險掃描"
         >
           <i className="fas fa-camera"></i>
           AR 房間風險掃描
         </button>
 
+<<<<<<< HEAD
         <div className="flex gap-2 mb-2 overflow-x-auto pb-1 no-scrollbar">
+=======
+        <div className="flex gap-2 mb-3 overflow-x-auto pb-1 no-scrollbar">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           {["出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
             <button
               key={tag}
@@ -178,7 +357,11 @@ export function AppFooter({
             onSubmit(event);
             setFinalTranscript("");
           }}
+<<<<<<< HEAD
           className="relative flex min-w-0 items-center gap-2"
+=======
+          className="relative flex items-center gap-2"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
         >
           <div className="relative flex-1">
             <input
@@ -186,7 +369,11 @@ export function AppFooter({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="回報進度或回答問題..."
+<<<<<<< HEAD
               className="w-full min-w-0 bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-base sm:text-sm text-white caret-amber-400 focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-500 shadow-inner"
+=======
+              className="w-full bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-600 shadow-inner"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               disabled={isAnalyzing}
             />
             <button
@@ -215,6 +402,34 @@ export function AppFooter({
                 <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
               )}
               <i className="fas fa-microphone"></i>
+<<<<<<< HEAD
+=======
+              {/* Waveform SVG */}
+              {isRecording && (
+                <svg className="ml-2" width="34" height="14" viewBox="0 0 34 14" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                  <rect x="2" y="4" width="3" height="6" rx="1" fill="#ff6b6b">
+                    <animate attributeName="height" values="6;12;6" dur="0.9s" repeatCount="indefinite" />
+                    <animate attributeName="y" values="4;1;4" dur="0.9s" repeatCount="indefinite" />
+                  </rect>
+                  <rect x="8" y="3" width="3" height="8" rx="1" fill="#ff6b6b">
+                    <animate attributeName="height" values="8;3;8" dur="1s" repeatCount="indefinite" />
+                    <animate attributeName="y" values="3;6;3" dur="1s" repeatCount="indefinite" />
+                  </rect>
+                  <rect x="14" y="2" width="3" height="10" rx="1" fill="#ff6b6b">
+                    <animate attributeName="height" values="10;4;10" dur="0.8s" repeatCount="indefinite" />
+                    <animate attributeName="y" values="2;6;2" dur="0.8s" repeatCount="indefinite" />
+                  </rect>
+                  <rect x="20" y="3" width="3" height="8" rx="1" fill="#ff6b6b">
+                    <animate attributeName="height" values="8;12;8" dur="1.1s" repeatCount="indefinite" />
+                    <animate attributeName="y" values="3;1;3" dur="1.1s" repeatCount="indefinite" />
+                  </rect>
+                  <rect x="26" y="4" width="3" height="6" rx="1" fill="#ff6b6b">
+                    <animate attributeName="height" values="6;9;6" dur="0.95s" repeatCount="indefinite" />
+                    <animate attributeName="y" values="4;2;4" dur="0.95s" repeatCount="indefinite" />
+                  </rect>
+                </svg>
+              )}
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
             </button>
             <div aria-live="polite" className="sr-only">
               {isRecording

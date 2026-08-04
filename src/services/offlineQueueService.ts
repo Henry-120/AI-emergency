@@ -5,8 +5,12 @@ import {
   SQLiteDBConnection,
 } from "@capacitor-community/sqlite";
 import { BACKEND } from "./backend";
+<<<<<<< HEAD
 import { ChatMessage, EmergencySummary, UserStatus } from "../types";
 import { getBackendToken } from "./authService";
+=======
+import { UserStatus } from "../types";
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 export interface UserStatusSyncRecord {
   id: string;
@@ -20,6 +24,7 @@ export interface UserStatusSyncRecord {
 
 const DB_NAME = "guardia_ai_local";
 const FALLBACK_KEY = "pending_user_status_records";
+<<<<<<< HEAD
 const EMERGENCY_FALLBACK_KEY = "emergency_report_sync_queue";
 
 export interface EmergencyReportSyncRecord {
@@ -39,6 +44,8 @@ export interface EmergencyReportSyncRecord {
   last_error?: string | null;
   synced_at?: string | null;
 }
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 let sqliteConnection: SQLiteConnection | null = null;
 let dbConnection: SQLiteDBConnection | null = null;
@@ -57,6 +64,7 @@ export async function saveUserStatusSnapshot(status: UserStatus) {
     client_timestamp: new Date().toISOString(),
   };
 
+<<<<<<< HEAD
   if (navigator.onLine) {
     const response = await fetch(`${BACKEND}/api/sync/bulk_status`, {
       method: "POST",
@@ -67,6 +75,8 @@ export async function saveUserStatusSnapshot(status: UserStatus) {
     return record;
   }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   await savePendingUserStatus(record);
   return record;
 }
@@ -176,6 +186,7 @@ export async function syncPendingUserStatusRecords() {
   }
 }
 
+<<<<<<< HEAD
 /** 先寫入裝置端；不依賴網路或後端 token。 */
 export async function saveEmergencyReportLocally(
   localUserId: string,
@@ -373,6 +384,8 @@ async function markEmergencyReportFailed(id: string, error: string) {
   );
 }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 async function markUserStatusRecordsSynced(ids: string[]) {
   if (ids.length === 0) return;
 
@@ -449,6 +462,7 @@ async function initDb() {
 
     CREATE INDEX IF NOT EXISTS idx_pending_user_status_sync
       ON pending_user_status(sync_status, created_at);
+<<<<<<< HEAD
 
     CREATE TABLE IF NOT EXISTS emergency_report_queue (
       id TEXT PRIMARY KEY NOT NULL,
@@ -465,6 +479,8 @@ async function initDb() {
 
     CREATE INDEX IF NOT EXISTS idx_emergency_report_queue_sync
       ON emergency_report_queue(sync_status, created_at);
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   `);
 
   dbConnection = db;
@@ -479,6 +495,7 @@ function getFallbackRecords(): UserStatusSyncRecord[] {
   }
 }
 
+<<<<<<< HEAD
 function getEmergencyFallbackRecords(): EmergencyReportSyncRecord[] {
   try {
     return JSON.parse(localStorage.getItem(EMERGENCY_FALLBACK_KEY) || "[]");
@@ -487,6 +504,8 @@ function getEmergencyFallbackRecords(): EmergencyReportSyncRecord[] {
   }
 }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 function createRecordId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();

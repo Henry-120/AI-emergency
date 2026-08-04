@@ -21,7 +21,26 @@ export const playAudio = async (text: string) => {
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
+<<<<<<< HEAD
     await audio.play();
+=======
+
+    await new Promise<void>((resolve, reject) => {
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("音訊播放失敗"));
+      };
+
+      audio.play().catch((error) => {
+        URL.revokeObjectURL(url);
+        reject(error);
+      });
+    });
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   } catch (error) {
     console.error("Error generating speech:", error);
     throw error;

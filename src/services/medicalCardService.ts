@@ -3,8 +3,13 @@ import { BACKEND } from "./backend";
 import { getCurrentUser, getBackendToken } from "./authService";
 
 /**
+<<<<<<< HEAD
  * 緊急醫療卡服務。線上時以後端為準，離線時才使用 localStorage 快取。
  * 每位使用者一張卡，以 user.id 區隔。
+=======
+ * 緊急醫療卡服務。以 localStorage 為主要儲存（離線必備），
+ * 有網路時最佳努力與後端同步。每位使用者一張卡，以 user.id 區隔。
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
  */
 
 const CARD_KEY_PREFIX = "guardia_medical_card_";
@@ -79,6 +84,7 @@ function toSnake(card: MedicalCard): Record<string, any> {
   };
 }
 
+<<<<<<< HEAD
 function fromSnake(data: Record<string, any>): MedicalCard {
   return {
     fullName: data.full_name || "",
@@ -151,6 +157,33 @@ export async function saveMedicalCard(card: MedicalCard): Promise<MedicalCard> {
   const onlineCard = fromSnake(await response.json());
   cacheMedicalCard(onlineCard);
   return onlineCard;
+=======
+async function syncToBackend(card: MedicalCard) {
+  const token = getBackendToken();
+  if (!token) return;
+  try {
+    await fetch(`${BACKEND}/api/medical-card`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(toSnake(card)),
+    });
+  } catch {
+    // 離線或後端未啟動：資料已存在本機，等下次再同步。
+  }
+}
+
+export function saveMedicalCard(card: MedicalCard): MedicalCard {
+  const key = cardKey();
+  const saved: MedicalCard = { ...card, updatedAt: new Date().toISOString() };
+  if (key) {
+    localStorage.setItem(key, JSON.stringify(saved));
+    void syncToBackend(saved);
+  }
+  return saved;
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 }
 
 /**

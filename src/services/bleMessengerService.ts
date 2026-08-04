@@ -140,6 +140,7 @@ export async function sendGuardianMessage(content: string) {
   return message;
 }
 
+<<<<<<< HEAD
 const SOS_SIGNATURE = "GUARDIA_SOS";
 
 /** Scan nearby Guardian devices and send a privacy-minimal survival signal. */
@@ -173,6 +174,8 @@ export async function sendAutomaticSurvivalSignal(scanMs = 5000) {
   return { discovered: targets.length, sent };
 }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 export async function startGuardianAdvertising() {
   throw new Error(
     "目前 @capacitor-community/bluetooth-le 不支援手機端 BLE 廣播。iOS 需要額外實作 CoreBluetooth Peripheral/GATT Server plugin。",
@@ -209,9 +212,13 @@ function handleNotification(value: DataView) {
 
   try {
     const parsed = JSON.parse(raw);
+<<<<<<< HEAD
     content = parsed.sig === SOS_SIGNATURE && parsed.alive
       ? "🆘 附近有人存活，需要救援（未附個人資料）"
       : String(parsed.content || raw);
+=======
+    content = String(parsed.content || raw);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     id = String(parsed.id || id);
     timestamp = parsed.timestamp ? new Date(parsed.timestamp) : timestamp;
   } catch {

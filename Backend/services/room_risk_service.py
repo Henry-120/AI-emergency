@@ -1,15 +1,22 @@
 import base64
+<<<<<<< HEAD
 import asyncio
 import json
 import logging
+=======
+import json
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 import os
 import re
 from typing import Any, Dict, List
 
 import httpx
 
+<<<<<<< HEAD
 logger = logging.getLogger(__name__)
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 class RoomRiskService:
     async def analyze_image(
@@ -49,6 +56,7 @@ class RoomRiskService:
             },
         }
 
+<<<<<<< HEAD
         for attempt in range(2):
             try:
                 async with httpx.AsyncClient(timeout=45) as client:
@@ -72,6 +80,19 @@ class RoomRiskService:
 
         logger.error("Room-risk Gemini failed twice; returning safe fallback analysis.")
         return self._fallback_analysis()
+=======
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                endpoint,
+                params={"key": api_key},
+                json=payload,
+            )
+            response.raise_for_status()
+
+        text = self._extract_text(response.json())
+        data = self._parse_json(text)
+        return self._normalize(data)
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
     def _prompt(self, sensor_context: str) -> str:
         return f"""
@@ -148,7 +169,11 @@ class RoomRiskService:
 6. 每個風險都要給出具體改善建議。
 
 地面區域繪製規則，必須嚴格遵守：
+<<<<<<< HEAD
 1. 每個 danger 或 caution 區域必須對應至少一個 sourceObjectLabel，表示該區域是由哪個家具或物件造成的風險。
+=======
+1. zones 的 polygon 只能畫在照片中可見的地板平面上。
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 2. 每個 high 或 medium 風險家具至少建立一個對應 danger zone。
 3. 家具傾倒區必須從家具底部接觸地面的左右兩側開始，朝可能傾倒方向延伸到地板，長度約等於家具可見高度。
 4. 掉落物區域要畫在物件正下方地板，並稍微向外擴張。
@@ -188,7 +213,10 @@ class RoomRiskService:
     def _normalize(self, data: Dict[str, Any]) -> Dict[str, Any]:
         objects = [self._normalize_object(item) for item in data.get("objects", [])]
         zones = [self._normalize_zone(item, index) for index, item in enumerate(data.get("zones", []))]
+<<<<<<< HEAD
         zones = [zone for zone in zones if len(zone["polygon"]) >= 3]
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
         return {
             "summary": str(data.get("summary") or "已完成室內地震家具風險分析。"),
@@ -214,6 +242,7 @@ class RoomRiskService:
         }
 
     def _normalize_zone(self, item: Dict[str, Any], index: int) -> Dict[str, Any]:
+<<<<<<< HEAD
         raw_zone_type = item.get("type")
         # The model uses potential_safe for triangle voids. Expose it as the
         # existing safe UI category, while preserving triangle_void below.
@@ -223,6 +252,10 @@ class RoomRiskService:
         impact_types = {
             "topple", "falling", "glass", "blocked_path", "safe_floor", "triangle_void"
         }
+=======
+        zone_type = item.get("type") if item.get("type") in {"danger", "caution", "safe"} else "caution"
+        impact_types = {"topple", "falling", "glass", "blocked_path", "safe_floor"}
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
         impact_type = item.get("impactType")
         if impact_type not in impact_types:
             impact_type = "safe_floor" if zone_type == "safe" else "topple"
@@ -232,8 +265,18 @@ class RoomRiskService:
             for point in polygon
             if isinstance(point, dict)
         ]
+<<<<<<< HEAD
         # Do not invent a full-image polygon. Invalid zones are removed by
         # _normalize so AR never displays a fabricated floor region.
+=======
+        if len(points) < 3:
+            points = [
+                {"x": 0.1, "y": 0.1},
+                {"x": 0.9, "y": 0.1},
+                {"x": 0.9, "y": 0.9},
+                {"x": 0.1, "y": 0.9},
+            ]
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
         return {
             "id": str(item.get("id") or f"zone-{index + 1}"),

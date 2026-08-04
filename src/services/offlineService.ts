@@ -1,10 +1,14 @@
 // src/services/offlineService.ts
 import { DisasterAnalysis, DisasterType } from "../types";
 
+<<<<<<< HEAD
 export function getOfflineAnalysis(
   userInput: string,
   conversationText: string = userInput,
 ): DisasterAnalysis {
+=======
+export function getOfflineAnalysis(userInput: string): DisasterAnalysis {
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   let advice = "目前離線。請選擇狀況：";
   let options: string[] = [];
   let riskLevel = 8;
@@ -224,6 +228,7 @@ export function getOfflineAnalysis(
     immediateActions: [{ title: "避難指南", description: advice, priority: riskLevel > 8 ? "CRITICAL" : "HIGH" }],
     survivalProbability: riskLevel > 8 ? 50 : 90,
     longTermAdvice: "請保持手機電力，離線模式將優先引導生存動作。",
+<<<<<<< HEAD
     missingInfoRequests: options,
     emergencySummary: buildOfflineEmergencySummary(conversationText, riskLevel),
   };
@@ -270,3 +275,8 @@ function buildOfflineEmergencySummary(
     confidence: matchedInjuries.length || isTrapped ? 0.7 : 0.2,
   };
 }
+=======
+    missingInfoRequests: options
+  };
+}
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17

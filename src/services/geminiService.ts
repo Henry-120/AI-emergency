@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DisasterAnalysis, ChatMessage } from "../types";
 
+<<<<<<< HEAD
 // 延遲初始化：沒有 API 金鑰時不要在載入階段就拋錯，避免整個 App 白畫面。
 let aiClient: GoogleGenAI | null = null;
 
@@ -20,6 +21,13 @@ function getAi(): GoogleGenAI {
 // 使用 Google 維護的 Flash alias，避免固定版本退役後整個聊天失效。
 const GEMINI_MODEL =
   import.meta.env.VITE_GEMINI_MODEL || "gemini-flash-latest";
+=======
+// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// 改用 Vite 標準讀取方式
+const ai = new GoogleGenAI({
+  apiKey: import.meta.env.VITE_GEMINI_API_KEY || "",
+});
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 const ANALYSIS_SCHEMA = {
   type: Type.OBJECT,
@@ -62,6 +70,7 @@ const ANALYSIS_SCHEMA = {
       items: { type: Type.STRING },
       description: "尚未獲得但對評估至關重要的資訊請求",
     },
+<<<<<<< HEAD
     emergencySummary: {
       type: Type.OBJECT,
       description: "從完整對話累積彙整的目前傷勢與救援需求；不可將推測當成使用者已確認的事實",
@@ -87,6 +96,8 @@ const ANALYSIS_SCHEMA = {
         "isTrapped", "mobilityStatus", "locationDetails", "urgencyLevel", "confidence",
       ],
     },
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   },
   required: [
     "type",
@@ -95,7 +106,10 @@ const ANALYSIS_SCHEMA = {
     "immediateActions",
     "longTermAdvice",
     "survivalProbability",
+<<<<<<< HEAD
     "emergencySummary",
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   ],
 };
 
@@ -114,7 +128,10 @@ export async function analyzeDisaster(
     3. **情境適應**：根據最新的感測器與災害資料（${sensorContext}）判斷使用者生理與環境狀態。其中「最近地震」欄位是中央氣象署回報的最新震源資料，可直接引用回答使用者「剛剛地震多大」「震央在哪」這類詢問。
     4. **回應策略**：若使用者只是詢問災情/地震資訊（非求救），請在 'situationSummary' 直接回答事實（規模、震央、深度、發生時間），'immediateActions' 給予一般性安全提醒即可，不要硬問細節。若使用者描述受困或受傷，才進入完整應變流程。
     5. **結構化輸出**：始終返回 JSON 格式，包含即時行動步驟與生存率預估。
+<<<<<<< HEAD
     6. **救援摘要**：'emergencySummary' 必須累積完整對話中使用者已提供的傷勢、受困、行動能力、位置細節與救援需求。未提供時用 unknown/空字串/空陣列，不可臆測。
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   `;
 
   // 將 ChatMessage 轉換為 Gemini 的對話格式
@@ -130,8 +147,13 @@ export async function analyzeDisaster(
   }
 
   try {
+<<<<<<< HEAD
     const response = await getAi().models.generateContent({
       model: GEMINI_MODEL,
+=======
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
       contents: contents,
       config: {
         systemInstruction,

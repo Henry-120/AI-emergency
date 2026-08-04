@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import os
 
 from sqlalchemy import create_engine, inspect, text
@@ -5,6 +6,13 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./guardia_ai.db")
+=======
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///./guardia_ai.db"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 # connect_args={"check_same_thread": False} 僅對 SQLite 是必需的
 engine = create_engine(
@@ -12,6 +20,7 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+<<<<<<< HEAD
 Base = declarative_base()
 
 
@@ -33,3 +42,6 @@ def run_lightweight_migrations():
                 "CREATE INDEX IF NOT EXISTS ix_chat_history_emergency_report_id "
                 "ON chat_history (emergency_report_id)"
             ))
+=======
+Base = declarative_base()
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17

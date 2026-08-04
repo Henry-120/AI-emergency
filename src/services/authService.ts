@@ -12,7 +12,10 @@ import { BACKEND } from "./backend";
 const USERS_KEY = "guardia_users";
 const SESSION_KEY = "guardia_session";
 const BACKEND_TOKEN_KEY = "guardia_backend_token";
+<<<<<<< HEAD
 const BACKEND_TIMEOUT_MS = 5000;
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 interface StoredUser extends AuthUser {
   passwordHash: string; // 格式： <saltHex>:<hashHex>
@@ -22,6 +25,7 @@ interface Session {
   user: AuthUser;
 }
 
+<<<<<<< HEAD
 interface BackendUser {
   id: string;
   username: string;
@@ -34,6 +38,8 @@ interface BackendAuthResponse {
   user: BackendUser;
 }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 // ---------- localStorage 讀寫 ----------
 function loadUsers(): StoredUser[] {
   try {
@@ -47,6 +53,7 @@ function saveUsers(users: StoredUser[]) {
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
 
+<<<<<<< HEAD
 function toAuthUser(user: BackendUser): AuthUser {
   return {
     id: user.id,
@@ -56,6 +63,8 @@ function toAuthUser(user: BackendUser): AuthUser {
   };
 }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 // ---------- 密碼雜湊 (Web Crypto PBKDF2-SHA256) ----------
 function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
@@ -72,9 +81,12 @@ function fromHex(hex: string): Uint8Array {
 }
 
 async function derive(password: string, salt: Uint8Array): Promise<string> {
+<<<<<<< HEAD
   if (!globalThis.crypto?.subtle) {
     throw new Error("此連線環境無法安全處理密碼，請改用 HTTPS 或 localhost 開啟應用程式");
   }
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
@@ -92,9 +104,12 @@ async function derive(password: string, salt: Uint8Array): Promise<string> {
 }
 
 async function hashPassword(password: string): Promise<string> {
+<<<<<<< HEAD
   if (!globalThis.crypto?.getRandomValues) {
     throw new Error("此連線環境無法安全處理密碼，請改用 HTTPS 或 localhost 開啟應用程式");
   }
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const hash = await derive(password, salt);
   return `${toHex(salt.buffer)}:${hash}`;
@@ -135,6 +150,7 @@ export function getBackendToken(): string | null {
   return localStorage.getItem(BACKEND_TOKEN_KEY);
 }
 
+<<<<<<< HEAD
 /** 線上時驗證伺服器 session；離線時才接受本機 session。 */
 export async function validateSession(): Promise<AuthUser | null> {
   const localUser = getCurrentUser();
@@ -218,6 +234,39 @@ async function cacheOnlineAccount(data: BackendAuthResponse, password: string): 
   localStorage.setItem(BACKEND_TOKEN_KEY, data.token);
   setSession(user);
   return user;
+=======
+// ---------- 後端最佳努力同步 ----------
+async function backendRegister(username: string, password: string, email?: string) {
+  try {
+    const res = await fetch(`${BACKEND}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, email }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.token) localStorage.setItem(BACKEND_TOKEN_KEY, data.token);
+    }
+  } catch {
+    // 離線或後端未啟動：忽略，僅使用本機帳號。
+  }
+}
+
+async function backendLogin(username: string, password: string) {
+  try {
+    const res = await fetch(`${BACKEND}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.token) localStorage.setItem(BACKEND_TOKEN_KEY, data.token);
+    }
+  } catch {
+    // 忽略，繼續使用本機驗證結果。
+  }
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 }
 
 // ---------- 對外 API ----------
@@ -237,6 +286,7 @@ export async function register(
   if (name.length < 2) return { success: false, error: "姓名至少需 2 個字元" };
   if (password.length < 6) return { success: false, error: "密碼至少需 6 個字元" };
 
+<<<<<<< HEAD
   if (navigator.onLine) {
     try {
       const data = await backendRegister(name, password, mail || undefined);
@@ -250,6 +300,8 @@ export async function register(
     }
   }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   const users = loadUsers();
   if (users.some((u) => u.username.toLowerCase() === name.toLowerCase())) {
     return { success: false, error: "此姓名已被註冊" };
@@ -268,11 +320,17 @@ export async function register(
   users.push({ ...user, passwordHash });
   saveUsers(users);
   setSession(user);
+<<<<<<< HEAD
+=======
+
+  await backendRegister(name, password, mail || undefined);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   return { success: true, user };
 }
 
 export async function login(username: string, password: string): Promise<AuthResult> {
   const name = username.trim();
+<<<<<<< HEAD
 
   if (navigator.onLine) {
     try {
@@ -287,6 +345,8 @@ export async function login(username: string, password: string): Promise<AuthRes
     }
   }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   const users = loadUsers();
   const found = users.find((u) => u.username.toLowerCase() === name.toLowerCase());
   if (!found) return { success: false, error: "姓名或密碼錯誤" };
@@ -301,5 +361,9 @@ export async function login(username: string, password: string): Promise<AuthRes
     createdAt: found.createdAt,
   };
   setSession(user);
+<<<<<<< HEAD
+=======
+  await backendLogin(name, password);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   return { success: true, user };
 }

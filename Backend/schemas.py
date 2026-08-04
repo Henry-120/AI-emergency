@@ -1,7 +1,13 @@
+<<<<<<< HEAD
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from typing import Literal
+=======
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 # --- 註冊 / 登入 ---
 class RegisterRequest(BaseModel):
@@ -14,7 +20,11 @@ class LoginRequest(BaseModel):
     password: str
 
 class UserResponse(BaseModel):
+<<<<<<< HEAD
     id: str
+=======
+    id: int
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     username: str
     email: Optional[str] = None
     created_at: datetime
@@ -86,6 +96,7 @@ class ChatRecordResponse(ChatRecordBase):
     class Config:
         from_attributes = True
 
+<<<<<<< HEAD
 # --- AI 傷勢 / 救援需求彙整 ---
 class EmergencySummary(BaseModel):
     hasInjuries: bool = False
@@ -131,6 +142,8 @@ class RescueCaseResponse(BaseModel):
     locationDetails: str = ""
     updatedAt: datetime
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 # --- 氣象局資料回傳格式 ---
 class WeatherAlert(BaseModel):
     magnitude: float
@@ -216,3 +229,7 @@ class RoomRiskAnalysisResponse(BaseModel):
     overallRiskLevel: int
     objects: List[RoomRiskObject]
     zones: List[RoomRiskZone]
+<<<<<<< HEAD
+=======
+
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17

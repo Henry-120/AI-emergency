@@ -2,5 +2,9 @@ fastapi
 firebase-admin
 httpx
 python-multipart
+<<<<<<< HEAD
 requests
+=======
+sqlalchemy
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 uvicorn

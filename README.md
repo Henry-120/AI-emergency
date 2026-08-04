@@ -18,6 +18,7 @@ View your app in AI Studio: https://ai.studio/apps/temp/3
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+<<<<<<< HEAD
 
 ## Backend with Cloud Firestore
 
@@ -41,3 +42,5 @@ automatically after the first register/sync request; there is no need to click
 
 Existing data in the old Docker SQLite volume is not automatically migrated. It
 is left untouched so it can be migrated or archived separately.
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17

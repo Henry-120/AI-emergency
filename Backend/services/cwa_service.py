@@ -36,6 +36,7 @@ class CWAService:
                     return {"error": "目前沒有地震資料"}
 
                 eq = earthquakes[0]["EarthquakeInfo"]
+<<<<<<< HEAD
                 epicenter = eq["Epicenter"]
                 return {
                     "magnitude": eq["EarthquakeMagnitude"]["MagnitudeValue"],
@@ -44,6 +45,12 @@ class CWAService:
                     "depth": eq.get("FocalDepth"),
                     "epicenterLat": epicenter.get("EpicenterLatitude"),
                     "epicenterLng": epicenter.get("EpicenterLongitude"),
+=======
+                return {
+                    "magnitude": eq["EarthquakeMagnitude"]["MagnitudeValue"],
+                    "location": eq["Epicenter"]["Location"],
+                    "time": eq["OriginTime"],
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                 }
         except Exception as e:
             logger.exception("Unable to fetch CWA earthquake data: %s", e)

@@ -19,8 +19,11 @@ export function AppHeader({
   onRefreshCwa,
   onShowShelterNavigator,
   onShowMedicalCard,
+<<<<<<< HEAD
   onShowRescueMap,
   onSimulateSevereEarthquake,
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   onLogout,
 }: {
   currentAnalysis: DisasterAnalysis | null;
@@ -37,6 +40,7 @@ export function AppHeader({
   onRefreshCwa: () => void;
   onShowShelterNavigator: () => void;
   onShowMedicalCard: () => void;
+<<<<<<< HEAD
   onShowRescueMap: () => void;
   onSimulateSevereEarthquake: () => void;
   onLogout: () => void;
@@ -49,6 +53,18 @@ export function AppHeader({
             <i className="fas fa-shield-alt text-black text-xs"></i>
           </div>
           <span className="font-bold text-lg tracking-tight text-white">
+=======
+  onLogout: () => void;
+}) {
+  return (
+    <header className="z-50 shadow-lg">
+      <div className="flex items-center justify-between px-4 py-3 bg-[#020617] border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <i className="fas fa-shield-alt text-black text-xs"></i>
+          </div>
+          <span className="font-bold text-lg tracking-tight">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
             Guardia<span className="text-amber-500">AI</span>
             {isOffline && (
               <span className="ml-2 text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full">
@@ -58,7 +74,11 @@ export function AppHeader({
           </span>
         </div>
 
+<<<<<<< HEAD
         <div className="order-3 flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar sm:order-none sm:w-auto sm:max-w-[75%] sm:gap-3">
+=======
+        <div className="flex items-center gap-4">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           {currentAnalysis && (
             <div className="flex items-center gap-2 animate-in fade-in duration-500">
               <div className="text-right">
@@ -73,12 +93,20 @@ export function AppHeader({
             </div>
           )}
           {locationError ? (
+<<<<<<< HEAD
             <div className="max-w-[70vw] shrink-0 truncate text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
+=======
+            <div className="text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               {locationError}
             </div>
           ) : earthquakeAlert ? (
             <div className="flex items-center gap-2">
+<<<<<<< HEAD
               <div className="max-w-[68vw] truncate text-[10px] text-amber-100 bg-slate-800/80 px-3 py-1 rounded-full border border-amber-500/20" title={`CWA：${earthquakeAlert.location} ${earthquakeAlert.magnitude.toFixed(1)} 級`}>
+=======
+              <div className="text-[10px] text-amber-100 bg-slate-800/80 px-3 py-1 rounded-full border border-amber-500/20">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                 CWA：{earthquakeAlert.location}{" "}
                 {earthquakeAlert.magnitude.toFixed(1)} 級
               </div>
@@ -91,11 +119,19 @@ export function AppHeader({
               </button>
             </div>
           ) : cwaError ? (
+<<<<<<< HEAD
             <div className="max-w-[70vw] shrink-0 truncate text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
               {cwaError}
             </div>
           ) : userStatus.location ? (
             <div className="shrink-0 text-[10px] text-slate-300 bg-slate-800/80 px-3 py-1 rounded-full border border-white/10">
+=======
+            <div className="text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
+              {cwaError}
+            </div>
+          ) : userStatus.location ? (
+            <div className="text-[10px] text-slate-300 bg-slate-800/80 px-3 py-1 rounded-full border border-white/10">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               目前定位：{userStatus.location.lat.toFixed(4)},{" "}
               {userStatus.location.lng.toFixed(4)}
             </div>
@@ -103,19 +139,28 @@ export function AppHeader({
           <button
             onClick={onDownloadOfflineSafetyPack}
             disabled={isDownloadingMap}
+<<<<<<< HEAD
             className="shrink-0 px-3 py-2 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs font-semibold hover:bg-amber-500/20 transition-all disabled:opacity-40"
+=======
+            className="px-3 py-2 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs font-semibold hover:bg-amber-500/20 transition-all disabled:opacity-40"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           >
             {isDownloadingMap ? "下載中..." : "下載避難包"}
           </button>
           {offlineSafetyPackReady && (
             <button
               onClick={onShowShelterNavigator}
+<<<<<<< HEAD
               className="shrink-0 px-3 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs font-semibold hover:bg-emerald-500/20 transition-all"
+=======
+              className="px-3 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs font-semibold hover:bg-emerald-500/20 transition-all"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
             >
               避難導航
             </button>
           )}
           <button
+<<<<<<< HEAD
             onClick={onShowRescueMap}
             className="shrink-0 px-3 py-2 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold hover:bg-red-500/20 transition-all"
           >
@@ -124,17 +169,26 @@ export function AppHeader({
           <button
             onClick={onShowBleMessenger}
             className="shrink-0 px-3 py-2 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-100 text-xs font-semibold hover:bg-cyan-500/20 transition-all"
+=======
+            onClick={onShowBleMessenger}
+            className="px-3 py-2 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-100 text-xs font-semibold hover:bg-cyan-500/20 transition-all"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           >
             BLE
           </button>
           <button
             onClick={onShowMedicalCard}
             title="緊急醫療卡"
+<<<<<<< HEAD
             className="shrink-0 px-3 py-2 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs font-semibold hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
+=======
+            className="px-3 py-2 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs font-semibold hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           >
             <i className="fas fa-notes-medical"></i>
             <span className="hidden sm:inline">醫療卡</span>
           </button>
+<<<<<<< HEAD
           <button
             onClick={onSimulateSevereEarthquake}
             title="測試強震通知、避難語音與 BLE 存活訊號"
@@ -144,6 +198,10 @@ export function AppHeader({
           </button>
           {authUser && (
             <div className="flex shrink-0 items-center gap-2">
+=======
+          {authUser && (
+            <div className="flex items-center gap-2">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               <span
                 className="text-[11px] text-slate-300 max-w-[80px] truncate hidden sm:inline"
                 title={authUser.username}
@@ -159,7 +217,11 @@ export function AppHeader({
               </button>
             </div>
           )}
+<<<<<<< HEAD
           <button className="w-8 h-8 shrink-0 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
+=======
+          <button className="w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
             <i className="fas fa-phone-alt text-red-500 text-xs"></i>
           </button>
         </div>

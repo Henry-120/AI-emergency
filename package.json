@@ -12,9 +12,15 @@
     "@capacitor-community/bluetooth-le": "^8.2.0",
     "@capacitor-community/sqlite": "^8.1.0",
     "@capacitor/cli": "^8.2.0",
+<<<<<<< HEAD
     "@capacitor/core": "^8.5.0",
     "@capacitor/ios": "^8.2.0",
     "@capacitor/local-notifications": "^8.2.1",
+=======
+    "@capacitor/core": "^8.2.0",
+    "@capacitor/ios": "^8.2.0",
+    "@capacitor/local-notifications": "^8.0.2",
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     "@google/genai": "^1.40.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",

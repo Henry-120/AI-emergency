@@ -26,9 +26,12 @@ dist-ssr
 # Env files
 .env
 .env.local
+<<<<<<< HEAD
 .env.*
 !.env.example
 firebase-service-account*.json
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 # Python
 .venv/

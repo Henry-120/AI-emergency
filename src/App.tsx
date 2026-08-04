@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { analyzeDisaster } from "./services/geminiService";
 import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
+<<<<<<< HEAD
 import {
   fetchLatestAlert,
   EarthquakeAlert,
@@ -11,6 +12,10 @@ import {
   notifyEarthquakeAlert,
   onEarthquakeNotificationTapped,
 } from "./services/notificationService";
+=======
+import { fetchLatestAlert, EarthquakeAlert } from "./services/cwaService";
+import { requestNotificationPermission, notifyEarthquake, initNotificationListeners } from "./services/notificationService";
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 import { AppFooter } from "./components/app/AppFooter";
 import { AppHeader } from "./components/app/AppHeader";
 import { ChatMessageList } from "./components/app/ChatMessageList";
@@ -36,31 +41,46 @@ import {
   OfflineSafetyPack,
 } from "./services/offlineSafetyService";
 import {
+<<<<<<< HEAD
   saveEmergencyReport,
   saveUserStatusSnapshot,
   syncPendingEmergencyReports,
+=======
+  saveUserStatusSnapshot,
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
 import { RoomRiskAnalysis } from "./types";
 import { AuthPage } from "./components/auth/AuthPage";
 import { MedicalCardPage } from "./components/medical/MedicalCardPage";
+<<<<<<< HEAD
 import { RescueMapPage } from "./components/rescue/RescueMapPage";
 import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
+=======
+import { getCurrentUser, logout } from "./services/authService";
+import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
+import { requestMicrophonePermissionOnce } from "./services/microphonePermissionService";
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
     getCurrentUser(),
   );
+<<<<<<< HEAD
   const [isCheckingSession, setIsCheckingSession] = useState(navigator.onLine);
   const [showMedicalCard, setShowMedicalCard] = useState(false);
   const [showRescueMap, setShowRescueMap] = useState(false);
+=======
+  const [showMedicalCard, setShowMedicalCard] = useState(false);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
   const handleLogout = () => {
     logout();
     setShowMedicalCard(false);
     setAuthUser(null);
   };
+<<<<<<< HEAD
 
   useEffect(() => {
     validateSession()
@@ -70,6 +90,8 @@ const App: React.FC = () => {
       })
       .finally(() => setIsCheckingSession(false));
   }, []);
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -78,6 +100,10 @@ const App: React.FC = () => {
   const [earthquakeAlert, setEarthquakeAlert] =
     useState<EarthquakeAlert | null>(null);
   const [cwaError, setCwaError] = useState<string>("");
+<<<<<<< HEAD
+=======
+  const previousAlertRef = useRef<EarthquakeAlert | null>(null);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
   // 新增：用戶狀態
   const [userStatus, setUserStatus] = useState<UserStatus>({
@@ -87,6 +113,7 @@ const App: React.FC = () => {
     location: null,
     hasInjuries: false,
   });
+<<<<<<< HEAD
   const userStatusRef = useRef(userStatus);
   const earthquakeAlertRef = useRef<EarthquakeAlert | null>(null);
   const notifiedEarthquakeRef = useRef<string | null>(null);
@@ -105,6 +132,17 @@ const App: React.FC = () => {
       saveUserStatusSnapshot(userStatus).catch((error) =>
         console.error("狀態儲存失敗", error),
       );
+=======
+
+  // 每 30 秒先存進本機 SQLite，若有網路再批次同步到後端。
+  useEffect(() => {
+    const syncInterval = setInterval(() => {
+      saveUserStatusSnapshot(userStatus).then(() => {
+        if (navigator.onLine) {
+          syncPendingUserStatusRecords();
+        }
+      });
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     }, 30000);
     return () => clearInterval(syncInterval);
   }, [userStatus]);
@@ -125,6 +163,7 @@ const App: React.FC = () => {
     useState<RoomRiskAnalysis | null>(null);
   const [roomRiskError, setRoomRiskError] = useState<string>("");
   const [isRoomRiskAnalyzing, setIsRoomRiskAnalyzing] = useState(false);
+<<<<<<< HEAD
 
   const DISCLAIMER_STORAGE_KEY = "app_disclaimer_accepted";
   const [disclaimerAccepted, setDisclaimerAccepted] = useState<boolean>(() => {
@@ -328,6 +367,14 @@ const App: React.FC = () => {
       </div>
     </div>
   );
+=======
+  const [shouldAutoStartVoiceInput, setShouldAutoStartVoiceInput] =
+    useState(false);
+
+  useEffect(() => {
+    void requestMicrophonePermissionOnce();
+  }, []);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
   const loadDownloadedMaps = async () => {
     const result = await getDownloadedMaps();
@@ -387,6 +434,7 @@ const App: React.FC = () => {
     }
   };
 
+<<<<<<< HEAD
   const handleSimulateSevereEarthquake = () => {
     const location = userStatus.location || { lat: 25.033, lng: 121.5654 };
     notifiedEarthquakeRef.current = null;
@@ -400,6 +448,8 @@ const App: React.FC = () => {
     });
   };
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   const getSensorContext = () => {
     const medicalSummary = summarizeMedicalCard(getMedicalCard());
     const medicalInfo = medicalSummary ? `, 醫療卡: ${medicalSummary}` : "";
@@ -559,11 +609,41 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+<<<<<<< HEAD
+=======
+    // Request notification permission once on startup
+    void requestNotificationPermission();
+
+    // Register native notification click handler so tapping notification opens app / navigates
+    try {
+      initNotificationListeners((payload) => {
+        try {
+          window.focus();
+        } catch (e) {}
+        if (payload && payload.alert) {
+          setEarthquakeAlert(payload.alert as EarthquakeAlert);
+        }
+      });
+    } catch (e) {
+      console.warn("initNotificationListeners failed to register", e);
+    }
+
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     const loadCwaAlert = async () => {
       setCwaError("");
       const alert = await fetchLatestAlert();
       if (alert) {
         setEarthquakeAlert(alert);
+<<<<<<< HEAD
+=======
+        // If a new alert appears (different from previous), notify
+        const prev = previousAlertRef.current;
+        const isNew = !prev || prev.id !== alert.id;
+        if (isNew) {
+          previousAlertRef.current = alert;
+          void notifyEarthquake(alert);
+        }
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
       } else {
         setEarthquakeAlert(null);
         setCwaError("CWA 即時地震警報載入失敗。請稍後重新整理。");
@@ -578,12 +658,16 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleOnline = () => {
       setIsOffline(false);
+<<<<<<< HEAD
       validateSession().then((user) => {
         if (!user) logout();
         setAuthUser(user);
       });
       syncPendingUserStatusRecords();
       syncPendingEmergencyReports();
+=======
+      syncPendingUserStatusRecords();
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     };
     const handleOffline = () => setIsOffline(true);
 
@@ -596,6 +680,7 @@ const App: React.FC = () => {
     };
   }, []);
 
+<<<<<<< HEAD
   // App 重啟或重新登入後，自動重試之前未同步的救援摘要。
   useEffect(() => {
     if (authUser && navigator.onLine) {
@@ -604,6 +689,12 @@ const App: React.FC = () => {
   }, [authUser]);
 
   const speak = (text: string) => {
+=======
+  const introGuidanceText =
+    "為確保您的安全，麻煩您提供您現在所在的位置以及人生安全狀況，若有傷勢，請註明";
+
+  const speak = (text: string, onEnd?: () => void) => {
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -623,10 +714,17 @@ const App: React.FC = () => {
     utterance.lang = "zh-tw";
     utterance.rate = 1.0;
     utterance.pitch = 1.1;
+<<<<<<< HEAD
+=======
+    utterance.onend = () => {
+      onEnd?.();
+    };
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
     window.speechSynthesis.speak(utterance);
   };
 
+<<<<<<< HEAD
   const announceEarthquakeSafety = () => {
     const alert = earthquakeAlertRef.current;
     const instruction = alert
@@ -688,6 +786,28 @@ const App: React.FC = () => {
       });
     }
   }, [earthquakeAlert]);
+=======
+  useEffect(() => {
+    if (!authUser) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      playAudio(introGuidanceText)
+        .then(() => {
+          setShouldAutoStartVoiceInput(true);
+        })
+        .catch(() => {
+          console.log("提示音播放失敗，改用原生語音降級模式");
+          speak(introGuidanceText, () => {
+            setShouldAutoStartVoiceInput(true);
+          });
+        });
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [authUser]);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
   const getGeolocationErrorMessage = (
     err: GeolocationPositionError,
@@ -781,7 +901,11 @@ const App: React.FC = () => {
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+<<<<<<< HEAD
     if (!authUser || !input.trim() || isAnalyzing) return;
+=======
+    if (!input.trim() || isAnalyzing) return;
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -797,6 +921,7 @@ const App: React.FC = () => {
     setInput("");
     // --- 離線邏輯開始 ---
     if (isOffline) {
+<<<<<<< HEAD
       const offlineAnalysis = getOfflineAnalysis(
         currentInput,
         updatedMessages
@@ -804,6 +929,9 @@ const App: React.FC = () => {
           .map((message) => message.content)
           .join("\n"),
       );
+=======
+      const offlineAnalysis = getOfflineAnalysis(currentInput);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -815,12 +943,15 @@ const App: React.FC = () => {
 
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(offlineAnalysis);
+<<<<<<< HEAD
       saveEmergencyReport(
         authUser.id,
         offlineAnalysis.emergencySummary,
         [...updatedMessages, assistantMsg],
         userStatus.location,
       ).catch((error) => console.error("離線救援摘要儲存失敗", error));
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
       speak(offlineAnalysis.immediateActions[0].description);
       return; // 離線模式處理完畢，直接結束
     }
@@ -847,6 +978,7 @@ const App: React.FC = () => {
       setMessages((prev) => [...prev, assistantMsg]);
       setCurrentAnalysis(analysis);
 
+<<<<<<< HEAD
       // 無論是否有網路都先寫裝置端；線上時再嘗試同步到後端。
       saveEmergencyReport(authUser.id, analysis.emergencySummary, [
         ...updatedMessages,
@@ -857,6 +989,8 @@ const App: React.FC = () => {
         })
         .catch((error) => console.error("救援摘要本機儲存失敗", error));
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
       if (analysis.immediateActions && analysis.immediateActions.length > 0) {
         const text = `緊急指令${analysis.immediateActions[0].title}`;
         // 優先嘗試 OpenAI，失敗則用原生降級
@@ -869,20 +1003,27 @@ const App: React.FC = () => {
         speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
       }
     } catch (error) {
+<<<<<<< HEAD
       console.error("Disaster analysis failed:", error);
       const detail = error instanceof Error ? error.message : "未知錯誤";
       const isModelUnavailable = /not found|no longer available|404/i.test(detail);
       const isQuotaLimited = /quota|resource_exhausted|429/i.test(detail);
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
+<<<<<<< HEAD
           content: isModelUnavailable
             ? "分析模型目前不可用，請重新整理後再試；若持續發生，請檢查 Gemini model 設定。"
             : isQuotaLimited
               ? "Gemini API 額度暫時用完，請稍後再試或檢查 API 配額。"
               : "分析服務暫時無法回應，請確認網路後再試。",
+=======
+          content: "分析引擎繁忙中，請嘗試簡短描述您觀察到的新狀況。",
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           timestamp: new Date(),
         },
       ]);
@@ -897,6 +1038,7 @@ const App: React.FC = () => {
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
 
+<<<<<<< HEAD
   if (!disclaimerAccepted) {
     return disclaimerModal;
   }
@@ -909,6 +1051,8 @@ const App: React.FC = () => {
     );
   }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   if (!authUser) {
     return <AuthPage onAuthed={setAuthUser} />;
   }
@@ -917,10 +1061,13 @@ const App: React.FC = () => {
     return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
   }
 
+<<<<<<< HEAD
   if (showRescueMap) {
     return <RescueMapPage location={userStatus.location} onBack={() => setShowRescueMap(false)} />;
   }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   if (selectedMap) {
     return (
       <OfflineMapPage
@@ -949,7 +1096,11 @@ const App: React.FC = () => {
 
   // 渲染 UI
   return (
+<<<<<<< HEAD
     <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
+=======
+    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}
@@ -965,8 +1116,11 @@ const App: React.FC = () => {
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
         onShowMedicalCard={() => setShowMedicalCard(true)}
+<<<<<<< HEAD
         onShowRescueMap={() => setShowRescueMap(true)}
         onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
         onLogout={handleLogout}
       />
       <ChatMessageList
@@ -997,6 +1151,11 @@ const App: React.FC = () => {
         onSubmit={handleSubmit}
         onViewMap={handleViewMap}
         setInput={setInput}
+<<<<<<< HEAD
+=======
+        autoStartVoiceInput={shouldAutoStartVoiceInput}
+        onAutoStartHandled={() => setShouldAutoStartVoiceInput(false)}
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
       />
     </div>
   );

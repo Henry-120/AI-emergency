@@ -14,6 +14,7 @@ export interface SurvivalStep {
   priority: 'CRITICAL' | 'HIGH' | 'MEDIUM';
 }
 
+<<<<<<< HEAD
 export interface EmergencySummary {
   hasInjuries: boolean;
   injurySummary: string;
@@ -26,6 +27,8 @@ export interface EmergencySummary {
   confidence: number;
 }
 
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 export interface DisasterAnalysis {
   type: DisasterType;
   riskLevel: number; // 1-10
@@ -34,7 +37,10 @@ export interface DisasterAnalysis {
   longTermAdvice: string;
   survivalProbability: number;
   missingInfoRequests?: string[]; // 新增：AI 認為缺少的關鍵資訊或請求
+<<<<<<< HEAD
   emergencySummary: EmergencySummary;
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 }
 
 export interface ChatMessage {
@@ -90,8 +96,12 @@ export type RoomRiskImpactType =
   | 'falling'
   | 'glass'
   | 'blocked_path'
+<<<<<<< HEAD
   | 'safe_floor'
   | 'triangle_void';
+=======
+  | 'safe_floor';
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 export interface RoomRiskPoint {
   x: number;

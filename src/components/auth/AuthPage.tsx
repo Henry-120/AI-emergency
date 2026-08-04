@@ -24,6 +24,7 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
     }
 
     setBusy(true);
+<<<<<<< HEAD
     try {
       const result =
         mode === "login"
@@ -40,6 +41,18 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
       setError(message);
     } finally {
       setBusy(false);
+=======
+    const result =
+      mode === "login"
+        ? await login(username, password)
+        : await register(username, password, email);
+    setBusy(false);
+
+    if (result.success && result.user) {
+      onAuthed(result.user);
+    } else {
+      setError(result.error || "發生未知錯誤，請再試一次");
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     }
   };
 
@@ -51,10 +64,17 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
   };
 
   return (
+<<<<<<< HEAD
     <div className="h-[100dvh] min-h-0 flex flex-col items-center bg-[#020617] text-slate-100 px-4 sm:px-6 overflow-y-auto overscroll-contain safe-area-top safe-area-bottom">
       <div className="my-auto w-full max-w-sm py-5 sm:py-8">
         {/* Logo */}
         <div className="flex flex-col items-center mb-5 sm:mb-8">
+=======
+    <div className="h-screen flex flex-col items-center justify-center bg-[#020617] px-6 overflow-y-auto">
+      <div className="w-full max-w-sm py-8">
+        {/* Logo */}
+        <div className="flex flex-col items-center mb-8">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           <div className="w-14 h-14 bg-amber-500 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/20 mb-3">
             <i className="fas fa-shield-alt text-black text-xl"></i>
           </div>
@@ -69,7 +89,11 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
           <button
             type="button"
             onClick={() => switchMode("login")}
+<<<<<<< HEAD
             className={`min-h-11 flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+=======
+            className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               mode === "login"
                 ? "bg-amber-500 text-black"
                 : "text-slate-400 hover:text-slate-200"
@@ -80,7 +104,11 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
           <button
             type="button"
             onClick={() => switchMode("register")}
+<<<<<<< HEAD
             className={`min-h-11 flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+=======
+            className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               mode === "register"
                 ? "bg-amber-500 text-black"
                 : "text-slate-400 hover:text-slate-200"
@@ -99,7 +127,11 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
               placeholder="請輸入姓名"
+<<<<<<< HEAD
               className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-white/10 text-slate-100 text-base sm:text-sm focus:outline-none focus:border-amber-500/50"
+=======
+              className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-white/10 text-slate-100 text-sm focus:outline-none focus:border-amber-500/50"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
             />
           </div>
 
@@ -114,7 +146,11 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
                 placeholder="example@mail.com"
+<<<<<<< HEAD
                 className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-white/10 text-slate-100 text-base sm:text-sm focus:outline-none focus:border-amber-500/50"
+=======
+                className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-white/10 text-slate-100 text-sm focus:outline-none focus:border-amber-500/50"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               />
             </div>
           )}
@@ -127,7 +163,11 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete={mode === "login" ? "current-password" : "new-password"}
               placeholder="至少 6 個字元"
+<<<<<<< HEAD
               className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-white/10 text-slate-100 text-base sm:text-sm focus:outline-none focus:border-amber-500/50"
+=======
+              className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-white/10 text-slate-100 text-sm focus:outline-none focus:border-amber-500/50"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
             />
           </div>
 
@@ -140,7 +180,11 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
                 onChange={(e) => setConfirm(e.target.value)}
                 autoComplete="new-password"
                 placeholder="再次輸入密碼"
+<<<<<<< HEAD
                 className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-white/10 text-slate-100 text-base sm:text-sm focus:outline-none focus:border-amber-500/50"
+=======
+                className="w-full px-4 py-3 rounded-xl bg-slate-800/60 border border-white/10 text-slate-100 text-sm focus:outline-none focus:border-amber-500/50"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               />
             </div>
           )}
@@ -154,7 +198,11 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
           <button
             type="submit"
             disabled={busy}
+<<<<<<< HEAD
             className="min-h-11 w-full py-3 rounded-xl bg-amber-500 text-black font-bold text-sm hover:bg-amber-400 transition-all disabled:opacity-50"
+=======
+            className="w-full py-3 rounded-xl bg-amber-500 text-black font-bold text-sm hover:bg-amber-400 transition-all disabled:opacity-50"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           >
             {busy ? "處理中..." : mode === "login" ? "登入" : "建立帳號"}
           </button>

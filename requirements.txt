@@ -1,6 +1,10 @@
 fastapi>=0.110
 uvicorn[standard]>=0.27
+<<<<<<< HEAD
 firebase-admin>=6.5
+=======
+sqlalchemy>=2.0
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 pydantic>=2.6
 httpx>=0.27
 python-dotenv>=1.0

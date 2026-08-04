@@ -1,6 +1,12 @@
+<<<<<<< HEAD
 import React, { useEffect, useState } from "react";
 import { MedicalCard } from "../../types";
 import { getMedicalCard, loadMedicalCard, saveMedicalCard } from "../../services/medicalCardService";
+=======
+import React, { useState } from "react";
+import { MedicalCard } from "../../types";
+import { getMedicalCard, saveMedicalCard } from "../../services/medicalCardService";
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 const BLOOD_TYPES = ["A", "B", "O", "AB", "不確定"];
 
@@ -24,6 +30,7 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<MedicalCard>(card);
   const [saved, setSaved] = useState(false);
+<<<<<<< HEAD
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -36,6 +43,8 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
       })
       .catch((err) => setError(err instanceof Error ? err.message : "線上醫療卡載入失敗"));
   }, []);
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
   const startEdit = () => {
     setDraft(card);
@@ -43,6 +52,7 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
     setSaved(false);
   };
 
+<<<<<<< HEAD
   const handleSave = async () => {
     if (saving) return;
     setSaving(true);
@@ -58,12 +68,21 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
     } finally {
       setSaving(false);
     }
+=======
+  const handleSave = () => {
+    const result = saveMedicalCard(draft);
+    setCard(result);
+    setEditing(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
   };
 
   const set = (key: keyof MedicalCard, value: string | boolean) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
   const inputClass =
+<<<<<<< HEAD
     "w-full min-w-0 px-3 py-2.5 rounded-lg bg-slate-800/60 border border-white/10 text-slate-100 text-base sm:text-sm focus:outline-none focus:border-amber-500/50";
 
   // ---------- 檢視模式 ----------
@@ -71,12 +90,22 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
     <div className="flex min-w-0 items-start justify-between gap-3 py-2.5 border-b border-white/5">
       <span className="text-xs text-slate-500 shrink-0">{label}</span>
       <span className="min-w-0 break-words text-sm text-slate-100 text-right whitespace-pre-wrap">
+=======
+    "w-full px-3 py-2 rounded-lg bg-slate-800/60 border border-white/10 text-slate-100 text-sm focus:outline-none focus:border-amber-500/50";
+
+  // ---------- 檢視模式 ----------
+  const Row = ({ label, value }: { label: string; value: string }) => (
+    <div className="flex justify-between gap-4 py-2.5 border-b border-white/5">
+      <span className="text-xs text-slate-500 shrink-0">{label}</span>
+      <span className="text-sm text-slate-100 text-right whitespace-pre-wrap">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
         {value || <span className="text-slate-600">—</span>}
       </span>
     </div>
   );
 
   return (
+<<<<<<< HEAD
     <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
       {/* Header */}
       <header className="safe-area-top flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3 bg-[#020617] border-b border-white/5 shrink-0">
@@ -87,38 +116,67 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
           <i className="fas fa-arrow-left"></i> 返回
         </button>
         <span className="min-w-0 truncate font-bold text-sm sm:text-base flex items-center gap-2">
+=======
+    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
+      {/* Header */}
+      <header className="flex items-center justify-between px-4 py-3 bg-[#020617] border-b border-white/5 shrink-0">
+        <button
+          onClick={onBack}
+          className="text-slate-400 hover:text-slate-100 text-sm flex items-center gap-2"
+        >
+          <i className="fas fa-arrow-left"></i> 返回
+        </button>
+        <span className="font-bold text-base flex items-center gap-2">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           <i className="fas fa-notes-medical text-rose-400"></i> 緊急醫療卡
         </span>
         {editing ? (
           <button
             onClick={handleSave}
+<<<<<<< HEAD
             disabled={saving}
             className="min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 text-black text-xs font-bold hover:bg-amber-400"
           >
             {saving ? "儲存中…" : "儲存"}
+=======
+            className="px-3 py-1.5 rounded-lg bg-amber-500 text-black text-xs font-bold hover:bg-amber-400"
+          >
+            儲存
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           </button>
         ) : (
           <button
             onClick={startEdit}
+<<<<<<< HEAD
             className="min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-slate-800 border border-white/10 text-slate-200 text-xs font-semibold hover:bg-slate-700"
+=======
+            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-white/10 text-slate-200 text-xs font-semibold hover:bg-slate-700"
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
           >
             <i className="fas fa-pen mr-1"></i> 編輯
           </button>
         )}
       </header>
 
+<<<<<<< HEAD
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-5 safe-area-bottom">
+=======
+      <div className="flex-1 overflow-y-auto px-4 py-5">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
         <div className="max-w-md mx-auto">
           {saved && (
             <div className="mb-4 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg">
               ✓ 醫療卡已儲存（離線可用）
             </div>
           )}
+<<<<<<< HEAD
           {error && (
             <div className="mb-4 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg">
               {error}
             </div>
           )}
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
           {/* 醫療卡頂部摘要 */}
           <div className="rounded-2xl bg-gradient-to-br from-rose-500/15 to-slate-800/40 border border-rose-500/20 p-5 mb-5">
@@ -158,7 +216,11 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
                   <input className={inputClass} value={draft.fullName}
                     onChange={(e) => set("fullName", e.target.value)} placeholder="王小明" />
                 </Field>
+<<<<<<< HEAD
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+=======
+                <div className="grid grid-cols-2 gap-3">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                   <Field label="生日">
                     <input type="date" className={inputClass} value={draft.birthday}
                       onChange={(e) => set("birthday", e.target.value)} />
@@ -173,7 +235,11 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
                     </select>
                   </Field>
                 </div>
+<<<<<<< HEAD
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+=======
+                <div className="grid grid-cols-3 gap-3">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                   <Field label="血型">
                     <select className={inputClass} value={draft.bloodType}
                       onChange={(e) => set("bloodType", e.target.value)}>
@@ -244,7 +310,11 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
                   <input className={inputClass} value={draft.emergencyContactName}
                     onChange={(e) => set("emergencyContactName", e.target.value)} placeholder="聯絡人姓名" />
                 </Field>
+<<<<<<< HEAD
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+=======
+                <div className="grid grid-cols-2 gap-3">
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
                   <Field label="電話">
                     <input type="tel" className={inputClass} value={draft.emergencyContactPhone}
                       onChange={(e) => set("emergencyContactPhone", e.target.value)} placeholder="0912-345-678" />
@@ -267,9 +337,15 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
                 </Field>
               </Section>
 
+<<<<<<< HEAD
               <button onClick={handleSave} disabled={saving}
                 className="w-full py-3 rounded-xl bg-amber-500 text-black font-bold text-sm hover:bg-amber-400">
                 {saving ? "儲存中…" : "儲存醫療卡"}
+=======
+              <button onClick={handleSave}
+                className="w-full py-3 rounded-xl bg-amber-500 text-black font-bold text-sm hover:bg-amber-400">
+                儲存醫療卡
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
               </button>
             </div>
           ) : (

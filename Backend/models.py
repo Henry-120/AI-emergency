@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text
+=======
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 from sqlalchemy.orm import relationship
 from .database import Base
 import datetime
@@ -16,9 +20,12 @@ class User(Base):
     medical_card = relationship(
         "MedicalCard", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
+<<<<<<< HEAD
     emergency_report = relationship(
         "EmergencyReport", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
+=======
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
 
 
 class MedicalCard(Base):
@@ -60,6 +67,7 @@ class UserStatus(Base):
     client_timestamp = Column(DateTime, nullable=True)
     server_timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
+<<<<<<< HEAD
 class EmergencyReport(Base):
     """AI 從對話持續彙整的使用者當前傷勢與救援需求。"""
     __tablename__ = "emergency_reports"
@@ -92,3 +100,13 @@ class ChatRecord(Base):
     emergency_report = relationship("EmergencyReport", back_populates="chat_records")
     
 # Note: only one UserStatus model should be defined above.
+=======
+class ChatRecord(Base):
+    __tablename__ = "chat_history"
+    id = Column(Integer, primary_key=True, index=True)
+    role = Column(String) # 'user' or 'assistant'
+    content = Column(String)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    
+# Note: only one UserStatus model should be defined above.
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17

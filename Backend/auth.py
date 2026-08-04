@@ -48,7 +48,11 @@ def _b64url_decode(data: str) -> bytes:
     return base64.urlsafe_b64decode(data + padding)
 
 
+<<<<<<< HEAD
 def create_token(user_id: str, username: str) -> str:
+=======
+def create_token(user_id: int, username: str) -> str:
+>>>>>>> 58fdbf595c177e942c8e1e94f609c964f5121f17
     """建立簽章式 token：payload.signature（HMAC-SHA256）。"""
     payload = {"uid": user_id, "username": username, "exp": int(time.time()) + _TOKEN_TTL_SECONDS}
     payload_b64 = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
