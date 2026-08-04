@@ -6,7 +6,6 @@ import {
   EarthquakeAlert,
   isSevereNearbyEarthquake,
 } from "./services/cwaService";
-import { sendAutomaticSurvivalSignal } from "./services/bleMessengerService";
 import {
   notifyEarthquakeAlert,
   onEarthquakeNotificationTapped,
@@ -20,7 +19,6 @@ import { AppHeader } from "./components/app/AppHeader";
 import { ChatMessageList } from "./components/app/ChatMessageList";
 import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
-import { BleMessengerPage } from "./components/ble/BleMessengerPage";
 import { RoomRiskScanner } from "./components/room-risk/RoomRiskScanner";
 import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
@@ -45,6 +43,15 @@ import {
   syncPendingEmergencyReports,
   syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
+// 藍牙模組：附近的人功能（BLE App-to-App 訊息 + 位置廣播）
+import { NearbyPeoplePage } from "./components/bluetooth/NearbyPeoplePage";
+import {
+  getUnreadCount,
+  initInbox,
+  subscribeInbox,
+} from "./services/bluetooth/bluetoothInbox";
+import { sendAutomaticSurvivalSignal } from "./services/bluetooth/bluetoothService";
+import { initSosRelay } from "./services/sos/sosRelay";
 import { RoomRiskAnalysis } from "./types";
 import { AuthPage } from "./components/auth/AuthPage";
 import { MedicalCardPage } from "./components/medical/MedicalCardPage";
@@ -99,6 +106,25 @@ const App: React.FC = () => {
   const notifiedEarthquakeRef = useRef<string | null>(null);
   const sosEarthquakeRef = useRef<string | null>(null);
 
+  // 藍牙收件匣必須在 App 層級常駐。
+  //
+  // 舊版把收訊訂閱寫在「附近的人」頁面裡，使用者一離開該頁面就再也收不到別人傳來的
+  // 訊息。這裡啟動一次、不在 cleanup 取消，讓收訊不受使用者身在哪個畫面影響。
+  useEffect(() => {
+    void initInbox();
+
+    const unsub = subscribeInbox(() => {
+      setBleUnread(getUnreadCount());
+    });
+    return unsub;
+  }, []);
+
+  // SOS 多跳中繼引擎：同樣要在 App 層級常駐，不綁在「附近的人」頁面的生命週期——
+  // 幫別人中繼求救封包，不需要使用者剛好開著那個畫面。
+  useEffect(() => {
+    void initSosRelay();
+  }, []);
+
   useEffect(() => {
     userStatusRef.current = userStatus;
   }, [userStatus]);
@@ -125,7 +151,10 @@ const App: React.FC = () => {
   const [offlineSafetyPack, setOfflineSafetyPack] =
     useState<OfflineSafetyPack | null>(() => getOfflineSafetyPack());
   const [showShelterNavigator, setShowShelterNavigator] = useState(false);
-  const [showBleMessenger, setShowBleMessenger] = useState(false);
+  // 藍牙模組：是否顯示「附近的人」頁面
+  const [showNearbyPeople, setShowNearbyPeople] = useState(false);
+  /** 藍牙未讀訊息數（顯示在 header 的紅點上） */
+  const [bleUnread, setBleUnread] = useState(0);
   const [showRoomRiskScanner, setShowRoomRiskScanner] = useState(false);
   const [roomRiskImageUrl, setRoomRiskImageUrl] = useState<string>("");
   const [roomRiskAnalysis, setRoomRiskAnalysis] =
@@ -684,7 +713,9 @@ const App: React.FC = () => {
         content: "⚠️ 強震影響範圍內，正在透過 BLE 尋找附近 Guardia 裝置並傳送匿名存活訊號。",
         timestamp: new Date(),
       }]);
-      void sendAutomaticSurvivalSignal().then(({ sent }) => {
+      void sendAutomaticSurvivalSignal(
+        userStatusRef.current.location ?? undefined,
+      ).then(({ sent }) => {
         setMessages((previous) => [...previous, {
           id: `sos-result-${Date.now()}`,
           role: "assistant",
@@ -1002,8 +1033,14 @@ const App: React.FC = () => {
     );
   }
 
-  if (showBleMessenger) {
-    return <BleMessengerPage onBack={() => setShowBleMessenger(false)} />;
+  // 藍牙模組：附近的人頁面（獨立全螢幕）
+  if (showNearbyPeople) {
+    return (
+      <NearbyPeoplePage
+        onBack={() => setShowNearbyPeople(false)}
+        myLocation={userStatus.location}
+      />
+    );
   }
 
   // 渲染 UI
@@ -1020,9 +1057,10 @@ const App: React.FC = () => {
         userStatus={userStatus}
         authUser={authUser}
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
-        onShowBleMessenger={() => setShowBleMessenger(true)}
         onRefreshCwa={handleRefreshCwa}
         onShowShelterNavigator={() => setShowShelterNavigator(true)}
+        onShowNearbyPeople={() => setShowNearbyPeople(true)}
+        nearbyUnreadCount={bleUnread}
         onShowMedicalCard={() => setShowMedicalCard(true)}
         onShowRescueMap={() => setShowRescueMap(true)}
         onSimulateSevereEarthquake={handleSimulateSevereEarthquake}

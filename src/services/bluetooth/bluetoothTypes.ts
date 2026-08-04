@@ -1,0 +1,85 @@
+/**
+ * GuardiaAI 藍牙模組 - TypeScript 型別定義
+ *
+ * 把所有 BLE 相關的型別集中在此檔，方便維護。
+ */
+
+/** 一筆掃到的附近 BLE 裝置（可能是同 App 用戶、也可能是其他藍牙裝置） */
+export interface NearbyDevice {
+  /** Capacitor 端的裝置 ID，後續連線、傳訊用 */
+  deviceId: string;
+  /** 廣播的 LocalName。同 App 用戶會是其 localId，其他裝置可能空白 */
+  name: string;
+  /**
+   * 對方在廣播中宣告的 localId（短識別字串）。
+   * 僅 GuardiaAI 同 App 用戶有，且要對方 App 在前景才會帶；iOS 背景時 LocalName 會被剝掉。
+   * 是對話歷史的穩定 key —— 與我們收到的 IncomingMessage.from 一致。
+   */
+  localId?: string;
+  /** 訊號強度（dBm）；數字愈大愈近（-30 很近、-90 很遠） */
+  rssi: number;
+  /** 是否為 GuardiaAI 同 App 用戶（廣播有我們 service UUID 即為 true） */
+  isGuardiaUser: boolean;
+  /** 最後一次被掃到的時間（ms） */
+  lastSeenAt: number;
+}
+
+/** 傳出去的訊息 payload。透過 BLE GATT write 傳送（會被序列化成 JSON） */
+/**
+ * 訊息種類。
+ *
+ * chat     ：一般的手動聊天訊息
+ * survival ：強震時自動發出的「存活訊號」。收方會辨識並醒目顯示成求救提示，
+ *            而非普通訊息——保留 main 舊 BLE「🆘 附近有人存活，需要救援」的語意。
+ */
+export type MessageKind = "chat" | "survival";
+
+export interface OutgoingMessage {
+  /** 發送者的 localId */
+  from: string;
+  /** 訊息內容（純文字） */
+  text: string;
+  /**
+   * 訊息種類。省略時視為 "chat"（相容舊訊息，不填即普通聊天）。
+   */
+  kind?: MessageKind;
+  /** 發送者目前 GPS 位置（可選，沒網或定位失敗時可省略） */
+  location?: { lat: number; lng: number };
+  /** 發送時間（client 端 ms） */
+  timestamp: number;
+}
+
+/** 收到的訊息（由 Swift 端 native event 推來） */
+export interface IncomingMessage extends OutgoingMessage {
+  /** Swift 端記錄的 Central 識別字串，可區分多個傳訊者 */
+  centralId: string;
+}
+
+/**
+ * 收件匣中的一筆對話紀錄（雙向）。
+ *
+ * 收到的與自己傳出的訊息都存在同一個地方，否則離開頁面後自己傳過的訊息會消失，
+ * 對話只剩一半。
+ */
+export interface ChatRecord {
+  /** in = 對方傳來；out = 自己傳出 */
+  direction: "in" | "out";
+  /**
+   * 這則訊息屬於「和誰的對話」——一律是**對方**的 localId。
+   * 收到時 = message.from；自己傳出時 = 對方的 localId。
+   */
+  peerId: string;
+  message: OutgoingMessage;
+}
+
+/** 藍牙模組整體狀態，UI 用來顯示權限/開關提示 */
+export interface BluetoothStatus {
+  /** 是否在原生 iOS App 內運作（false = 瀏覽器，功能受限） */
+  isNative: boolean;
+  /** 藍牙是否啟用（裝置藍牙開關） */
+  isEnabled: boolean;
+  /** 目前是否正在廣播自己 */
+  isAdvertising: boolean;
+  /** 目前是否正在掃描附近 */
+  isScanning: boolean;
+}

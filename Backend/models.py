@@ -91,4 +91,9 @@ class ChatRecord(Base):
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     emergency_report = relationship("EmergencyReport", back_populates="chat_records")
     
+
 # Note: only one UserStatus model should be defined above.
+# SosReport 記錄改存在 Firestore（見 services/firebase_service.py 的
+# save_sos_report），與這個檔案其餘的 SQLAlchemy/SQLite model 不同層——
+# 這份 models.py 目前沒有任何 route 在用（main.py 全面改用 firebase_service），
+# 為了不再新增一份不會被執行的 dead code，SOS 相關的儲存故意不放在這裡。

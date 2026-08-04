@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import maplibregl, { Map, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { fetchNearbyRescueCases, RescueCase } from "../../services/rescueService";
+import { fetchNearbyRescueCases, fetchNearbySosReports, RescueCase, SosCase } from "../../services/rescueService";
 
 const RESCUE_REFRESH_INTERVAL_MS = 10_000;
 
@@ -16,11 +16,13 @@ export function RescueMapPage({
   const mapRef = useRef<Map | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const markersRef = useRef<Marker[]>([]);
+  const sosMarkersRef = useRef<Marker[]>([]);
   const locationRef = useRef(location);
   const refreshInFlightRef = useRef(false);
   const initialLoadStartedRef = useRef(false);
   const [mapLocation, setMapLocation] = useState(location);
   const [cases, setCases] = useState<RescueCase[]>([]);
+  const [sosCases, setSosCases] = useState<SosCase[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,14 +36,19 @@ export function RescueMapPage({
     refreshInFlightRef.current = true;
     setLoading(true);
     setError("");
-    try {
-      setCases(await fetchNearbyRescueCases(currentLocation));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "救援案件載入失敗");
-    } finally {
-      refreshInFlightRef.current = false;
-      setLoading(false);
+    // 兩種資料來源獨立擷取：其中一種載入失敗（例如求救記錄的後端還沒部署）
+    // 不該連帶讓另一種也顯示不出來。
+    const [rescueResult, sosResult] = await Promise.allSettled([
+      fetchNearbyRescueCases(currentLocation),
+      fetchNearbySosReports(currentLocation),
+    ]);
+    if (rescueResult.status === "fulfilled") setCases(rescueResult.value);
+    if (sosResult.status === "fulfilled") setSosCases(sosResult.value);
+    if (rescueResult.status === "rejected" && sosResult.status === "rejected") {
+      setError(rescueResult.reason instanceof Error ? rescueResult.reason.message : "救援案件載入失敗");
     }
+    refreshInFlightRef.current = false;
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -120,7 +127,44 @@ export function RescueMapPage({
     });
   }, [cases]);
 
+  // 藍牙中繼的求救：用不同的圖示（方形 DOM marker）跟 AI 評估案件的圓形 pin 區分開，
+  // 一眼就能看出「這筆是透過藍牙中繼送達的」。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    sosMarkersRef.current.forEach((marker) => marker.remove());
+    sosMarkersRef.current = sosCases.map((item) => {
+      const el = document.createElement("div");
+      el.style.width = "18px";
+      el.style.height = "18px";
+      el.style.borderRadius = "4px";
+      el.style.border = "2px solid white";
+      el.style.background = item.urgencyLevel >= 9 ? "#ef4444" : item.urgencyLevel >= 7 ? "#f97316" : "#e11d48";
+      el.style.boxShadow = "0 0 0 2px rgba(225,29,72,0.4)";
+      const detail = [
+        `緊急度 ${item.urgencyLevel}/10${item.isTrapped ? "・受困" : ""}`,
+        item.locationDetails,
+        item.injurySummary,
+        item.rescueNeeds.length > 0 && `需要：${item.rescueNeeds.join("、")}`,
+        item.batteryLevel !== null && `電量 ${item.batteryLevel}%`,
+        item.bloodType && `血型 ${item.bloodType}`,
+        item.drugAllergies && `藥物過敏：${item.drugAllergies}`,
+        item.chronicConditions && `慢性病史：${item.chronicConditions}`,
+      ].filter(Boolean).map((part) => escapeHtml(String(part))).join("<br/>");
+      return new maplibregl.Marker({ element: el })
+        .setLngLat([item.longitude, item.latitude])
+        .setPopup(new maplibregl.Popup({ offset: 16 }).setHTML(
+          `<strong>藍牙求救 · ${escapeHtml(item.username)}</strong><br/>${detail}`,
+        ))
+        .addTo(map);
+    });
+  }, [sosCases]);
+
   const focusCase = (item: RescueCase) => {
+    mapRef.current?.flyTo({ center: [item.longitude, item.latitude], zoom: 16 });
+  };
+
+  const focusSosCase = (item: SosCase) => {
     mapRef.current?.flyTo({ center: [item.longitude, item.latitude], zoom: 16 });
   };
 
@@ -134,8 +178,44 @@ export function RescueMapPage({
       {error && <div className="shrink-0 px-3 py-2 text-xs text-rose-300 bg-rose-500/10">{error}</div>}
       <div ref={containerRef} className="min-h-[45vh] flex-1" />
       <section className="max-h-[38vh] overflow-y-auto border-t border-white/10 bg-slate-950 p-3 space-y-2">
-        <div className="text-xs text-slate-400">待救援 {cases.length} 人 · 綠色是你的位置</div>
-        {cases.length === 0 && !loading && <div className="py-6 text-center text-sm text-slate-500">附近目前沒有具 GPS 的待救援案件</div>}
+        <div className="text-xs text-slate-400">
+          待救援 {cases.length} 人、藍牙求救 {sosCases.length} 筆 · 綠色是你的位置
+        </div>
+        {cases.length === 0 && sosCases.length === 0 && !loading && (
+          <div className="py-6 text-center text-sm text-slate-500">附近目前沒有具 GPS 的待救援案件</div>
+        )}
+        {sosCases.map((item) => (
+          <button
+            key={item.msgId}
+            onClick={() => focusSosCase(item)}
+            className="w-full text-left rounded-xl border border-rose-500/30 bg-rose-950/30 p-3"
+          >
+            <div className="flex justify-between gap-3">
+              <span className="font-bold">藍牙求救 · {item.username}</span>
+              <span className="text-rose-300">緊急度 {item.urgencyLevel}</span>
+            </div>
+            <div className="mt-1 text-xs text-slate-300">
+              距離 {item.distanceKm.toFixed(1)} km · 經 {item.hops} 跳送達
+              {item.isTrapped ? " · 受困" : ""}
+              {item.batteryLevel !== null ? ` · 電量 ${item.batteryLevel}%` : ""}
+            </div>
+            {item.locationDetails && (
+              <div className="mt-1 text-xs text-slate-400">位置：{item.locationDetails}</div>
+            )}
+            <div className="mt-1 text-xs text-slate-400">
+              {item.injurySummary || item.rescueNeeds.join("、") || "需要救援"}
+            </div>
+            {(item.bloodType || item.drugAllergies || item.chronicConditions) && (
+              <div className="mt-1 text-xs text-amber-300">
+                {[
+                  item.bloodType && `血型 ${item.bloodType}`,
+                  item.drugAllergies && `過敏：${item.drugAllergies}`,
+                  item.chronicConditions && `慢性病：${item.chronicConditions}`,
+                ].filter(Boolean).join(" · ")}
+              </div>
+            )}
+          </button>
+        ))}
         {cases.map((item) => (
           <button key={item.userId} onClick={() => focusCase(item)} className="w-full text-left rounded-xl border border-white/10 bg-slate-800/60 p-3">
             <div className="flex justify-between gap-3"><span className="font-bold">{item.username}</span><span className="text-rose-300">緊急度 {item.urgencyLevel}</span></div>

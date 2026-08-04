@@ -146,10 +146,3 @@ export interface UserStatus {
   location: { lat: number; lng: number } | null;
   hasInjuries: boolean;
 }
-
-export type {
-  BLEConnectionState,
-  BLEMessage,
-  BLEState,
-  NearbyUser,
-} from "./types/ble";
