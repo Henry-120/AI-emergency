@@ -126,6 +126,209 @@ const App: React.FC = () => {
   const [roomRiskError, setRoomRiskError] = useState<string>("");
   const [isRoomRiskAnalyzing, setIsRoomRiskAnalyzing] = useState(false);
 
+  const DISCLAIMER_STORAGE_KEY = "app_disclaimer_accepted";
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(DISCLAIMER_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [disclaimerStep, setDisclaimerStep] = useState<1 | 2>(1);
+  const [disclaimerChecked, setDisclaimerChecked] = useState(false);
+  const [permissionStatus, setPermissionStatus] = useState<string>("");
+
+  const acceptDisclaimer = () => {
+    try {
+      localStorage.setItem(DISCLAIMER_STORAGE_KEY, "true");
+    } catch (error) {
+      console.warn("無法寫入本地儲存：", error);
+    }
+    setDisclaimerAccepted(true);
+  };
+
+  const handleProceedToPermissions = () => {
+    setDisclaimerStep(2);
+  };
+
+  const requestDevicePermissions = async () => {
+    setPermissionStatus("正在請求相機、麥克風與定位權限…");
+
+    try {
+      if (navigator.geolocation) {
+        await new Promise<void>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            () => resolve(),
+            (err) => reject(err),
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+          );
+        });
+      }
+    } catch (error) {
+      console.warn("定位權限請求失敗：", error);
+    }
+
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    } catch (error) {
+      console.warn("相機/麥克風權限請求失敗：", error);
+    }
+
+    acceptDisclaimer();
+  };
+
+  const disclaimerModal = (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 text-slate-100">
+      <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-slate-950/95 shadow-2xl shadow-black/50 overflow-hidden">
+        <div className="p-6 sm:p-8">
+          <h1 className="mb-4 text-2xl font-bold text-amber-300">
+            地震救災協助 App 免責聲明
+          </h1>
+          {disclaimerStep === 1 ? (
+            <div className="space-y-4">
+              <div className="max-h-[55vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+                <p>歡迎您使用本地震救災協助 App（以下簡稱「本 App」）。為保障您的權益，請於使用前詳細閱讀本免責聲明。當您使用本 App，即表示您已閱讀、理解並同意以下內容。</p>
+                <p className="mt-3 font-semibold">一、服務目的</p>
+                <p>本 App 旨在提供地震防災、災害應變及救災資訊服務，包括但不限於：</p>
+                <ul className="ml-5 list-disc space-y-1 py-2">
+                  <li>日常居家家具安全健檢（透過相機拍攝環境進行 AI 分析）</li>
+                  <li>接收中央氣象署地震警報及相關通知</li>
+                  <li>提供災害期間之 AI 自保建議</li>
+                  <li>提供語音輸入災情與位置資訊</li>
+                  <li>協助使用者快速獲取防災與避難資訊</li>
+                </ul>
+                <p>本 App 所提供之內容僅供參考與輔助決策使用，不得視為官方指揮、醫療、消防、警政或其他專業救援意見。</p>
+                <p className="mt-3 font-semibold">二、AI 回覆免責聲明</p>
+                <p>本 App 使用人工智慧（Gemini AI）分析使用者提供之文字、語音、影像及位置資訊，並生成可能的應變建議。</p>
+                <p>惟 AI 回覆係依據當下可取得之資訊自動生成，可能因下列因素而產生誤差：</p>
+                <ul className="ml-5 list-disc space-y-1 py-2">
+                  <li>使用者提供資訊不完整或不正確</li>
+                  <li>通訊中斷或網路異常</li>
+                  <li>AI 判斷限制</li>
+                  <li>災害現場環境快速變化</li>
+                </ul>
+                <p>因此，本 App 無法保證所有建議之完整性、正確性、即時性或適用性，使用者仍應依現場實際情況及政府單位公告採取行動。</p>
+                <p className="mt-3 font-semibold">三、地震警報服務</p>
+                <p>本 App 之地震通知主要引用中央氣象署（或其他合法公開 API）提供之資料。</p>
+                <p>若因下列因素導致通知延遲、遺漏或錯誤，包括但不限於：</p>
+                <ul className="ml-5 list-disc space-y-1 py-2">
+                  <li>API 服務異常</li>
+                  <li>網路連線問題</li>
+                  <li>手機系統限制</li>
+                  <li>通知權限未開啟</li>
+                  <li>第三方服務中斷</li>
+                </ul>
+                <p>本 App 不承擔因此所造成之任何直接或間接損害。</p>
+                <p className="mt-3 font-semibold">四、相機與 AI 居家健檢</p>
+                <p>本 App 會於取得您的同意後使用裝置相機，以分析家具擺放及居家環境可能存在之地震風險。</p>
+                <p>分析結果僅供風險評估與改善建議，不代表建築結構安全鑑定、耐震認證或任何專業工程檢測結果。</p>
+                <p>使用者仍應依照專業建築師、結構技師或政府相關單位建議進行安全改善。</p>
+                <p className="mt-3 font-semibold">五、位置資訊</p>
+                <p>本 App 可能取得您的位置資訊，以：</p>
+                <ul className="ml-5 list-disc space-y-1 py-2">
+                  <li>協助定位災害位置</li>
+                  <li>提供附近避難場所資訊</li>
+                  <li>協助 AI 判斷災害情境</li>
+                  <li>提升救災建議之準確性</li>
+                </ul>
+                <p>位置資訊可能因 GPS、基地台、網路環境等因素產生誤差，本 App 不保證定位資訊百分之百準確。</p>
+                <p className="mt-3 font-semibold">六、緊急情況</p>
+                <p>若您遇到下列情況：</p>
+                <ul className="ml-5 list-disc space-y-1 py-2">
+                  <li>人員受困</li>
+                  <li>建築倒塌</li>
+                  <li>火災</li>
+                  <li>嚴重受傷</li>
+                  <li>生命危急</li>
+                </ul>
+                <p>請立即撥打當地緊急救援電話（如臺灣 119、110），並依政府救災單位指示行動。</p>
+                <p>本 App 並非緊急救援平台，亦不保證能即時聯繫救援單位。</p>
+                <p className="mt-3 font-semibold">七、責任限制</p>
+                <p>在法律允許範圍內，本 App 開發團隊對於因使用或無法使用本 App 所造成之任何直接、間接、附帶、特殊或衍生性損害，不負任何賠償責任，包括但不限於：</p>
+                <ul className="ml-5 list-disc space-y-1 py-2">
+                  <li>人身傷害</li>
+                  <li>財產損失</li>
+                  <li>資料遺失</li>
+                  <li>通訊中斷</li>
+                  <li>救援延誤</li>
+                  <li>AI 建議誤判</li>
+                </ul>
+                <p className="mt-3 font-semibold">八、使用者責任</p>
+                <ol className="ml-5 list-decimal space-y-1 py-2">
+                  <li>提供真實且正確之資訊。</li>
+                  <li>保持手機網路、定位及通知功能正常運作。</li>
+                  <li>自行判斷 AI 建議是否適用於當前情況。</li>
+                  <li>於緊急狀況優先遵循政府機關及救援單位指示。</li>
+                </ol>
+                <p className="mt-3 font-semibold">九、服務調整</p>
+                <p>本 App 保留隨時修改、更新、暫停或終止部分或全部服務之權利，而無須另行通知。</p>
+                <p className="mt-3 font-semibold">十、聲明同意</p>
+                <p>使用本 App 即表示您已閱讀並同意本免責聲明，理解本 App 為防災與救災輔助工具，並非官方救援系統、專業醫療、消防、建築安全或法律服務。</p>
+              </div>
+              <label className="flex items-start gap-3 text-sm leading-relaxed">
+                <input
+                  type="checkbox"
+                  checked={disclaimerChecked}
+                  onChange={(e) => setDisclaimerChecked(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded-sm border-slate-600 bg-slate-900 text-amber-400 focus:ring-amber-300"
+                />
+                <span>我已閱讀並理解上述免責聲明</span>
+              </label>
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={!disclaimerChecked}
+                  onClick={handleProceedToPermissions}
+                  className="inline-flex items-center justify-center rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  下一步：開啟權限
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-sm leading-relaxed text-rose-100">
+                <p className="font-semibold text-rose-200">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
+                <p className="mt-3">所有權限皆依 iOS 系統規範，由使用者自行決定是否授權；若拒絕部分權限，可能導致部分功能無法正常使用。</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+                <p>請按下方按鈕，同意後系統將請求相機、麥克風與定位權限。若您拒絕，仍可稍後於功能啟用時再次授權。</p>
+                <p className="mt-3 text-xs text-slate-400">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
+              </div>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={requestDevicePermissions}
+                  className="w-full rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-400"
+                >
+                  同意並請求相機、麥克風與定位權限
+                </button>
+                <button
+                  type="button"
+                  onClick={acceptDisclaimer}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-800 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"
+                >
+                  已閱讀，稍後再授權
+                </button>
+              </div>
+              {permissionStatus && (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  {permissionStatus}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   const loadDownloadedMaps = async () => {
     const result = await getDownloadedMaps();
     setDownloadedMaps(Object.values(result.maps));
@@ -693,6 +896,10 @@ const App: React.FC = () => {
     // 這裡可以選擇是否要點擊後自動送出，如果要自動送出可以加一行：
     setTimeout(() => document.querySelector("form")?.requestSubmit(), 100);
   };
+
+  if (!disclaimerAccepted) {
+    return disclaimerModal;
+  }
 
   if (isCheckingSession) {
     return (
