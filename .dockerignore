@@ -1,0 +1,15 @@
+.git
+.agents
+.codex
+.env
+.env.*
+!.env.example
+node_modules
+dist
+ios
+data
+guardia_ai.db
+__pycache__
+*.py[cod]
+.venv
+venv

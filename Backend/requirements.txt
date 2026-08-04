@@ -1,0 +1,6 @@
+fastapi
+firebase-admin>=6.5
+httpx
+python-multipart
+requests
+uvicorn

@@ -1,0 +1,9 @@
+
+{
+  "name": "GuardiaAI: Intelligent Disaster Response System",
+  "description": "An AI-powered emergency response platform that provides real-time survival guidance, risk assessment, and situation-aware action plans for various disaster scenarios.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
