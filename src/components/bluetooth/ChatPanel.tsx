@@ -66,7 +66,7 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
 
   return (
     <div className="h-screen flex flex-col bg-[#020617]">
-      <header className="glass-panel px-4 py-3 flex items-center gap-3 border-b border-white/5">
+      <header className="glass-panel safe-area-top px-4 py-3 flex items-center gap-3 border-b border-white/5">
         <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
           ← 返回
         </button>

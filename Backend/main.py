@@ -13,6 +13,7 @@ from .services.room_risk_service import room_risk_service
 from .services.shelter_service import shelter_service
 from .services.firebase_service import firebase_service
 from .services import sos_service
+from .services.sos_store_service import sos_store_service
 
 # Load environment variables from .env files when starting the backend directly.
 # This ensures CWA_API_KEY from .env.local is available without requiring external env loader.
@@ -207,10 +208,16 @@ def report_sos(data: schemas.SosReportRequest):
     except sos_service.SosProtocolError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    is_new = firebase_service.save_sos_report(
-        msg_id=decoded.header.msg_id,
-        severity=decoded.header.severity,
-        hops=decoded.header.hops,
+    header = decoded.header
+    is_new = sos_store_service.save_sos_report(
+        msg_id=header.msg_id,
+        hops=header.hops,
+        urgency_level=header.urgency_level,
+        is_trapped=header.is_trapped,
+        battery=header.battery,
+        location=header.location,
+        location_details=header.location_details,
+        from_local_id=header.from_local_id,
         payload=payload,
     )
 
@@ -220,6 +227,25 @@ def report_sos(data: schemas.SosReportRequest):
         ack_packet=base64.b64encode(ack_packet).decode("ascii"),
         duplicate=not is_new,
     )
+
+
+@app.get("/api/sos/nearby", response_model=list[schemas.SosCaseResponse])
+def get_nearby_sos_reports(
+    latitude: float,
+    longitude: float,
+    radius_km: float = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    救援地圖用：附近透過藍牙中繼送達的求救記錄。
+
+    存在本機 JSON 檔案（見 sos_store_service.py），不經過 Firestore——跟
+    offline_maps_service 同一套模式，後端就算離線自架也能運作。登入要求
+    比照現有的救援地圖端點，這個 App 目前沒有另外區分「救援人員」帳號，
+    任何登入的使用者都能查看，維持與既有端點一致的權限模型。
+    """
+    radius_km = max(1, min(radius_km, 200))
+    return sos_store_service.get_nearby_sos_reports(latitude, longitude, radius_km)
 
 
 # ==================== 室內地震家具風險分析 API 端點 ====================

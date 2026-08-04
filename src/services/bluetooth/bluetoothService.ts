@@ -84,10 +84,14 @@ export async function getStatus(): Promise<BluetoothStatus> {
  * 使用持久化的本機識別碼——重開 App 後仍是同一組，對方才認得出你是同一個人，
  * 既有的對話歷史也才對得起來。
  */
-export async function startBroadcasting(): Promise<{ localId: string; success: boolean }> {
+export async function startBroadcasting(): Promise<{
+  localId: string;
+  success: boolean;
+  error?: string;
+}> {
   const localId = getOrCreateLocalId();
-  const success = await startAdvertising(localId);
-  return { localId, success };
+  const res = await startAdvertising(localId);
+  return { localId, ...res };
 }
 
 /** 停止廣播自己 */

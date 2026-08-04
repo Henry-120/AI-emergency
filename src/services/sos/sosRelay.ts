@@ -32,7 +32,7 @@ import { encryptForBackend, verifyAck } from "./sosCrypto";
 import { hasBackendKeys, BACKEND_KEYS } from "./sosKeys";
 import { decideAction, isAckForMe, scanIntervalForBattery } from "./relayPolicy";
 import { RelayStore } from "./relayStore";
-import { PacketType, RelayAction, Severity, type Packet, type RelayContext } from "./sosTypes";
+import { PacketType, RelayAction, type Packet, type RelayContext } from "./sosTypes";
 import { buildSosPayload, readBatteryLevel, type BuildSosPayloadOptions } from "./sosPayloadBuilder";
 import {
   scanNearby,
@@ -95,7 +95,14 @@ export function isSosEnabled(): boolean {
 // ---------------------------------------------------------------------------
 
 export interface SubmitSosOptions extends BuildSosPayloadOptions {
-  severity: number;
+  /** 緊急度 1–10。明文送出，附近的人看得到。 */
+  urgencyLevel: number;
+  /** 是否受困。明文送出。 */
+  isTrapped: boolean;
+  /** GPS 位置。明文送出——刻意讓附近願意幫忙的人能直接定位過去。 */
+  location?: { lat: number; lng: number };
+  /** 位置的文字描述。明文送出。 */
+  locationDetails: string;
 }
 
 /**
@@ -111,13 +118,19 @@ export async function submitSos(options: SubmitSosOptions): Promise<string> {
     throw new Error("後端加密金鑰尚未設定，無法送出求救");
   }
 
-  const payload = await buildSosPayload(options);
+  const payload = buildSosPayload(options);
   const body = await encryptForBackend(payload);
+  const battery = await readBatteryLevel();
   const header = createHeader({
     type: PacketType.SOS,
     keyVersion: BACKEND_KEYS!.version,
-    severity: options.severity ?? Severity.NONE,
     ttl: DEFAULT_TTL,
+    fromLocalId: getLocalId(),
+    urgencyLevel: options.urgencyLevel,
+    isTrapped: options.isTrapped,
+    battery,
+    location: options.location,
+    locationDetails: options.locationDetails,
   });
   const packet: Packet = { header, body };
   const msgId = header.msgId;
@@ -143,6 +156,61 @@ export async function submitSos(options: SubmitSosOptions): Promise<string> {
 
 /** 自己發出過、還在等 ACK 的求救 msgId */
 const myPendingSosIds = new Set<string>();
+
+// ---------------------------------------------------------------------------
+// 附近求救的目擊記錄——中繼者能看到的明文資訊
+//
+// 身分（真實姓名）、傷勢摘要、救援需求、行動能力、醫療摘要都在加密內容裡，
+// 中繼者沒有後端私鑰解不開。這裡只存明文標頭本來就有的欄位，不去碰 packet.body。
+// ---------------------------------------------------------------------------
+
+export interface NearbySosSighting {
+  msgId: string;
+  /** 求救者的識別碼——與「附近的人」列表上的是同一組，可用來找到本人並回訊息 */
+  fromLocalId: string;
+  urgencyLevel: number;
+  isTrapped: boolean;
+  battery?: number;
+  location?: { lat: number; lng: number };
+  locationDetails: string;
+  hops: number;
+  firstSeenAt: number;
+  lastSeenAt: number;
+}
+
+/** 目擊記錄多久沒更新就視為過期——這是「附近正在發生」的即時訊號，不是永久清單 */
+const SIGHTING_TTL_MS = 5 * 60_000;
+
+const sightings = new Map<string, NearbySosSighting>();
+
+function recordSighting(packet: Packet): void {
+  const { msgId, fromLocalId, urgencyLevel, isTrapped, battery, location, locationDetails, hops } =
+    packet.header;
+  const now = Date.now();
+  const existing = sightings.get(msgId);
+  sightings.set(msgId, {
+    msgId,
+    fromLocalId,
+    urgencyLevel,
+    isTrapped,
+    battery,
+    location,
+    locationDetails,
+    hops,
+    firstSeenAt: existing?.firstSeenAt ?? now,
+    lastSeenAt: now,
+  });
+  emit();
+}
+
+/** 目前附近仍算「新鮮」的求救目擊記錄，給 UI 顯示「附近有人求救」用 */
+export function getNearbySosSightings(): NearbySosSighting[] {
+  const cutoff = Date.now() - SIGHTING_TTL_MS;
+  for (const [msgId, sighting] of sightings) {
+    if (sighting.lastSeenAt < cutoff) sightings.delete(msgId);
+  }
+  return Array.from(sightings.values()).sort((a, b) => b.urgencyLevel - a.urgencyLevel);
+}
 
 async function uploadPacket(packet: Packet): Promise<void> {
   const msgId = packet.header.msgId;
@@ -227,11 +295,13 @@ async function handleIncomingPacket(packetBytes: Uint8Array): Promise<void> {
 
     case RelayAction.UPLOAD:
       relayStore.markSeen(packet.header.msgId);
+      recordSighting(packet);
       await uploadPacket(packet);
       return;
 
     case RelayAction.RELAY: {
       relayStore.markSeen(packet.header.msgId);
+      recordSighting(packet);
       const forwarded = decrementForRelay(packet);
       if (forwarded) relayStore.enqueue(forwarded);
       return;

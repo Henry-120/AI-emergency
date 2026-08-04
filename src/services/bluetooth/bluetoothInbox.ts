@@ -176,6 +176,29 @@ export function getPeerIds(): string[] {
   return Array.from(new Set(records.map((r) => r.peerId)));
 }
 
+/**
+ * 對方最近一次分享的位置。
+ *
+ * 藍牙廣播本身**不帶座標**，掃到一個人只知道訊號強弱（遠近），不知道他在哪。
+ * 唯一的來源是他主動傳來、且帶了位置的訊息——所以只找 direction === "in"，
+ * 自己傳出去的位置是我們自己的，拿來標成對方的位置會是錯的。
+ *
+ * @returns 沒有任何一則帶位置的來訊時回傳 null（呼叫端應據此隱藏地圖入口，
+ *          而不是開一張空地圖或標一個假座標）
+ */
+export function getPeerLastKnownLocation(
+  peerId: string,
+): { location: { lat: number; lng: number }; at: number } | null {
+  const withLocation = records
+    .filter((r) => r.peerId === peerId && r.direction === "in" && r.message.location)
+    .sort((a, b) => b.message.timestamp - a.message.timestamp);
+
+  const latest = withLocation[0];
+  if (!latest?.message.location) return null;
+
+  return { location: latest.message.location, at: latest.message.timestamp };
+}
+
 export function getUnreadCount(): number {
   return unreadCount;
 }

@@ -53,17 +53,22 @@ export function canAdvertise(): boolean {
  * 開始廣播自己為 GuardiaAI 使用者
  * @param localId 廣播時附帶的短識別字串
  */
-export async function startAdvertising(localId: string): Promise<boolean> {
+export async function startAdvertising(
+  localId: string,
+): Promise<{ success: boolean; error?: string }> {
   if (!canAdvertise()) {
     console.warn("[BLE] 非原生環境，無法廣播");
-    return false;
+    return { success: false, error: "此功能需要在手機 App 中使用" };
   }
   try {
     const res = await BlePeripheral.startAdvertising({ localId });
-    return res.success;
+    return { success: res.success };
   } catch (err) {
+    // 錯誤訊息一路帶回 UI：原生層失敗的原因（權限被拒、藍牙關閉、plugin 未註冊…）
+    // 各不相同，全部收斂成同一句通用訊息會讓問題完全無法診斷。
+    const message = err instanceof Error ? err.message : String(err);
     console.error("[BLE] startAdvertising 失敗", err);
-    return false;
+    return { success: false, error: message };
   }
 }
 

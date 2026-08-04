@@ -1,21 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { GeoJSONSource, LngLatBoundsLike, Map } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Protocol } from "pmtiles";
 import { Shelter } from "../../services/offlineSafetyService";
 import { OfflineShelterMap } from "./OfflineShelterMap";
-
-const PMTILES_URL = "/maps/taiwan.pmtiles";
-let protocolRegistered = false;
+import { PMTILES_URL, getStreetStyle, registerPmtilesProtocol } from "./offlineMapStyle";
 
 type MapPoint = { lat: number; lon: number };
-
-function registerPmtilesProtocol() {
-  if (protocolRegistered) return;
-  const protocol = new Protocol();
-  maplibregl.addProtocol("pmtiles", protocol.tile);
-  protocolRegistered = true;
-}
 
 function buildBounds(points: MapPoint[]): LngLatBoundsLike | null {
   if (points.length === 0) return null;
@@ -39,83 +29,6 @@ function buildBounds(points: MapPoint[]): LngLatBoundsLike | null {
     [minLon - lonPad, minLat - latPad],
     [maxLon + lonPad, maxLat + latPad],
   ];
-}
-
-function getStreetStyle(pmtilesUrl: string): maplibregl.StyleSpecification {
-  const pmtilesSource = {
-    type: "vector" as const,
-    url: `pmtiles://${new URL(pmtilesUrl, window.location.href).toString()}`,
-    attribution: "Map data from bundled PMTiles",
-  };
-
-  return {
-    version: 8,
-    sources: {
-      protomaps: pmtilesSource,
-    },
-    layers: [
-      { id: "background", type: "background", paint: { "background-color": "#f7f6f2" } },
-      {
-        id: "earth",
-        type: "fill",
-        source: "protomaps",
-        "source-layer": "earth",
-        paint: { "fill-color": "#f7f6f2" },
-      },
-      {
-        id: "landuse",
-        type: "fill",
-        source: "protomaps",
-        "source-layer": "landuse",
-        paint: { "fill-color": "#e9f3df", "fill-opacity": 0.72 },
-      },
-      {
-        id: "water",
-        type: "fill",
-        source: "protomaps",
-        "source-layer": "water",
-        paint: { "fill-color": "#b8dff4" },
-      },
-      {
-        id: "buildings",
-        type: "fill",
-        source: "protomaps",
-        "source-layer": "buildings",
-        minzoom: 14,
-        paint: { "fill-color": "#dedbd2", "fill-opacity": 0.75 },
-      },
-      {
-        id: "roads-minor-casing",
-        type: "line",
-        source: "protomaps",
-        "source-layer": "roads",
-        paint: { "line-color": "#d4d0c7", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.4, 16, 5] },
-      },
-      {
-        id: "roads-minor",
-        type: "line",
-        source: "protomaps",
-        "source-layer": "roads",
-        paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.2, 16, 3.4] },
-      },
-      {
-        id: "roads-major-casing",
-        type: "line",
-        source: "protomaps",
-        "source-layer": "roads",
-        filter: ["in", ["get", "kind"], ["literal", ["highway", "major_road"]]],
-        paint: { "line-color": "#d5b86f", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.4, 16, 8] },
-      },
-      {
-        id: "roads-major",
-        type: "line",
-        source: "protomaps",
-        "source-layer": "roads",
-        filter: ["in", ["get", "kind"], ["literal", ["highway", "major_road"]]],
-        paint: { "line-color": "#f7d87a", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.9, 16, 5.8] },
-      },
-    ],
-  };
 }
 
 function getSheltersGeoJson(shelters: Shelter[]) {

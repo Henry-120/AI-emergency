@@ -188,39 +188,6 @@ class FirebaseService:
             batch.commit()
         return saved_ids
 
-    def save_sos_report(self, msg_id: str, severity: int, hops: int, payload: dict) -> bool:
-        """
-        記錄一則解密後的 SOS 求救內容。
-
-        以 msg_id 作為 document ID：同一則求救被多個中繼者重複上傳時，
-        天然去重，不會重複記錄，回傳 False 告知呼叫端「這是重複的」。
-
-        @returns True 表示這是新記錄；False 表示 msg_id 已存在（重複上傳）
-        """
-        db = self._get_db()
-        ref = db.collection("sos_reports").document(msg_id)
-        if ref.get().exists:
-            return False
-
-        medical = payload.get("medical") or {}
-        location = payload.get("location") or {}
-        ref.set({
-            "msg_id": msg_id,
-            "severity": severity,
-            "hops": hops,
-            "from_local_id": payload.get("from", ""),
-            "text": payload.get("text", ""),
-            "latitude": location.get("lat"),
-            "longitude": location.get("lng"),
-            "blood_type": medical.get("bloodType", ""),
-            "drug_allergies": medical.get("drugAllergies", ""),
-            "chronic_conditions": medical.get("chronicConditions", ""),
-            "battery_level": payload.get("battery"),
-            "client_timestamp": payload.get("timestamp"),
-            "received_at": self._now(),
-        })
-        return True
-
     @staticmethod
     def _chunks(items, size: int):
         for index in range(0, len(items), size):

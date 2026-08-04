@@ -3,9 +3,14 @@
  *
  * 設計文件：docs/superpowers/specs/2026-07-13-bluetooth-sos-relay-design.md
  *
- * 核心信任模型：**中繼者是陌生人，只搬箱子不開箱。**
- * 中繼者讀得到的只有路由標頭與粗略的嚴重程度旗標；精確位置、身分、醫療摘要、
- * 求救文字全部加密，只有後端解得開。
+ * 信任模型（v2，經產品確認調整過）：中繼者是陌生人，但**刻意讓他們看得到
+ * 足夠的資訊去決定要不要直接衝過去幫忙**——緊急度、是否受困、GPS 位置、
+ * 位置描述、裝置電量全部是明文。真正保留給後端／救援單位的，是身分
+ * （真實姓名）、傷勢摘要、救援需求清單、行動能力、醫療病史這些更細節、
+ * 更需要專業判斷或更敏感的資訊。
+ *
+ * 這是刻意的取捨：比起「附近的人完全看不到位置」，這個 App 判斷「讓附近
+ * 願意幫忙的人能直接定位過去」的價值更高。
  */
 
 /** 封包種類 */
@@ -18,23 +23,7 @@ export enum PacketType {
   ACK = 3,
 }
 
-/**
- * 粗略的嚴重程度旗標（bitfield，1 byte）。
- *
- * 這是**唯一**放在明文裡的災情資訊：附近的人可以知道「有人有難、值得幫忙轉發」，
- * 但拿不到你是誰、你在哪、你的病史。
- */
-export enum Severity {
-  NONE = 0,
-  /** 受困（出不去） */
-  TRAPPED = 1 << 0,
-  /** 受傷 */
-  INJURED = 1 << 1,
-  /** 需要醫療協助 */
-  NEEDS_MEDICAL = 1 << 2,
-}
-
-/** 明文標頭。中繼者讀得到的全部內容。 */
+/** 明文標頭。中繼者讀得到的全部內容——見檔案開頭的信任模型說明。 */
 export interface PacketHeader {
   /** 協定版本 */
   version: number;
@@ -47,8 +36,27 @@ export interface PacketHeader {
   ttl: number;
   /** 已跳躍次數。用於在 UI 顯示「已傳到 N 跳之外」 */
   hops: number;
-  /** 粗略嚴重程度（Severity 的 bitfield） */
-  severity: number;
+  /**
+   * 發送者的本機識別碼（與「附近的人」列表上顯示的是同一組）。
+   *
+   * 放明文是刻意的，而且**不會多洩漏任何東西**：這組識別碼本來就以 BLE
+   * LocalName 的形式公開廣播，加密它並不會換到任何隱私。反而，少了它，
+   * 收到求救的人無法把求救對應到眼前列表中的某個人，也就無法回訊息說
+   * 「我看到了，我過去」——求救訊號等於送到了卻沒人接得上話。
+   *
+   * 真實姓名與傷勢細節仍然留在加密內容裡。
+   */
+  fromLocalId: string;
+  /** 緊急度，1–10。附近的人能看到，用來判斷這是不是要立刻衝過去的等級 */
+  urgencyLevel: number;
+  /** 是否受困（出不去） */
+  isTrapped: boolean;
+  /** 發送者的裝置電量（0–100）；裝置沒回報時為 undefined */
+  battery?: number;
+  /** 發送者的 GPS 位置；沒有定位權限/訊號時可省略 */
+  location?: { lat: number; lng: number };
+  /** 位置的文字描述（例如「三樓，樓梯間」），求救當下由使用者自己填 */
+  locationDetails: string;
 }
 
 /** 一個完整的封包：明文標頭 + 不透明的內容 */
@@ -64,23 +72,27 @@ export interface Packet {
 }
 
 /**
- * SOS 的內容（加密後才送出；中繼者永遠看不到這個結構）
+ * SOS 的內容（加密後才送出；中繼者永遠看不到這個結構）。
+ *
+ * 位置、電量、是否受困、緊急度已經在明文標頭裡（中繼者需要看到這些才能
+ * 判斷要不要直接去幫忙），這裡不重複放。留在加密內容裡的，是身分與
+ * 需要專業判斷、或更敏感的資訊。
  */
 export interface SosPayload {
-  /** 發送者的本機識別碼 */
-  from: string;
-  /** 精確位置 */
-  location?: { lat: number; lng: number };
-  /** 求救文字（可由語音輸入產生） */
-  text: string;
+  /** 真實姓名（登入帳號的 username）。中繼者看不到，只有後端／救援單位看得到 */
+  username: string;
+  /** 傷勢摘要 */
+  injurySummary: string;
+  /** 救援需求清單 */
+  rescueNeeds: string[];
+  /** 行動能力 */
+  mobilityStatus: "unknown" | "mobile" | "limited" | "immobile";
   /** 醫療摘要。只在使用者同意附帶時才有 */
   medical?: {
     bloodType?: string;
     drugAllergies?: string;
     chronicConditions?: string;
   };
-  /** 裝置電量（%），供救難單位判斷這支手機還能撐多久 */
-  battery?: number;
   /** 發送時間 */
   timestamp: number;
 }

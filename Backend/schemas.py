@@ -235,3 +235,31 @@ class SosReportResponse(BaseModel):
     success: bool
     ack_packet: str = Field(..., description="base64 編碼的 ACK 封包，交給呼叫端繼續中繼")
     duplicate: bool = False
+
+class SosCaseResponse(BaseModel):
+    """
+    給救援地圖用的求救記錄，來自藍牙多跳中繼送達的封包。
+
+    緊急度/是否受困/位置/位置描述/電量在封包的明文標頭裡，中繼者也看得到；
+    使用者名稱/傷勢摘要/救援需求/行動能力/醫療摘要在加密內容裡，只有這裡
+    （已經解密過）才看得到——跟 RescueCaseResponse（AI 對話彙整）欄位刻意
+    對齊，方便救援地圖用同一套邏輯呈現兩種來源。
+    """
+    msg_id: str
+    hops: int
+    urgency_level: int
+    is_trapped: bool
+    latitude: float
+    longitude: float
+    distanceKm: float
+    location_details: str = ""
+    battery_level: Optional[float] = None
+    from_local_id: str = ""
+    username: str = "未知使用者"
+    injury_summary: str = ""
+    rescue_needs: List[str] = Field(default_factory=list)
+    mobility_status: str = "unknown"
+    blood_type: str = ""
+    drug_allergies: str = ""
+    chronic_conditions: str = ""
+    received_at: datetime

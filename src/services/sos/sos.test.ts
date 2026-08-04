@@ -11,11 +11,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   DEFAULT_TTL,
   MAX_TTL,
-  SOS_HEADER_BYTES,
+  SOS_HEADER_FIXED_BYTES,
   createHeader,
   decodePacket,
   decrementForRelay,
-  describeSeverity,
   encodePacket,
   generateMsgId,
 } from "./sosProtocol";
@@ -31,7 +30,6 @@ import { RELAY_MIN_BATTERY, decideAction, isAckForMe, scanIntervalForBattery } f
 import {
   PacketType,
   RelayAction,
-  Severity,
   type Packet,
   type RelayContext,
   type SosPayload,
@@ -79,11 +77,11 @@ beforeAll(async () => {
 
 function samplePayload(overrides: Partial<SosPayload> = {}): SosPayload {
   return {
-    from: "AB2CD3",
-    location: { lat: 25.0339, lng: 121.5645 },
-    text: "我被困在民生路 12 號三樓，鐵門變形打不開",
+    username: "王小明",
+    injurySummary: "右腳受傷無法行走，鐵門變形打不開",
+    rescueNeeds: ["醫療協助", "搬運/抬送"],
+    mobilityStatus: "immobile",
     medical: { bloodType: "O+", drugAllergies: "盤尼西林" },
-    battery: 63,
     timestamp: Date.UTC(2026, 6, 13),
     ...overrides,
   };
@@ -92,7 +90,16 @@ function samplePayload(overrides: Partial<SosPayload> = {}): SosPayload {
 function makePacket(overrides: Partial<Packet["header"]> = {}, body = new Uint8Array([1, 2, 3])): Packet {
   return {
     header: {
-      ...createHeader({ type: PacketType.SOS, keyVersion: 1, severity: Severity.TRAPPED }),
+      ...createHeader({
+        type: PacketType.SOS,
+        keyVersion: 1,
+        fromLocalId: "AB2CD3",
+        urgencyLevel: 7,
+        isTrapped: true,
+        battery: 63,
+        location: { lat: 25.0339, lng: 121.5645 },
+        locationDetails: "民生路 12 號三樓",
+      }),
       ...overrides,
     },
     body,
@@ -108,26 +115,40 @@ describe("封包編碼與解碼", () => {
     const packet = makePacket({}, new Uint8Array([9, 8, 7, 6]));
     const decoded = decodePacket(encodePacket(packet));
 
-    expect(decoded?.header).toEqual(packet.header);
+    // lat/lng 走 float32，精度會有微小損失，跟其餘欄位分開比對
+    const { location, ...restOfOriginal } = packet.header;
+    const { location: decodedLocation, ...restOfDecoded } = decoded!.header;
+    expect(restOfDecoded).toEqual(restOfOriginal);
+    expect(decodedLocation!.lat).toBeCloseTo(location!.lat, 4);
+    expect(decodedLocation!.lng).toBeCloseTo(location!.lng, 4);
     expect(Array.from(decoded!.body)).toEqual([9, 8, 7, 6]);
   });
 
-  it("標頭固定 14 bytes", () => {
-    const encoded = encodePacket(makePacket({}, new Uint8Array(0)));
-    expect(encoded.byteLength).toBe(SOS_HEADER_BYTES);
+  it("標頭固定長度 + 位置描述變長段", () => {
+    const encoded = encodePacket(makePacket({ locationDetails: "三樓" }, new Uint8Array(0)));
+    const detailsBytes = new TextEncoder().encode("三樓").byteLength;
+    expect(encoded.byteLength).toBe(SOS_HEADER_FIXED_BYTES + detailsBytes);
   });
 
-  it("嚴重程度旗標可組合，且只存在於明文標頭", () => {
-    const severity = Severity.TRAPPED | Severity.INJURED;
-    const decoded = decodePacket(encodePacket(makePacket({ severity })));
+  it("緊急度、是否受困、位置只存在於明文標頭，中繼者不解密也讀得到", () => {
+    const decoded = decodePacket(encodePacket(makePacket({ urgencyLevel: 9, isTrapped: true })));
 
-    expect(decoded!.header.severity).toBe(severity);
-    expect(describeSeverity(decoded!.header.severity)).toBe("受困、受傷");
+    expect(decoded!.header.urgencyLevel).toBe(9);
+    expect(decoded!.header.isTrapped).toBe(true);
+  });
+
+  it("沒有位置/電量時，flags 正確反映為 undefined（不會誤讀出 0,0 座標）", () => {
+    const decoded = decodePacket(
+      encodePacket(makePacket({ location: undefined, battery: undefined })),
+    );
+
+    expect(decoded!.header.location).toBeUndefined();
+    expect(decoded!.header.battery).toBeUndefined();
   });
 
   it.each([
     ["長度不足", new Uint8Array(5)],
-    ["版本不符", new Uint8Array(SOS_HEADER_BYTES).fill(0)],
+    ["版本不符", new Uint8Array(SOS_HEADER_FIXED_BYTES).fill(0)],
   ])("損毀封包回傳 null 而非拋錯：%s", (_label, bytes) => {
     expect(decodePacket(bytes)).toBeNull();
   });
@@ -197,7 +218,7 @@ describe("求救內容加密", () => {
     expect(await decryptAsBackend(body, backendEncryptPrivate)).toEqual(payload);
   });
 
-  it("中繼者拿到的密文裡看不到位置、病史、求救文字", async () => {
+  it("中繼者拿到的密文裡看不到真實姓名、病史、傷勢摘要", async () => {
     const payload = samplePayload();
     const body = await encryptForBackend(payload, backendEncryptPublicB64);
 
@@ -205,7 +226,8 @@ describe("求救內容加密", () => {
     const asText = new TextDecoder().decode(body);
     const asBase64 = bytesToBase64(body);
 
-    for (const secret of ["民生路", "盤尼西林", "O+", "25.03", "121.56", "AB2CD3"]) {
+    // 註：識別碼（AB2CD3）刻意不在此列——它本來就以明文廣播，v3 起也放在明文標頭
+    for (const secret of ["王小明", "盤尼西林", "O+", "右腳受傷"]) {
       expect(asText).not.toContain(secret);
       expect(asBase64).not.toContain(secret);
     }
@@ -430,7 +452,12 @@ describe("端到端：三跳中繼", () => {
       header: createHeader({
         type: PacketType.SOS,
         keyVersion: 1,
-        severity: Severity.TRAPPED | Severity.INJURED,
+        fromLocalId: "AB2CD3",
+        urgencyLevel: 9,
+        isTrapped: true,
+        battery: 63,
+        location: { lat: 25.0339, lng: 121.5645 },
+        locationDetails: "民生路 12 號三樓",
       }),
       body,
     };
@@ -450,8 +477,12 @@ describe("端到端：三跳中繼", () => {
 
     expect(decideAction(bReceived, bCtx)).toBe(RelayAction.RELAY);
 
-    // B 讀得到嚴重程度（決定要不要幫忙），但讀不到內容
-    expect(describeSeverity(bReceived.header.severity)).toBe("受困、受傷");
+    // B 讀得到緊急度、是否受困、位置（決定要不要直接衝過去幫忙），但讀不到加密內容
+    expect(bReceived.header.urgencyLevel).toBe(9);
+    expect(bReceived.header.isTrapped).toBe(true);
+    expect(bReceived.header.locationDetails).toBe("民生路 12 號三樓");
+    // 認得出是誰在求救 → 才能在「附近的人」裡找到本人並回訊息
+    expect(bReceived.header.fromLocalId).toBe("AB2CD3");
     expect(await decryptAsBackend(bReceived.body, backendEncryptPrivate)).toEqual(payload);
     //   ^ 這是後端用私鑰解的。B 沒有私鑰，下面驗證 B 真的解不開：
     const bKeys = await crypto.subtle.generateKey(
@@ -485,7 +516,7 @@ describe("端到端：三跳中繼", () => {
     // --- 後端解密 ---
     const atBackend = await decryptAsBackend(uploadedBody, backendEncryptPrivate);
     expect(atBackend).toEqual(payload);
-    expect(atBackend!.text).toContain("民生路");
+    expect(atBackend!.injurySummary).toContain("右腳受傷");
 
     // --- 後端簽章 ACK，經 C → B → A 回傳 ---
     const ackBody = await signAckAsBackend(

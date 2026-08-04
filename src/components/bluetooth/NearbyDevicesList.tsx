@@ -14,6 +14,15 @@ interface Props {
   devices: NearbyDevice[];
   searching: boolean;
   onSelectUser: (device: NearbyDevice) => void;
+  /**
+   * 在地圖上查看對方位置。
+   *
+   * 只有「對方傳過帶位置的訊息」時才會有位置可看——藍牙廣播本身不帶座標，
+   * 掃到一個人只知道遠近。因此按鈕由 hasKnownLocation 決定是否出現，
+   * 不對沒有位置的人顯示一個按了什麼都沒有的入口。
+   */
+  onShowLocation: (device: NearbyDevice) => void;
+  hasKnownLocation: (device: NearbyDevice) => boolean;
 }
 
 /** 訊號強度轉成人看得懂的距離。BLE 訊號受牆面影響很大，只能表達趨勢。 */
@@ -30,7 +39,13 @@ function signalStrength(rssi: number): number {
   return Math.round(((clamped + 100) / 70) * 100);
 }
 
-export function NearbyDevicesList({ devices, searching, onSelectUser }: Props) {
+export function NearbyDevicesList({
+  devices,
+  searching,
+  onSelectUser,
+  onShowLocation,
+  hasKnownLocation,
+}: Props) {
   if (devices.length === 0) {
     return (
       <div className="text-center text-slate-400 text-sm py-10">
@@ -49,7 +64,9 @@ export function NearbyDevicesList({ devices, searching, onSelectUser }: Props) {
 
         return (
           <div
-            key={device.deviceId}
+            // 與列表的去重規則一致：識別碼才是穩定身分，deviceId 會隨 iOS
+            // 輪替藍牙位址而改變，拿它當 key 會讓同一個人的卡片被重建
+            key={device.localId ?? device.deviceId}
             className={`rounded-2xl border p-4 ${
               isUser
                 ? "bg-amber-500/5 border-amber-500/30"
@@ -74,18 +91,29 @@ export function NearbyDevicesList({ devices, searching, onSelectUser }: Props) {
               </div>
 
               {isUser && (
-                <button
-                  onClick={() => onSelectUser(device)}
-                  disabled={!canChat}
-                  title={
-                    canChat
-                      ? undefined
-                      : "對方的 App 目前不在畫面上，暫時無法傳訊息"
-                  }
-                  className="shrink-0 px-4 py-2 bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-xl text-[13px] font-semibold hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  傳訊息
-                </button>
+                <div className="shrink-0 flex items-center gap-2">
+                  {hasKnownLocation(device) && (
+                    <button
+                      onClick={() => onShowLocation(device)}
+                      title="在地圖上查看對方分享過的位置"
+                      className="px-3 py-2 bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 rounded-xl text-[13px] font-semibold hover:bg-emerald-500/30"
+                    >
+                      位置
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onSelectUser(device)}
+                    disabled={!canChat}
+                    title={
+                      canChat
+                        ? undefined
+                        : "對方的 App 目前不在畫面上，暫時無法傳訊息"
+                    }
+                    className="px-4 py-2 bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-xl text-[13px] font-semibold hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    傳訊息
+                  </button>
+                </div>
               )}
             </div>
 

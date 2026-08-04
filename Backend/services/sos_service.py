@@ -22,6 +22,7 @@ GuardiaAI SOS 多跳中繼 - 後端服務
 from __future__ import annotations
 
 import json
+import struct
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -33,16 +34,23 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from ..sos_keys import ACK_SIGNING_PRIVATE_KEY_PEM, ENCRYPTION_PRIVATE_KEY_PEM, KEY_VERSION
 
 # ---------------------------------------------------------------------------
-# 封包標頭（對應 sosProtocol.ts）
+# 封包標頭（對應 sosProtocol.ts，v3 格式——緊急度/是否受困/位置/位置描述/電量/
+# 發送者識別碼都在明文標頭，見 sosTypes.ts 開頭的信任模型說明）
 # ---------------------------------------------------------------------------
 
-SOS_PROTOCOL_VERSION = 1
-SOS_HEADER_BYTES = 14
+SOS_PROTOCOL_VERSION = 3
+SOS_HEADER_FIXED_BYTES = 33
 MSG_ID_LENGTH = 8
+FROM_LOCAL_ID_BYTES = 8
+MAX_LOCATION_DETAILS_BYTES = 120
 
 PACKET_TYPE_SOS = 1
 PACKET_TYPE_ALERT = 2
 PACKET_TYPE_ACK = 3
+
+FLAG_IS_TRAPPED = 1 << 0
+FLAG_HAS_LOCATION = 1 << 1
+FLAG_HAS_BATTERY = 1 << 2
 
 # ECDH 臨時公鑰（raw，未壓縮點）長度；AES-GCM IV 長度；ECDSA raw 簽章長度
 EPHEMERAL_KEY_BYTES = 65
@@ -58,7 +66,12 @@ class PacketHeader:
     msg_id: str
     ttl: int
     hops: int
-    severity: int
+    from_local_id: str
+    urgency_level: int
+    is_trapped: bool
+    battery: Optional[int]
+    location: Optional[tuple[float, float]]  # (lat, lng)
+    location_details: str
 
 
 @dataclass
@@ -73,7 +86,7 @@ class SosProtocolError(ValueError):
 
 def decode_header(raw: bytes) -> DecodedPacket:
     """解析收到的封包。格式錯誤一律拋 SosProtocolError，呼叫端應回應失敗，不得當成有效求救。"""
-    if len(raw) < SOS_HEADER_BYTES:
+    if len(raw) < SOS_HEADER_FIXED_BYTES:
         raise SosProtocolError("封包長度不足，缺少標頭")
 
     version = raw[0]
@@ -89,6 +102,33 @@ def decode_header(raw: bytes) -> DecodedPacket:
         raise SosProtocolError("msgId 含不可列印字元，封包已損毀")
     msg_id = msg_id_bytes.decode("ascii")
 
+    urgency_level = raw[13]
+    if urgency_level > 10:
+        raise SosProtocolError(f"urgencyLevel 超出範圍：{urgency_level}")
+
+    flags = raw[14]
+    battery = raw[15] if flags & FLAG_HAS_BATTERY else None
+    location = None
+    if flags & FLAG_HAS_LOCATION:
+        lat = struct.unpack(">f", raw[16:20])[0]
+        lng = struct.unpack(">f", raw[20:24])[0]
+        location = (lat, lng)
+
+    # fromLocalId：固定 8 bytes，去掉補位的 \0
+    from_local_id = raw[24 : 24 + FROM_LOCAL_ID_BYTES].split(b"\x00", 1)[0]
+    if any(b < 0x20 or b > 0x7E for b in from_local_id):
+        raise SosProtocolError("fromLocalId 含不可列印字元，封包已損毀")
+
+    location_details_len = raw[32]
+    header_bytes = SOS_HEADER_FIXED_BYTES + location_details_len
+    if len(raw) < header_bytes:
+        raise SosProtocolError("封包長度不足，位置描述被截斷")
+
+    try:
+        location_details = raw[SOS_HEADER_FIXED_BYTES:header_bytes].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SosProtocolError("位置描述不是合法 UTF-8") from exc
+
     header = PacketHeader(
         version=version,
         key_version=raw[1],
@@ -96,9 +136,14 @@ def decode_header(raw: bytes) -> DecodedPacket:
         msg_id=msg_id,
         ttl=raw[11],
         hops=raw[12],
-        severity=raw[13],
+        from_local_id=from_local_id.decode("ascii"),
+        urgency_level=urgency_level,
+        is_trapped=bool(flags & FLAG_IS_TRAPPED),
+        battery=battery,
+        location=location,
+        location_details=location_details,
     )
-    return DecodedPacket(header=header, body=bytes(raw[SOS_HEADER_BYTES:]))
+    return DecodedPacket(header=header, body=bytes(raw[header_bytes:]))
 
 
 def encode_header(header: PacketHeader, body: bytes) -> bytes:
@@ -106,15 +151,42 @@ def encode_header(header: PacketHeader, body: bytes) -> bytes:
     if len(header.msg_id) != MSG_ID_LENGTH:
         raise SosProtocolError(f"msgId 必須是 {MSG_ID_LENGTH} 個字元")
 
-    out = bytearray(SOS_HEADER_BYTES + len(body))
+    location_details_bytes = header.location_details.encode("utf-8")
+    if len(location_details_bytes) > MAX_LOCATION_DETAILS_BYTES:
+        raise SosProtocolError(f"位置描述過長（>{MAX_LOCATION_DETAILS_BYTES} bytes）")
+
+    header_bytes = SOS_HEADER_FIXED_BYTES + len(location_details_bytes)
+    out = bytearray(header_bytes + len(body))
     out[0] = header.version
     out[1] = header.key_version
     out[2] = header.type
     out[3 : 3 + MSG_ID_LENGTH] = header.msg_id.encode("ascii")
     out[11] = header.ttl
     out[12] = header.hops
-    out[13] = header.severity
-    out[SOS_HEADER_BYTES:] = body
+    out[13] = header.urgency_level
+
+    flags = 0
+    if header.is_trapped:
+        flags |= FLAG_IS_TRAPPED
+    if header.location is not None:
+        flags |= FLAG_HAS_LOCATION
+    if header.battery is not None:
+        flags |= FLAG_HAS_BATTERY
+    out[14] = flags
+
+    out[15] = header.battery if header.battery is not None else 0
+    lat, lng = header.location if header.location is not None else (0.0, 0.0)
+    out[16:20] = struct.pack(">f", lat)
+    out[20:24] = struct.pack(">f", lng)
+
+    from_local_id_bytes = header.from_local_id.encode("ascii")
+    if len(from_local_id_bytes) > FROM_LOCAL_ID_BYTES:
+        raise SosProtocolError(f"fromLocalId 不得超過 {FROM_LOCAL_ID_BYTES} 個字元")
+    out[24 : 24 + len(from_local_id_bytes)] = from_local_id_bytes
+
+    out[32] = len(location_details_bytes)
+    out[SOS_HEADER_FIXED_BYTES:header_bytes] = location_details_bytes
+    out[header_bytes:] = body
     return bytes(out)
 
 
@@ -195,6 +267,11 @@ def build_ack_packet(msg_id: str, ttl: int = 4) -> bytes:
         msg_id=msg_id,
         ttl=ttl,
         hops=0,
-        severity=0,
+        from_local_id="",
+        urgency_level=0,
+        is_trapped=False,
+        battery=None,
+        location=None,
+        location_details="",
     )
     return encode_header(header, ack_body)

@@ -1,34 +1,17 @@
 /**
- * GuardiaAI SOS 中繼 - 求救內容組裝
+ * GuardiaAI SOS 中繼 - 求救內容組裝（加密段）
  *
- * 把「使用者這次想送出什麼」組成 SosPayload。這是設計文件（
- * docs/superpowers/specs/2026-07-13-bluetooth-sos-relay-design.md）裡提到、
- * 但先前一直沒人接上的那一段：從 medicalCardService 抓資料塞進封包。
+ * 只組裝**留在加密內容裡**的欄位：身分（真實姓名）、傷勢摘要、救援需求、
+ * 行動能力、醫療摘要。緊急度、是否受困、GPS 位置、位置描述、裝置電量
+ * 已經搬到明文標頭（見 sosProtocol.ts createHeader），不在這裡處理。
  *
- * 刻意只抓血型、藥物過敏、慢性病三項——不是整張醫療卡。姓名、身分證、緊急聯絡人
- * 等其他欄位與「附近的人能不能救你」無關，不必冒險夾帶。
- *
- * 醫療資料是否附上由呼叫端（UI）決定，預設不附——即使會被加密，是否讓後端
- * 也知道自己的病史，應該是使用者每次求救當下自己選的，不是系統幫他決定的。
+ * 醫療摘要只抓血型、藥物過敏、慢性病三項——不是整張醫療卡。是否附上由
+ * 呼叫端（UI）當次決定，預設不附。
  */
 
-import { getOrCreateLocalId } from "../bluetooth/bluetoothIdentity";
+import { getCurrentUser } from "../authService";
 import { getMedicalCard } from "../medicalCardService";
 import type { SosPayload } from "./sosTypes";
-
-/** 嘗試讀取裝置電量（0–100）。環境不支援時回傳 undefined，不阻擋求救送出。 */
-export async function readBatteryLevel(): Promise<number | undefined> {
-  try {
-    const nav = navigator as Navigator & {
-      getBattery?: () => Promise<{ level: number }>;
-    };
-    if (!nav.getBattery) return undefined;
-    const battery = await nav.getBattery();
-    return Math.round(battery.level * 100);
-  } catch {
-    return undefined;
-  }
-}
 
 /** 從醫療卡抓出要放進求救封包的三項摘要；三項皆空則回傳 undefined（不放這個欄位）。 */
 function extractMedicalSummary(): SosPayload["medical"] {
@@ -47,10 +30,12 @@ function extractMedicalSummary(): SosPayload["medical"] {
 }
 
 export interface BuildSosPayloadOptions {
-  /** 求救文字（可由語音輸入產生） */
-  text: string;
-  /** 目前位置；沒有定位權限或訊號時可省略 */
-  location?: { lat: number; lng: number };
+  /** 傷勢摘要 */
+  injurySummary: string;
+  /** 救援需求清單 */
+  rescueNeeds: string[];
+  /** 行動能力 */
+  mobilityStatus: "unknown" | "mobile" | "limited" | "immobile";
   /** 是否附上醫療卡摘要（血型/藥物過敏/慢性病）。預設 false。 */
   includeMedical?: boolean;
 }
@@ -58,18 +43,31 @@ export interface BuildSosPayloadOptions {
 /**
  * 組出一份 SosPayload，供 sosCrypto.encryptForBackend 加密。
  *
- * `from` 一律用本機持久化的識別碼——與「附近的人」共用同一組身分，
- * 對方（若剛好也認得你）看到的是同一個人。
+ * `username` 是登入帳號的真實姓名，只有後端／救援單位解得開，中繼的
+ * 陌生人看不到。發送者的短識別碼（fromLocalId）不在這裡——它放在明文標頭，
+ * 好讓附近的人能認出是誰在求救並回應（見 sosProtocol.ts）。
  */
-export async function buildSosPayload(options: BuildSosPayloadOptions): Promise<SosPayload> {
-  const battery = await readBatteryLevel();
-
+export function buildSosPayload(options: BuildSosPayloadOptions): SosPayload {
   return {
-    from: getOrCreateLocalId(),
-    text: options.text,
-    location: options.location,
+    username: getCurrentUser()?.username ?? "未知使用者",
+    injurySummary: options.injurySummary,
+    rescueNeeds: options.rescueNeeds,
+    mobilityStatus: options.mobilityStatus,
     medical: options.includeMedical ? extractMedicalSummary() : undefined,
-    battery,
     timestamp: Date.now(),
   };
+}
+
+/** 嘗試讀取裝置電量（0–100）。環境不支援時回傳 undefined，不阻擋求救送出。 */
+export async function readBatteryLevel(): Promise<number | undefined> {
+  try {
+    const nav = navigator as Navigator & {
+      getBattery?: () => Promise<{ level: number }>;
+    };
+    if (!nav.getBattery) return undefined;
+    const battery = await nav.getBattery();
+    return Math.round(battery.level * 100);
+  } catch {
+    return undefined;
+  }
 }
