@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { MapInfo } from "../../services/offlineMapsService";
 import { createSpeechRecognizer } from "../../services/VoiceInput";
+// 引入 Capacitor 相機與相簿元件
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 
 export function AppFooter({
   downloadedMaps,
@@ -12,6 +14,8 @@ export function AppFooter({
   onSubmit,
   onViewMap,
   setInput,
+  selectedImage,    // 從上層 App.tsx 傳進來的圖片狀態
+  setSelectedImage, // 從上層 App.tsx 傳進來用來變更圖片的方法
 }: {
   downloadedMaps: MapInfo[];
   input: string;
@@ -22,10 +26,13 @@ export function AppFooter({
   onSubmit: (event: React.FormEvent) => void;
   onViewMap: (map: MapInfo) => void;
   setInput: (value: string) => void;
+  selectedImage: string | null; // 型態定義
+  setSelectedImage: React.Dispatch<React.SetStateAction<string | null>>; // 型態定義
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [finalTranscript, setFinalTranscript] = useState("");
+
   const recognizerRef = useRef<ReturnType<
     typeof createSpeechRecognizer
   > | null>(null);
@@ -74,6 +81,30 @@ export function AppFooter({
     } else {
       recognizerRef.current.stop();
       setIsRecording(false);
+    }
+  };
+
+  // 處理 iOS 原生選擇照片並準備分析的函式
+  const handlePickImage = async () => {
+    try {
+      const image = await Camera.getPhoto({
+        quality: 85,                  // 照片品質 (1-100)
+        allowEditing: false,          // 是否允許裁剪
+        resultType: CameraResultType.Base64, // 要求回傳 Base64 方便後續分析
+        source: CameraSource.Photos,   // 預設強制開啟 iOS 原生相簿
+      });
+
+      if (image.base64String) {
+        const base64Data = image.base64String;
+        setSelectedImage(base64Data); // 儲存到上層傳進來的全域狀態
+        console.log("成功取得 iOS 照片 (Base64 前 50 字元):", base64Data.substring(0, 50));
+        alert("照片成功載入！已準備好進行分析。");
+      }
+    } catch (error: any) {
+      if (error.message !== "User cancelled photos app") {
+        console.error("選取照片時發生錯誤:", error);
+        alert(`無法開啟相簿：${error.message || error}`);
+      }
     }
   };
 
@@ -150,6 +181,7 @@ export function AppFooter({
           </div>
         )}
 
+        {/* 1. AR 房間風險掃描按鈕 (來自 origin/main) */}
         <button
           type="button"
           onClick={onOpenRoomRiskScanner}
@@ -161,8 +193,27 @@ export function AppFooter({
           AR 房間風險掃描
         </button>
 
-        <div className="flex gap-2 mb-2 overflow-x-auto pb-1 no-scrollbar">
-          {["出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
+        {/* 2. 顯示已選取圖片的微縮預覽 (來自 HEAD) */}
+        {selectedImage && (
+          <div className="mb-2 flex items-center gap-2 p-2 bg-white/5 border border-white/10 rounded-xl max-w-max">
+            <img 
+              src={`data:image/jpeg;base64,${selectedImage}`} 
+              alt="預覽" 
+              className="w-10 h-10 object-cover rounded-lg"
+            />
+            <button 
+              type="button" 
+              onClick={() => setSelectedImage(null)}
+              className="text-rose-400 text-xs ml-2 hover:underline"
+            >
+              取消
+            </button>
+          </div>
+        )}
+
+        {/* 3. 快捷標籤（包含 HEAD 的 "已拍照回傳" 與 origin/main 的縮排/外距） */}
+        <div className="flex gap-2 mb-3 overflow-x-auto pb-1 no-scrollbar">
+          {["已拍照回傳", "出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
             <button
               key={tag}
               onClick={() => setInput(tag)}
@@ -172,11 +223,13 @@ export function AppFooter({
             </button>
           ))}
         </div>
+
+        {/* 4. 輸入表單區塊 */}
         <form
           ref={formRef}
           onSubmit={(event) => {
-            onSubmit(event);
-            setFinalTranscript("");
+            event.preventDefault(); // 阻擋原生表單重整
+            onSubmit(event);        // 執行外部傳進來的 handleSubmit
           }}
           className="relative flex min-w-0 items-center gap-2"
         >
@@ -186,9 +239,22 @@ export function AppFooter({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="回報進度或回答問題..."
-              className="w-full min-w-0 bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-base sm:text-sm text-white caret-amber-400 focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-500 shadow-inner"
+              // 右邊距調整為 pr-20，以容納「照片」和「語音」兩個按鈕
+              className="w-full min-w-0 bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-20 text-base sm:text-sm text-white caret-amber-400 focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-500 shadow-inner"
               disabled={isAnalyzing}
             />
+            
+            {/* 點擊觸發選擇相簿照片 (來自 HEAD) */}
+            <button
+              type="button"
+              className="absolute right-12 top-1/2 -translate-y-1/2 text-slate-500 active:text-amber-500"
+              onClick={handlePickImage}
+              disabled={isAnalyzing}
+            >
+              <i className="fas fa-images"></i>
+            </button>
+            
+            {/* 語音輸入按鈕 */}
             <button
               type="button"
               aria-pressed={isRecording}
@@ -224,6 +290,8 @@ export function AppFooter({
                   : ""}
             </div>
           </div>
+          
+          {/* 送出與狀態確認按鈕 */}
           {finalTranscript ? (
             <button
               type="button"
@@ -239,7 +307,7 @@ export function AppFooter({
           ) : (
             <button
               type="submit"
-              disabled={isAnalyzing || !input.trim()}
+              disabled={isAnalyzing || (!input.trim() && !selectedImage)}
               className="bg-amber-500 text-black w-11 h-11 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(251,191,36,0.3)] active:scale-90 transition-all disabled:opacity-30 disabled:shadow-none"
             >
               <i

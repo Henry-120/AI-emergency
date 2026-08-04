@@ -1,5 +1,10 @@
 import React from "react";
-import { ChatMessage } from "../../types";
+// 為了安全起見，我們在這裡擴充 ChatMessage 的型態，允許選填的 imageBase64 欄位
+import { ChatMessage as BaseChatMessage } from "../../types";
+
+interface ChatMessage extends BaseChatMessage {
+  imageBase64?: string | null; // 擴充讓型態支援圖片欄位
+}
 
 const getPriorityBorder = (priority: string) => {
   switch (priority) {
@@ -94,17 +99,20 @@ export function ChatMessageList({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
-                        {m.analysis.missingInfoRequests.map((option, i) => (
-                          <button
-                            key={`btn-${i}`}
-                            onClick={() => onOfflineOption(option)}
-                            className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
+                      {/* ✨ 新增判斷：只有「非雲端回覆（離線狀態）」時，才顯示快捷選項按鈕 */}
+                      {!m.isCloudResponse && (
+                        <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
+                          {m.analysis.missingInfoRequests.map((option, i) => (
+                            <button
+                              key={`btn-${i}`}
+                              onClick={() => onOfflineOption(option)}
+                              className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg transition-all active:scale-95 shadow-lg shadow-amber-500/10"
+                            >
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
                       {!isOffline && (
                         <button
@@ -199,8 +207,23 @@ export function ChatMessageList({
                 )}
               </div>
             )}
+            
             {m.role === "user" && (
-              <p className="text-sm font-bold tracking-tight">{m.content}</p>
+              <div className="space-y-2">
+                {/* 顯示文字訊息內容 */}
+                <p className="text-sm font-bold tracking-tight">{m.content}</p>
+                
+                {/* 新增：如果使用者發送的這條訊息內含有圖片 Base64，就在對話框裡顯示出來 */}
+                {m.imageBase64 && (
+                  <div className="mt-1.5 overflow-hidden rounded-xl border border-black/10 max-w-[240px]">
+                    <img 
+                      src={`data:image/jpeg;base64,${m.imageBase64}`} 
+                      alt="回報現場狀況照片" 
+                      className="w-full h-auto object-cover max-h-48 block shadow-inner"
+                    />
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

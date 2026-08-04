@@ -102,11 +102,12 @@ const ANALYSIS_SCHEMA = {
 export async function analyzeDisaster(
   history: ChatMessage[],
   sensorContext: string,
+  imageBase64?: string | null,
 ): Promise<DisasterAnalysis> {
   const systemInstruction = `
     你是一位具備記憶與邏輯推演能力的災害應變專家 AI。
     
-    你的任務是分析「完整的對話紀錄」與「即時感測器數據」，提供能達到「最高生存率」的計畫。
+    你的任務是分析「完整的對話紀錄」、「使用者上傳的現場影像資料(若有)」與「即時感測器數據」，提供能達到「最高生存率」的計畫。
     
     關鍵準則：
     1. **記憶連續性**：閱讀對話紀錄。如果使用者之前已經提供過某項資訊（例如樓層、傷情），請勿重複詢問。
@@ -120,8 +121,22 @@ export async function analyzeDisaster(
   // 將 ChatMessage 轉換為 Gemini 的對話格式
   const contents = history.map((msg) => ({
     role: msg.role === "user" ? "user" : "model",
-    parts: [{ text: msg.content }],
+    parts: [{ text: msg.content } as any],
   }));
+
+  // 如果在本次送出中含有圖片，將圖片附加到 contents 的最後一則 user 訊息的 parts 中
+  if (imageBase64 && contents.length > 0) {
+    const lastUserContent = [...contents].reverse().find((c) => c.role === "user");
+
+    if (lastUserContent) {
+      lastUserContent.parts.push({
+        inlineData: {
+          mimeType: "image/jpeg",
+          data: imageBase64,
+        },
+      });
+    }
+  }
 
   // 在最後一則訊息加入感測器背景資訊
   if (contents.length > 0) {

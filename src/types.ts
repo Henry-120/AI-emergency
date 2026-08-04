@@ -43,6 +43,8 @@ export interface ChatMessage {
   content: string;
   analysis?: DisasterAnalysis;
   timestamp: Date;
+  imageBase64?: string | null; // 讓 ChatMessage 能夠合法攜帶圖片資料
+  isCloudResponse?: boolean;
 }
 
 export interface UserStatus {

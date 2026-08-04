@@ -83,7 +83,10 @@ const App: React.FC = () => {
     useState<EarthquakeAlert | null>(null);
   const [cwaError, setCwaError] = useState<string>("");
 
-  // 新增：用戶狀態
+  // 全局管理相機相簿選取的 Base64 圖片狀態
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  // 用戶狀態
   const [userStatus, setUserStatus] = useState<UserStatus>({
     isMoving: false,
     heartRate: 72,
@@ -621,6 +624,7 @@ const App: React.FC = () => {
       voices.find((v) => v.lang.includes("zh-CN"));
 
     if (chineseVoice) {
+      document.body.click(); // 嘗試觸發使用者互動以符合瀏覽器政策
       utterance.voice = chineseVoice; // 強制指定中文聲音物件
     }
 
@@ -793,59 +797,74 @@ const App: React.FC = () => {
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!authUser || !input.trim() || isAnalyzing) return;
 
+    // 同時檢查 authUser 以及確保有輸入文字或選擇了要傳送的圖片
+    if (!authUser || (!input.trim() && !selectedImage) || isAnalyzing) return;
+
+    // 紀錄這次發送要使用的圖片，並立刻清空全局圖片暫存
+    const imageToSend = selectedImage;
+    setSelectedImage(null);
+
+    // 立即在 UI 顯示使用者訊息，補上 imageBase64 欄位讓歷史訊息記得圖片資訊
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: input,
+      content: input || "【傳送了現場照片】",
       timestamp: new Date(),
+      imageBase64: imageToSend,
     };
 
-    // 立即在 UI 顯示使用者訊息
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     const currentInput = input;
     setInput("");
-    // --- 離線邏輯開始 ---
-    if (isOffline) {
-      const offlineAnalysis = getOfflineAnalysis(
-        currentInput,
-        updatedMessages
-          .filter((message) => message.role === "user")
-          .map((message) => message.content)
-          .join("\n"),
-      );
 
-      const assistantMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組：",
-        analysis: offlineAnalysis,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-      setCurrentAnalysis(offlineAnalysis);
-      saveEmergencyReport(
-        authUser.id,
-        offlineAnalysis.emergencySummary,
-        [...updatedMessages, assistantMsg],
-        userStatus.location,
-      ).catch((error) => console.error("離線救援摘要儲存失敗", error));
-      speak(offlineAnalysis.immediateActions[0].description);
-      return; // 離線模式處理完畢，直接結束
-    }
-    // --- 離線邏輯結束 ---
     setIsAnalyzing(true);
 
+    // --- 狀況 A：明確處於斷網狀態，改用本機離線大模型 ---
+    if (isOffline) {
+      console.log("偵測到無網路，直接啟動本地離線大模型...");
+      try {
+        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+
+        const assistantMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組（無法處理影像分析）：",
+          analysis: offlineAnalysis,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, assistantMsg]);
+        setCurrentAnalysis(offlineAnalysis);
+
+        // 儲存進本地資料庫，等候背景復網時排程同步
+        saveEmergencyReport(
+          authUser.id,
+          offlineAnalysis.emergencySummary,
+          [...updatedMessages, assistantMsg],
+          userStatus.location,
+        ).catch((error) => console.error("離線救援摘要儲存失敗", error));
+
+        if (offlineAnalysis.immediateActions && offlineAnalysis.immediateActions.length > 0) {
+          speak(offlineAnalysis.immediateActions[0].description);
+        }
+      } catch (err) {
+        console.error("本地離線模型執行失敗", err);
+      } finally {
+        setIsAnalyzing(false);
+      }
+      return; // 結束離線處理，不往下執行雲端 Gemini
+    }
+
+    // --- 狀況 B：有網路，嘗試呼叫雲端 Gemini ---
     try {
+      console.log("嘗試使用雲端 Gemini 引擎...");
       const sensorContext = getSensorContext();
 
-      // 將整個對話歷史傳送給 AI
-      const analysis = await analyzeDisaster(updatedMessages, sensorContext);
+      // 呼叫雲端分析服務，AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊
+      const analysis = await analyzeDisaster(updatedMessages, sensorContext, imageToSend);
 
-      // AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊`
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -854,6 +873,7 @@ const App: React.FC = () => {
           : `分析更新：根據最新資訊，請優先執行以下行動：`,
         analysis,
         timestamp: new Date(),
+        isCloudResponse: true,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -871,33 +891,60 @@ const App: React.FC = () => {
 
       if (analysis.immediateActions && analysis.immediateActions.length > 0) {
         const text = `緊急指令${analysis.immediateActions[0].title}`;
-        // 優先嘗試 OpenAI，失敗則用原生降級
         playAudio(text).catch(() => {
           console.log("切換至原生語音降級模式");
           speak(text);
         });
       } else if (analysis.missingInfoRequests?.length) {
-        // 如果是請求資訊
         speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
       }
     } catch (error) {
-      console.error("Disaster analysis failed:", error);
-      const detail = error instanceof Error ? error.message : "未知錯誤";
-      const isModelUnavailable = /not found|no longer available|404/i.test(detail);
-      const isQuotaLimited = /quota|resource_exhausted|429/i.test(detail);
-      setMessages((prev) => [
-        ...prev,
-        {
+      // 終極保險：系統判定有網路，但可能遇上訊號死角或 DNS 解析失敗，自動降級切換至本地離線大模型
+      console.warn("雲端 Gemini 連線失敗，自動降級切換至本地離線大模型！", error);
+
+      try {
+        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+        const fallbackMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: isModelUnavailable
-            ? "分析模型目前不可用，請重新整理後再試；若持續發生，請檢查 Gemini model 設定。"
-            : isQuotaLimited
-              ? "Gemini API 額度暫時用完，請稍後再試或檢查 API 配額。"
-              : "分析服務暫時無法回應，請確認網路後再試。",
+          content: "⚠️ 雲端伺服器無回應，自動降級至內建緊急應變模組：",
+          analysis: offlineAnalysis,
           timestamp: new Date(),
-        },
-      ]);
+        };
+        setMessages((prev) => [...prev, fallbackMsg]);
+        setCurrentAnalysis(offlineAnalysis);
+
+        // 降級時同樣寫入本地 SQLite 保存
+        saveEmergencyReport(
+          authUser.id,
+          offlineAnalysis.emergencySummary,
+          [...updatedMessages, fallbackMsg],
+          userStatus.location,
+        ).catch((err) => console.error("降級離線救援摘要儲存失敗", err));
+
+        if (offlineAnalysis.immediateActions && offlineAnalysis.immediateActions.length > 0) {
+          speak(offlineAnalysis.immediateActions[0].description);
+        }
+      } catch (fallbackError) {
+        // 若連本地端離線解析也崩潰（極端狀況），則進行最後的錯誤回報並智慧解析 API 錯誤
+        const detail = error instanceof Error ? error.message : "未知錯誤";
+        const isModelUnavailable = /not found|no longer available|404/i.test(detail);
+        const isQuotaLimited = /quota|resource_exhausted|429/i.test(detail);
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: isModelUnavailable
+              ? "分析模型目前不可用，請重新整理後再試；若持續發生，請檢查 Gemini model 設定。"
+              : isQuotaLimited
+                ? "Gemini API 額度暫時用完，請稍後再試或檢查 API 配額。"
+                : "系統發生錯誤且離線模組無法啟動，請保持冷靜，並嘗試撥打 119 或 112 求救。",
+            timestamp: new Date(),
+          },
+        ]);
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -1009,6 +1056,8 @@ const App: React.FC = () => {
         onSubmit={handleSubmit}
         onViewMap={handleViewMap}
         setInput={setInput}
+        selectedImage={selectedImage}
+        setSelectedImage={setSelectedImage}
       />
     </div>
   );
