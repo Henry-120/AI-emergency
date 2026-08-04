@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    	<string>$(CAPACITOR_DEBUG)</string>
+	<key>CAPACITOR_DEBUG</key>
+	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
@@ -29,6 +30,10 @@
 	<string>Guardian 需要藍牙，讓附近的使用者能夠找到您並接收您的求救訊息。</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Guardian 需要使用相機拍攝緊急現場照片進行 AI 分析，以及掃描室內家具標示地震時的危險波及區。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Guardian 需要使用麥克風，讓您在雙手不便或視線受阻時，以語音描述災情與求救內容。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Guardian 需要語音辨識，將您口述的災情內容轉為文字提供 AI 分析。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>我們需要存取您的相簿以選取緊急現場照片並進行 AI 分析。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

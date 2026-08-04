@@ -204,16 +204,16 @@ const App: React.FC = () => {
       console.warn("定位權限請求失敗：", error);
     }
 
-    try {
-      if (navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
+    // 相機與麥克風分開請求：合併成一次 getUserMedia 時，只要其中一項被拒絕，
+    // 另一項也拿不到授權，使用者會誤以為兩個權限都失敗。
+    for (const constraints of [{ video: true }, { audio: true }]) {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) break;
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         stream.getTracks().forEach((track) => track.stop());
+      } catch (error) {
+        console.warn("媒體權限請求失敗：", constraints, error);
       }
-    } catch (error) {
-      console.warn("相機/麥克風權限請求失敗：", error);
     }
 
     acceptDisclaimer();
