@@ -1,15 +1,22 @@
+import asyncio
+import base64
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
+
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
 from . import auth, schemas
 from .services.cwa_service import CWAService
 from .services.offline_maps_service import offline_maps_service
 from .services.room_risk_service import room_risk_service
 from .services.shelter_service import shelter_service
 from .services.firebase_service import firebase_service
-import os
-from pathlib import Path
+from .services import push_service
+from .services import sos_service
+from .services.sos_store_service import sos_store_service
 
 # Load environment variables from .env files when starting the backend directly.
 # This ensures CWA_API_KEY from .env.local is available without requiring external env loader.
@@ -26,7 +33,24 @@ for env_file in [Path(__file__).resolve().parent.parent / ".env.local", Path(__f
                 if key and key not in os.environ:
                     os.environ[key] = value
 
-app = FastAPI()
+cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    tasks = []
+    # Request-based Cloud Run may suspend CPU between requests. Keep permanent
+    # polling opt-in; production can trigger this work with Cloud Scheduler.
+    if os.getenv("ENABLE_PUSH_POLLING", "false").lower() == "true":
+        tasks.append(asyncio.create_task(push_service.poll_and_push_loop(cwa)))
+    if os.getenv("ENABLE_TEST_PUSH", "false").lower() == "true":
+        tasks.append(asyncio.create_task(push_service.test_poll_and_push_loop(cwa)))
+    yield
+    for task in tasks:
+        task.cancel()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,8 +65,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
 
 # ==================== 認證 / 帳號 API ====================
@@ -159,6 +181,29 @@ async def get_weather_list():
     return await cwa.get_earthquake_list()
 
 
+# ==================== 推播裝置註冊 API ====================
+
+@app.post("/api/push/register", response_model=schemas.DeviceTokenResponse)
+def register_device_token(
+    data: schemas.DeviceTokenRegister,
+    authorization: Optional[str] = Header(default=None),
+):
+    """註冊裝置的 FCM token 以接收強震推播。未登入也可註冊。"""
+    user_id = None
+    if authorization and authorization.lower().startswith("bearer "):
+        payload = auth.decode_token(authorization.split(" ", 1)[1].strip())
+        if payload:
+            user_id = str(payload["uid"])
+    firebase_service.register_device_token(data.token, data.platform, user_id)
+    return {"status": "registered"}
+
+
+@app.post("/api/push/unregister", response_model=schemas.DeviceTokenResponse)
+def unregister_device_token(data: schemas.DeviceTokenRegister):
+    firebase_service.unregister_device_token(data.token)
+    return {"status": "unregistered"}
+
+
 @app.post("/api/sync/status")
 async def sync_status(status: schemas.UserStatusCreate):
     document_id = firebase_service.save_user_status(status)
@@ -169,6 +214,78 @@ async def sync_status(status: schemas.UserStatusCreate):
 def sync_bulk_status(data: schemas.UserStatusBulk):
     firebase_service.save_user_status_bulk(data.records)
     return {"message": f"Successfully synced {len(data.records)} records"}
+
+
+# ==================== SOS 多跳中繼 API 端點 ====================
+#
+# 呼叫者是「剛好有網路的中繼者」，不一定是求救本人，也不需要登入——
+# 故意不掛 get_current_user：受困者當下可能連帳號都登不進去，中繼者
+# 也不該需要先登入才能幫忙轉發一包連自己都解不開的密文。
+
+@app.post("/api/sos/report", response_model=schemas.SosReportResponse)
+def report_sos(data: schemas.SosReportRequest):
+    """
+    接收一包由藍牙多跳中繼送達、途經任意陌生人手機的 SOS/ALERT 封包。
+
+    流程：base64 解碼 → 解析明文標頭 → 用後端私鑰解密內容 → 記錄 →
+    簽一份 ACK 回傳，呼叫端應把 ack_packet 當成普通中繼封包繼續往外傳播，
+    讓它有機會沿著藍牙網路傳回原本發送求救的裝置。
+    """
+    try:
+        raw = base64.b64decode(data.packet, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"封包 base64 解碼失敗：{exc}") from exc
+
+    try:
+        decoded = sos_service.decode_header(raw)
+    except sos_service.SosProtocolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if decoded.header.type == sos_service.PACKET_TYPE_ACK:
+        raise HTTPException(status_code=400, detail="ACK 封包不應上傳到此端點")
+
+    try:
+        payload = sos_service.decrypt_sos_payload(decoded.body)
+    except sos_service.SosProtocolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    header = decoded.header
+    is_new = sos_store_service.save_sos_report(
+        msg_id=header.msg_id,
+        hops=header.hops,
+        urgency_level=header.urgency_level,
+        is_trapped=header.is_trapped,
+        battery=header.battery,
+        location=header.location,
+        location_details=header.location_details,
+        from_local_id=header.from_local_id,
+        payload=payload,
+    )
+
+    ack_packet = sos_service.build_ack_packet(decoded.header.msg_id)
+    return schemas.SosReportResponse(
+        success=True,
+        ack_packet=base64.b64encode(ack_packet).decode("ascii"),
+        duplicate=not is_new,
+    )
+
+
+@app.get("/api/sos/nearby", response_model=list[schemas.SosCaseResponse])
+def get_nearby_sos_reports(
+    latitude: float,
+    longitude: float,
+    radius_km: float = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    救援地圖用：附近透過藍牙中繼送達的求救記錄。
+
+    求救記錄存於現有 Firestore，確保 Cloud Run 重啟後仍能保留。登入要求
+    比照現有的救援地圖端點，這個 App 目前沒有另外區分「救援人員」帳號，
+    任何登入的使用者都能查看，維持與既有端點一致的權限模型。
+    """
+    radius_km = max(1, min(radius_km, 200))
+    return sos_store_service.get_nearby_sos_reports(latitude, longitude, radius_km)
 
 
 # ==================== 室內地震家具風險分析 API 端點 ====================

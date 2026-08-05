@@ -49,6 +49,43 @@ class CWAService:
             logger.exception("Unable to fetch CWA earthquake data: %s", e)
             return {"error": "無法取得即時資料"}
 
+    async def get_current_weather_observation(self, station_id: str = "466920"):
+        """取得指定測站的「現在天氣觀測報告」(O-A0001-001)。
+
+        這支資料每 10 分鐘更新一次，遠比地震資料頻繁，僅用於測試推播路徑，
+        不用於正式的災害警示邏輯。station_id 預設為台北測站。
+        """
+        if not self.api_key:
+            return {"error": "CWA API key 未設定"}
+
+        url = f"{self.base}/O-A0001-001"
+        try:
+            async with httpx.AsyncClient(timeout=20, verify=self.verify_ssl) as client:
+                params = {"Authorization": self.api_key, "StationId": station_id}
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                if str(data.get("success")).lower() != "true":
+                    logger.error("CWA weather observation API returned unsuccessful response: %s", data)
+                    return {"error": "CWA 回傳失敗"}
+
+                stations = data.get("records", {}).get("Station") or []
+                if not stations:
+                    return {"error": "查無測站資料"}
+
+                station = stations[0]
+                weather = station.get("WeatherElement") or {}
+                return {
+                    "stationId": station.get("StationId"),
+                    "stationName": station.get("StationName"),
+                    "obsTime": (station.get("ObsTime") or {}).get("DateTime"),
+                    "temperature": weather.get("AirTemperature"),
+                }
+        except Exception as e:
+            logger.exception("Unable to fetch CWA weather observation: %s", e)
+            return {"error": "無法取得即時資料"}
+
     async def get_earthquake_list(self):
         """回傳近期地震列表，合併小區域 + 顯著有感兩支 API 並去重排序。"""
         if not self.api_key:

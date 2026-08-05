@@ -17,6 +17,7 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+ios/App/CapApp-SPM/symlinks/
 *.suo
 *.ntvs*
 *.njsproj
@@ -29,9 +30,14 @@ dist-ssr
 .env.*
 !.env.example
 firebase-service-account*.json
+*firebase-adminsdk*.json
+
+# 藍牙中繼送達的求救記錄（含位置與醫療摘要）——執行時產生的真實個資，不進版控
+data/sos_reports/
 
 # Python
 .venv/
+.venv*/
 venv/
 __pycache__/
 __pycache__

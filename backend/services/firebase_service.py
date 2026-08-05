@@ -188,6 +188,49 @@ class FirebaseService:
             batch.commit()
         return saved_ids
 
+    def register_device_token(self, token: str, platform: str, user_id: str | None) -> None:
+        ref = self._get_db().collection("device_tokens").document(token)
+        now = self._now()
+        ref.set({
+            "token": token,
+            "platform": platform,
+            "user_id": user_id,
+            "created_at": now,
+            "last_seen_at": now,
+        }, merge=True)
+
+    def unregister_device_token(self, token: str) -> None:
+        self._get_db().collection("device_tokens").document(token).delete()
+
+    def list_device_tokens(self) -> list[str]:
+        return [doc.id for doc in self._get_db().collection("device_tokens").stream()]
+
+    def remove_device_tokens(self, tokens: Iterable[str]) -> None:
+        db = self._get_db()
+        for page in self._chunks(list(tokens), 450):
+            batch = db.batch()
+            for token in page:
+                batch.delete(db.collection("device_tokens").document(token))
+            batch.commit()
+
+    def get_last_notified_alert_key(self) -> str | None:
+        snapshot = self._get_db().collection("push_state").document("last_notified").get()
+        return snapshot.to_dict().get("alert_key") if snapshot.exists else None
+
+    def set_last_notified_alert_key(self, key: str) -> None:
+        self._get_db().collection("push_state").document("last_notified").set(
+            {"alert_key": key, "notified_at": self._now()}
+        )
+
+    def get_last_test_push_key(self) -> str | None:
+        snapshot = self._get_db().collection("push_state").document("last_test_notified").get()
+        return snapshot.to_dict().get("value_key") if snapshot.exists else None
+
+    def set_last_test_push_key(self, key: str) -> None:
+        self._get_db().collection("push_state").document("last_test_notified").set(
+            {"value_key": key, "notified_at": self._now()}
+        )
+
     @staticmethod
     def _chunks(items, size: int):
         for index in range(0, len(items), size):

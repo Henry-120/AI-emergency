@@ -102,6 +102,7 @@ const ANALYSIS_SCHEMA = {
 export async function analyzeDisaster(
   history: ChatMessage[],
   sensorContext: string,
+  imageBase64?: string | null,
 ): Promise<DisasterAnalysis> {
   const systemInstruction = `
     你是一位具備記憶與邏輯推演能力的災害應變專家 AI。
@@ -120,13 +121,30 @@ export async function analyzeDisaster(
   // 將 ChatMessage 轉換為 Gemini 的對話格式
   const contents = history.map((msg) => ({
     role: msg.role === "user" ? "user" : "model",
-    parts: [{ text: msg.content }],
+    parts: [{ text: msg.content }] as Array<{
+      text?: string;
+      inlineData?: { mimeType: string; data: string };
+    }>,
   }));
+
+  // 如果在本次送出中含有圖片，將圖片附加到 contents 的最後一則 user 訊息的 parts 中
+  if (imageBase64 && contents.length > 0) {
+    const lastUserContent = [...contents].reverse().find((c) => c.role === "user");
+
+    if (lastUserContent) {
+      lastUserContent.parts.push({
+        inlineData: {
+          mimeType: "image/jpeg",
+          data: imageBase64,
+        },
+      });
+    }
+  }
 
   // 在最後一則訊息加入感測器背景資訊
   if (contents.length > 0) {
     const lastMsg = contents[contents.length - 1];
-    lastMsg.parts[0].text += `\n\n[系統感測器背景資訊: ${sensorContext}]`;
+    lastMsg.parts[0].text = `${lastMsg.parts[0].text ?? ""}\n\n[系統感測器背景資訊: ${sensorContext}]`;
   }
 
   try {
