@@ -18,7 +18,7 @@ class RoomRiskService:
         content_type: str,
         sensor_context: str = "",
     ) -> Dict[str, Any]:
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("VITE_GEMINI_API_KEY")
+        api_key = os.getenv("GEMINI_API_KEY")
         model = os.getenv("ROOM_RISK_MODEL", "gemini-3-flash-preview")
         endpoint = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"

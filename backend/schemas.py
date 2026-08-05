@@ -131,6 +131,31 @@ class RescueCaseResponse(BaseModel):
     locationDetails: str = ""
     updatedAt: datetime
 
+# --- Cloud Run Gemini 災害對話 ---
+class AIChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+
+class AIChatRequest(BaseModel):
+    messages: List[AIChatMessage] = Field(min_length=1, max_length=30)
+    sensor_context: str = Field(default="", max_length=4000)
+    image_base64: Optional[str] = None
+
+class AIAction(BaseModel):
+    title: str
+    description: str
+    priority: Literal["CRITICAL", "HIGH", "MEDIUM"]
+
+class AIAnalysisResponse(BaseModel):
+    type: str
+    riskLevel: int
+    situationSummary: str
+    immediateActions: List[AIAction]
+    longTermAdvice: str
+    survivalProbability: int
+    missingInfoRequests: List[str] = Field(default_factory=list)
+    emergencySummary: EmergencySummary
+
 # --- 氣象局資料回傳格式 ---
 class WeatherAlert(BaseModel):
     magnitude: float

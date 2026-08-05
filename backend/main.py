@@ -12,6 +12,7 @@ from . import auth, schemas
 from .services.cwa_service import CWAService
 from .services.offline_maps_service import offline_maps_service
 from .services.room_risk_service import room_risk_service
+from .services.disaster_ai_service import DisasterAIError, disaster_ai_service
 from .services.shelter_service import shelter_service
 from .services.firebase_service import firebase_service
 from .services import push_service
@@ -139,6 +140,21 @@ def update_medical_card(
 
 
 # ==================== AI 傷勢 / 救援需求 API ====================
+
+@app.post("/api/ai/analyze", response_model=schemas.AIAnalysisResponse)
+async def analyze_disaster(
+    data: schemas.AIChatRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Use the server-side Gemini key; never expose it to the iOS/web client."""
+    try:
+        return await disaster_ai_service.analyze(
+            messages=[message.model_dump() for message in data.messages],
+            sensor_context=data.sensor_context,
+            image_base64=data.image_base64,
+        )
+    except DisasterAIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 @app.put("/api/emergency-report", response_model=schemas.EmergencyReportResponse)
 def upsert_emergency_report(

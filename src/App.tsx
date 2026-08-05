@@ -59,6 +59,25 @@ import { RescueMapPage } from "./components/rescue/RescueMapPage";
 import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 
+const OFFLINE_ANALYSIS_TIMEOUT_MS = 20_000;
+
+async function getOfflineAnalysisWithTimeout(messages: ChatMessage[]) {
+  let timeoutId: number | undefined;
+  try {
+    return await Promise.race([
+      getOfflineAnalysis(messages),
+      new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(
+          () => reject(new Error("離線模型啟動逾時")),
+          OFFLINE_ANALYSIS_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
+}
+
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
     getCurrentUser(),
@@ -824,19 +843,13 @@ const App: React.FC = () => {
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // 同時檢查 authUser 以及確保有輸入文字或選擇了要傳送的圖片
-    if (!authUser || (!input.trim() && !selectedImage) || isAnalyzing) return;
-
-    // 紀錄這次發送要使用的圖片，並立刻清空全局圖片暫存
-    const imageToSend = selectedImage;
-    setSelectedImage(null);
+    if (!authUser || !input.trim() || isAnalyzing) return;
 
     // 立即在 UI 顯示使用者訊息，並保留本次圖片。
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
       content: input,
-      imageBase64: imageToSend,
       timestamp: new Date(),
     };
 
@@ -850,7 +863,7 @@ const App: React.FC = () => {
     if (isOffline) {
       console.log("偵測到無網路，直接啟動本地離線大模型...");
       try {
-        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+        const offlineAnalysis = await getOfflineAnalysisWithTimeout(updatedMessages);
         const assistantMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
@@ -871,6 +884,12 @@ const App: React.FC = () => {
         }
       } catch (error) {
         console.error("離線應變模型失敗", error);
+        setMessages((prev) => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "離線分析暫時無法使用，請保持冷靜並撥打 119 或 112。",
+          timestamp: new Date(),
+        }]);
       } finally {
         setIsAnalyzing(false);
       }
@@ -881,7 +900,7 @@ const App: React.FC = () => {
       const sensorContext = getSensorContext();
 
       // 呼叫雲端分析服務，AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊
-      const analysis = await analyzeDisaster(updatedMessages, sensorContext, imageToSend);
+      const analysis = await analyzeDisaster(updatedMessages, sensorContext);
 
       // AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊`
       const assistantMsg: ChatMessage = {
@@ -922,7 +941,7 @@ const App: React.FC = () => {
       // 終極保險：系統判定有網路，但可能遇上訊號死角或 DNS 解析失敗，自動降級切換至本地離線大模型
       console.warn("雲端 Gemini 連線失敗，自動降級切換至本地離線大模型！", error);
       try {
-        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+        const offlineAnalysis = await getOfflineAnalysisWithTimeout(updatedMessages);
         const fallbackMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
