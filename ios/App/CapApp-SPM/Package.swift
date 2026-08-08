@@ -16,8 +16,8 @@ let package = Package(
         .package(name: "CapacitorCommunitySqlite", path: "../../../node_modules/@capacitor-community/sqlite"),
         .package(name: "CapacitorFirebaseMessaging", path: "symlinks/CapacitorFirebaseMessaging"),
         .package(name: "CapacitorCamera", path: "../../../node_modules/@capacitor/camera"),
-        .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
         .package(name: "CapacitorLocalNotifications", path: "../../../node_modules/@capacitor/local-notifications"),
+        .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
         .package(name: "LlamaCppCapacitor", path: "../../../node_modules/llama-cpp-capacitor")
     ],
     targets: [
@@ -30,8 +30,8 @@ let package = Package(
                 .product(name: "CapacitorCommunitySqlite", package: "CapacitorCommunitySqlite"),
                 .product(name: "CapacitorFirebaseMessaging", package: "CapacitorFirebaseMessaging"),
                 .product(name: "CapacitorCamera", package: "CapacitorCamera"),
-                .product(name: "CapacitorPreferences", package: "CapacitorPreferences"),
                 .product(name: "CapacitorLocalNotifications", package: "CapacitorLocalNotifications"),
+                .product(name: "CapacitorPreferences", package: "CapacitorPreferences"),
                 .product(name: "LlamaCppCapacitor", package: "LlamaCppCapacitor")
             ]
         )
