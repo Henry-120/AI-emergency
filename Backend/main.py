@@ -2,12 +2,12 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
-from . import auth, schemas
-from .services.cwa_service import CWAService
-from .services.offline_maps_service import offline_maps_service
-from .services.room_risk_service import room_risk_service
-from .services.shelter_service import shelter_service
-from .services.firebase_service import firebase_service
+import auth, schemas
+from services.cwa_service import CWAService
+from services.offline_maps_service import offline_maps_service
+from services.room_risk_service import room_risk_service
+from services.shelter_service import shelter_service
+from services.firebase_service import firebase_service
 import os
 from pathlib import Path
 

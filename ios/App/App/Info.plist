@@ -67,5 +67,10 @@
     </array>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <true/>
+    
+    <key>NSHealthShareUsageDescription</key>
+    <string>Guardian 需要讀取您的心率資料，以便在緊急狀況下監測您的生理狀態並提供適當的救援建議。</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>Guardian 需要存取健康資料以確保您的生命徵象安全。</string>
 </dict>
 </plist>

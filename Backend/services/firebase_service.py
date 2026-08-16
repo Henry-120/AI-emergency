@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
 
-from .. import schemas
+import schemas
 
 
 class FirebaseService:

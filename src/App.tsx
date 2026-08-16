@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { Device } from '@capacitor/device';
 import { analyzeDisaster } from "./services/geminiService";
 import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
 import {
@@ -47,6 +48,7 @@ import { MedicalCardPage } from "./components/medical/MedicalCardPage";
 import { RescueMapPage } from "./components/rescue/RescueMapPage";
 import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
+import { initHealthKit, getLatestHeartRate } from "./services/healthService";
 
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
@@ -517,6 +519,43 @@ const App: React.FC = () => {
     }
   }, [messages]);
 
+  // ✅ 電量與心率狀態即時更新
+  useEffect(() => {
+    // 1. App 開啟時，嘗試初始化 iOS HealthKit 權限 (如果在 iOS 手機上會跳出授權視窗)
+    initHealthKit();
+
+    const updateDeviceStatus = async () => {
+      try {
+        // 抓取真實電量
+        const batteryInfo = await Device.getBatteryInfo();
+        const realBattery = batteryInfo.batteryLevel !== undefined 
+          ? batteryInfo.batteryLevel * 100 
+          : undefined;
+
+        // 抓取真實心率 (如果抓不到，例如在網頁上，會回傳 null)
+        const realHeartRate = await getLatestHeartRate();
+
+        setUserStatus((prev) => ({
+          ...prev,
+          // 若有真實電量用真實電量，否則維持原值
+          batteryLevel: realBattery !== undefined ? realBattery : prev.batteryLevel,
+          
+          // 關鍵：如果抓得到真實心率就顯示真實數字，若在瀏覽器測試(回傳 null)則維持模擬數值
+          heartRate: realHeartRate !== null 
+            ? realHeartRate 
+            : (70 + Math.floor(Math.random() * 10)), 
+        }));
+      } catch (error) {
+        console.error("無法更新裝置狀態:", error);
+      }
+    };
+
+    updateDeviceStatus();
+    const interval = setInterval(updateDeviceStatus, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ✅ 初始對話訊息、定位與地圖下載（獨立的最外層 useEffect）
   useEffect(() => {
     setMessages([
       {
@@ -550,18 +589,9 @@ const App: React.FC = () => {
       setLocationError("此設備不支援地理定位。請使用支援的瀏覽器。");
     }
 
-    const interval = setInterval(() => {
-      setUserStatus((prev) => ({
-        ...prev,
-        heartRate: 70 + Math.floor(Math.random() * 10),
-        batteryLevel: Math.max(0, prev.batteryLevel - 0.01),
-      }));
-    }, 10000);
-
     loadDownloadedMaps();
 
     return () => {
-      clearInterval(interval);
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
       }
@@ -596,7 +626,7 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
 
     // 1. 即時判斷：檢測瀏覽器目前是否有網路
-    //const isCurrentlyOffline = True;
+    //const isCurrentlyOffline = true;
     const isCurrentlyOffline = !navigator.onLine;
 
     // --- 狀況 A：明確處於斷網狀態 ---
