@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+# Cloud Run source deployment marker: SOS Secret Manager rollout.
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 

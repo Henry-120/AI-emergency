@@ -5,6 +5,25 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
+# Load local environment files before importing services whose module-level
+# configuration reads from os.environ. Cloud Run injects these values before
+# process startup, while this fallback keeps direct local runs consistent.
+for env_file in [
+    Path(__file__).resolve().parent.parent / ".env.local",
+    Path(__file__).resolve().parent.parent / ".env",
+]:
+    if env_file.exists():
+        with env_file.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,21 +37,6 @@ from .services.firebase_service import firebase_service
 from .services import push_service
 from .services import sos_service
 from .services.sos_store_service import sos_store_service
-
-# Load environment variables from .env files when starting the backend directly.
-# This ensures CWA_API_KEY from .env.local is available without requiring external env loader.
-for env_file in [Path(__file__).resolve().parent.parent / ".env.local", Path(__file__).resolve().parent.parent / ".env"]:
-    if env_file.exists():
-        with env_file.open(encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key and key not in os.environ:
-                    os.environ[key] = value
 
 cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
@@ -66,6 +70,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/api/health", include_in_schema=False)
+def health():
+    """Lightweight liveness endpoint for Cloud Run and deployment checks."""
+    return {"status": "ok"}
 
 
 # ==================== 認證 / 帳號 API ====================

@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { analyzeDisaster } from "./services/geminiService";
+import {
+  analyzeDisaster,
+  BackendAuthenticationError,
+} from "./services/geminiService";
 import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
 import {
   fetchLatestAlert,
@@ -938,6 +941,15 @@ const App: React.FC = () => {
         speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
       }
     } catch (error) {
+      if (error instanceof BackendAuthenticationError) {
+        // A local/offline session can outlive its Cloud Run token. Do not start
+        // the large offline model in this case: it looks like the send button
+        // is stuck and cannot repair authentication. Return to login instead.
+        window.alert(error.message);
+        logout();
+        setAuthUser(null);
+        return;
+      }
       // 終極保險：系統判定有網路，但可能遇上訊號死角或 DNS 解析失敗，自動降級切換至本地離線大模型
       console.warn("雲端 Gemini 連線失敗，自動降級切換至本地離線大模型！", error);
       try {

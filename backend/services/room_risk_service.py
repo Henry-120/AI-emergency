@@ -45,7 +45,7 @@ class RoomRiskService:
             ],
             "generationConfig": {
                 "responseMimeType": "application/json",
-                "temperature": 0.2,
+                "temperature": 0.1,
             },
         }
 
@@ -146,6 +146,10 @@ class RoomRiskService:
 4. 相對安全區域，例如穩固桌下、遠離窗戶與高櫃的位置。
 5. 可能形成三角空隙的區域，例如低矮且穩固的沙發、床、矮櫃旁邊，但必須避開玻璃、高櫃與掉落物。
 6. 每個風險都要給出具體改善建議。
+7. 必須掃描整張照片（包含四角、遠處與畫面邊緣），不要只分析中央或最靠近鏡頭的家具。
+8. 只要物件仍可辨識，即使較小或較遠也要列出；合併重複物件，但不要因距離略過風險來源。
+9. 優先完整找出高櫃、層架、電視、冰箱、窗戶、玻璃、吊燈、壁掛物、桌子、床、沙發、門與走道。
+10. bbox 與 polygon 必須貼合實際可見邊界；看不清楚時降低風險判斷的肯定程度，不可捏造物件。
 
 地面區域繪製規則，必須嚴格遵守：
 1. 每個 danger 或 caution 區域必須對應至少一個 sourceObjectLabel，表示該區域是由哪個家具或物件造成的風險。
@@ -161,6 +165,7 @@ class RoomRiskService:
 11. polygon 請沿著照片透視形成梯形或四邊形，靠近鏡頭的一側通常較寬。
 12. impactType 只能是 topple、falling、glass、blocked_path、safe_floor、triangle_void。
 13. sourceObjectLabel 要對應 objects 中的家具名稱；safe_floor 可以省略。
+14. 涵蓋照片中所有互不重複且可辨識的風險區域，最多可回傳 16 個物件與 16 個區域。
 
 即時感測器背景資訊：{sensor_context or "無"}
 """
@@ -193,8 +198,8 @@ class RoomRiskService:
         return {
             "summary": str(data.get("summary") or "已完成室內地震家具風險分析。"),
             "overallRiskLevel": max(1, min(5, int(data.get("overallRiskLevel") or 3))),
-            "objects": objects[:8],
-            "zones": zones[:8],
+            "objects": objects[:16],
+            "zones": zones[:16],
         }
 
     def _normalize_object(self, item: Dict[str, Any]) -> Dict[str, Any]:

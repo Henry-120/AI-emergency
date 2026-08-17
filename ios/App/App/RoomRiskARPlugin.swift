@@ -265,8 +265,14 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
 
     private func runSession(reset: Bool) {
         let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal]
+        // Vertical anchors give ARKit more room structure to stabilize tracking,
+        // while horizontal anchors remain the source of floor placement.
+        configuration.planeDetection = [.horizontal, .vertical]
         configuration.environmentTexturing = .automatic
+        configuration.isAutoFocusEnabled = true
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+            configuration.sceneReconstruction = .mesh
+        }
         if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
             configuration.frameSemantics.insert(.smoothedSceneDepth)
         } else if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
@@ -326,7 +332,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
 
     @objc private func scanTapped() {
         guard !isAnalyzing else { return }
-        guard detectedHorizontalPlanes > 0 else {
+        guard hasFloorEstimate() else {
             showMessage("尚未找到地板", detail: "請慢慢左右移動手機，讓白色平面網格覆蓋地板後再分析。")
             return
         }
@@ -343,7 +349,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         scanButton.setTitle("分析中...", for: .normal)
         statusLabel.text = depthStatus(frame: frame)
 
-        guard let imageData = sceneView.snapshot().jpegData(compressionQuality: 0.86) else {
+        guard let imageData = sceneView.snapshot().jpegData(compressionQuality: 0.94) else {
             finishAnalysisWithError("無法擷取 AR 相機畫面。")
             return
         }
@@ -397,7 +403,10 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         var body = Data()
         body.appendMultipart("--\(boundary)\r\n")
         body.appendMultipart("Content-Disposition: form-data; name=\"sensor_context\"\r\n\r\n")
-        body.appendMultipart("ARKit world tracking; horizontal plane detected; scene depth \(ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) ? "supported" : "unavailable")\r\n")
+        let largestFloorArea = horizontalPlaneAnchors.values
+            .map { $0.extent.x * $0.extent.z }
+            .max() ?? 0
+        body.appendMultipart("ARKit world tracking; \(detectedHorizontalPlanes) horizontal planes; largest floor area \(String(format: "%.2f", largestFloorArea)) square meters; scene depth \(ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) ? "supported" : "unavailable"); analyze the entire wide scene including small and distant visible objects\r\n")
         body.appendMultipart("--\(boundary)\r\n")
         body.appendMultipart("Content-Disposition: form-data; name=\"image\"; filename=\"arkit-room.jpg\"\r\n")
         body.appendMultipart("Content-Type: image/jpeg\r\n\r\n")
@@ -547,6 +556,21 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
             )
         }
 
+        // Extend a confidently detected floor beyond its current polygon. This
+        // keeps valid far/edge zones from disappearing while ARKit is still
+        // growing the plane geometry.
+        if let query = sceneView.raycastQuery(
+            from: screenPoint,
+            allowing: .existingPlaneInfinite,
+            alignment: .horizontal
+        ), let result = sceneView.session.raycast(query).first {
+            return SCNVector3(
+                result.worldTransform.columns.3.x,
+                result.worldTransform.columns.3.y,
+                result.worldTransform.columns.3.z
+            )
+        }
+
         if let query = sceneView.raycastQuery(
             from: screenPoint,
             allowing: .estimatedPlane,
@@ -574,10 +598,10 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
             let dx = end.x - start.x
             let dz = end.z - start.z
             let edge = sqrt(dx * dx + dz * dz)
-            guard edge >= 0.06, edge <= 2.4 else { return false }
+            guard edge >= 0.04, edge <= 4.0 else { return false }
             perimeter += edge
         }
-        return perimeter <= 7.2
+        return perimeter <= 12.0
     }
 
     private func shortLabel(for zone: [String: Any], type: String) -> String {
@@ -734,20 +758,20 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
             readinessProgress.setProgress(0.12, animated: true)
             captureGuide.layer.borderColor = UIColor.white.withAlphaComponent(0.55).cgColor
             updateScanAvailability(isReady: false)
-        } else if detectedHorizontalPlanes == 0 || largestPlaneArea < 0.35 {
+        } else if detectedHorizontalPlanes == 0 && floorHits == 0 {
             statusLabel.text = "正在建立地板範圍"
             readinessLabel.text = "步驟 1/3｜鏡頭朝下，左右掃過更多地板"
             readinessProgress.progressTintColor = .honeyYellow
             readinessProgress.setProgress(detectedHorizontalPlanes > 0 ? 0.38 : 0.22, animated: true)
             captureGuide.layer.borderColor = UIColor.honeyYellow.cgColor
             updateScanAvailability(isReady: false)
-        } else if floorHits < 2 {
-            statusLabel.text = "已有地板，請調整取景角度"
-            readinessLabel.text = "步驟 2/3｜後退一點，同時拍到家具底部與地板"
+        } else if largestPlaneArea < 0.18 && floorHits < 2 {
+            statusLabel.text = "已有地板，可直接分析或再多掃一些"
+            readinessLabel.text = "步驟 2/3｜畫面包含家具底部與地板即可"
             readinessProgress.progressTintColor = .honeyYellow
             readinessProgress.setProgress(0.66, animated: true)
             captureGuide.layer.borderColor = UIColor.honeyYellow.cgColor
-            updateScanAvailability(isReady: false)
+            updateScanAvailability(isReady: true)
         } else {
             statusLabel.text = "取景完成，可以開始分析"
             readinessLabel.text = "步驟 3/3｜保持畫面穩定，按下分析"
@@ -760,18 +784,24 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
 
     private func visibleFloorHitCount() -> Int {
         let samplePoints = [
-            CGPoint(x: sceneView.bounds.width * 0.30, y: sceneView.bounds.height * 0.68),
-            CGPoint(x: sceneView.bounds.width * 0.50, y: sceneView.bounds.height * 0.72),
-            CGPoint(x: sceneView.bounds.width * 0.70, y: sceneView.bounds.height * 0.68)
+            CGPoint(x: sceneView.bounds.width * 0.18, y: sceneView.bounds.height * 0.64),
+            CGPoint(x: sceneView.bounds.width * 0.36, y: sceneView.bounds.height * 0.72),
+            CGPoint(x: sceneView.bounds.width * 0.50, y: sceneView.bounds.height * 0.78),
+            CGPoint(x: sceneView.bounds.width * 0.64, y: sceneView.bounds.height * 0.72),
+            CGPoint(x: sceneView.bounds.width * 0.82, y: sceneView.bounds.height * 0.64)
         ]
         return samplePoints.reduce(0) { count, point in
             guard let query = sceneView.raycastQuery(
                 from: point,
-                allowing: .existingPlaneGeometry,
+                allowing: .estimatedPlane,
                 alignment: .horizontal
             ) else { return count }
             return count + (sceneView.session.raycast(query).isEmpty ? 0 : 1)
         }
+    }
+
+    private func hasFloorEstimate() -> Bool {
+        detectedHorizontalPlanes > 0 || visibleFloorHitCount() > 0
     }
 
     private func updateScanAvailability(isReady: Bool) {

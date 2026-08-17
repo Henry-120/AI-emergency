@@ -4,6 +4,13 @@ import { BACKEND } from "./backend";
 
 const AI_TIMEOUT_MS = 40_000;
 
+export class BackendAuthenticationError extends Error {
+  constructor(message = "登入已過期，請重新登入") {
+    super(message);
+    this.name = "BackendAuthenticationError";
+  }
+}
+
 async function readError(response: Response): Promise<string> {
   const body = await response.json().catch(() => null);
   if (typeof body?.detail === "string") return body.detail;
@@ -21,7 +28,7 @@ export async function analyzeDisaster(
   imageBase64?: string | null,
 ): Promise<DisasterAnalysis> {
   const token = getBackendToken();
-  if (!token) throw new Error("缺少後端登入憑證，請重新登入");
+  if (!token) throw new BackendAuthenticationError();
 
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
@@ -44,6 +51,9 @@ export async function analyzeDisaster(
       signal: controller.signal,
     });
 
+    if (response.status === 401) {
+      throw new BackendAuthenticationError(await readError(response));
+    }
     if (!response.ok) throw new Error(await readError(response));
     return (await response.json()) as DisasterAnalysis;
   } catch (error) {
