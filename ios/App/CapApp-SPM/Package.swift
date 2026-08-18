@@ -18,7 +18,9 @@ let package = Package(
         .package(name: "CapacitorCamera", path: "../../../node_modules/@capacitor/camera"),
         .package(name: "CapacitorLocalNotifications", path: "../../../node_modules/@capacitor/local-notifications"),
         .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
-        .package(name: "LlamaCppCapacitor", path: "../../../node_modules/llama-cpp-capacitor")
+        .package(name: "LlamaCppCapacitor", path: "../../../node_modules/llama-cpp-capacitor"),
+        .package(name: "CapacitorDevice", path: "../../../node_modules/@capacitor/device"),
+        .package(name: "CordovaPluginHealth", path: "../../capacitor-cordova-ios-plugins/sources/CordovaPluginHealth")
     ],
     targets: [
         .target(
@@ -30,9 +32,11 @@ let package = Package(
                 .product(name: "CapacitorCommunitySqlite", package: "CapacitorCommunitySqlite"),
                 .product(name: "CapacitorFirebaseMessaging", package: "CapacitorFirebaseMessaging"),
                 .product(name: "CapacitorCamera", package: "CapacitorCamera"),
+                .product(name: "CapacitorDevice", package: "CapacitorDevice"),
                 .product(name: "CapacitorLocalNotifications", package: "CapacitorLocalNotifications"),
                 .product(name: "CapacitorPreferences", package: "CapacitorPreferences"),
-                .product(name: "LlamaCppCapacitor", package: "LlamaCppCapacitor")
+                .product(name: "LlamaCppCapacitor", package: "LlamaCppCapacitor"),
+                .product(name: "CordovaPluginHealth", package: "CordovaPluginHealth")
             ]
         )
     ]
