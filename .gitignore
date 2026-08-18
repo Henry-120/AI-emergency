@@ -45,3 +45,6 @@ __pycache__
 
 # SQLite local database
 *.db
+
+# 藍牙介面預覽 harness（本機開發用，不進版控）
+preview/

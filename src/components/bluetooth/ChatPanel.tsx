@@ -7,6 +7,9 @@
  * 對話都完整保留。
  *
  * 文案原則：不出現藍牙術語。長度限制以「字數」表達，不是 bytes。
+ *
+ * 按鍵配置照使用當下決定：打字與送出在畫面最下緣的拇指區，送出鍵給主要色實心、
+ * 56px 高（單手、手在抖也按得到）；返回是低頻動作，安靜地放左上但仍有 44px 觸控區。
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -46,6 +49,7 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
 
   const remaining = MAX_TEXT_LENGTH - input.length;
   const tooLong = remaining < 0;
+  const canSend = Boolean(input.trim()) && !sending && !tooLong;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,26 +69,37 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[#020617]">
-      <header className="glass-panel safe-area-top px-4 py-3 flex items-center gap-3 border-b border-white/5">
-        <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
-          ← 返回
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="text-white font-semibold truncate">{peer.name}</div>
-          <div className="text-[11px] text-slate-400">直接連線，不需要網路</div>
+    <div className="command-surface flex h-screen flex-col bg-bg text-ink">
+      <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onBack}
+            aria-label="返回附近的人"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
+          >
+            ←
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-data text-[1.0625rem] font-bold text-ink">
+              {peer.localId ?? peer.name}
+            </div>
+            <div className="text-sm text-muted">直接連線，不需要網路</div>
+          </div>
+          {hasLocation && (
+            <span className="shrink-0 rounded-lg bg-safe-soft px-2.5 py-1.5 text-[0.6875rem] font-bold text-safe-text">
+              會附上你的位置
+            </span>
+          )}
         </div>
-        {hasLocation && (
-          <span className="text-[10px] text-amber-300 bg-amber-500/15 px-2 py-1 rounded-full">
-            會附上你的位置
-          </span>
-        )}
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div ref={scrollRef} className="flex-1 space-y-2.5 overflow-y-auto px-4 py-4">
         {records.length === 0 && (
-          <div className="text-center text-slate-500 text-sm py-8">
-            還沒有訊息。傳送第一則訊息給對方。
+          <div className="rounded-2xl border border-line bg-surface px-5 py-10 text-center">
+            <div className="text-base font-bold text-ink">還沒有訊息</div>
+            <p className="mx-auto mt-2 max-w-[34ch] text-sm leading-relaxed text-muted">
+              傳送第一則訊息給對方。訊息會直接經藍牙送出，不需要網路。
+            </p>
           </div>
         )}
 
@@ -96,32 +111,39 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
           const isSurvival = msg.kind === "survival";
 
           const bubbleClass = isSurvival
-            ? "bg-rose-600/25 text-rose-50 border border-rose-500/50"
+            ? "bg-critical-soft text-ink border border-critical"
             : isMe
-              ? "bg-amber-500/20 text-amber-50 border border-amber-500/30"
-              : "bg-slate-800 text-slate-100 border border-white/5";
+              ? "bg-primary text-primary-ink"
+              : "bg-surface text-ink border border-line";
+
+          // 自己的訊息在藍底上，時間與座標用同色降透明度；對方的用 muted token
+          const metaClass = isMe && !isSurvival ? "text-primary-ink opacity-75" : "text-muted";
 
           return (
             <div
               key={`${msg.timestamp}-${idx}`}
               className={`flex ${isMe ? "justify-end" : "justify-start"}`}
             >
-              <div className={`max-w-[75%] rounded-2xl px-3 py-2 ${bubbleClass}`}>
+              <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 ${bubbleClass}`}>
                 {isSurvival && (
-                  <div className="text-[11px] font-bold text-rose-200 mb-1">
-                    🆘 {isMe ? "已發出存活訊號" : "附近有人存活，需要救援"}
+                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-bold text-critical-text">
+                    <span aria-hidden="true">🆘</span>
+                    {isMe ? "已發出存活訊號" : "附近有人存活，需要救援"}
                   </div>
                 )}
-                <div className="text-sm whitespace-pre-wrap break-words">
+                <div className="whitespace-pre-wrap break-words text-base leading-relaxed">
                   {msg.text}
                 </div>
                 {msg.location && (
-                  <div className="text-[10px] mt-1 opacity-70">
-                    位置：{msg.location.lat.toFixed(4)}, {msg.location.lng.toFixed(4)}
+                  <div className={`mt-1.5 font-data text-[0.6875rem] ${metaClass}`}>
+                    位置 {msg.location.lat.toFixed(4)}, {msg.location.lng.toFixed(4)}
                   </div>
                 )}
-                <div className="text-[9px] mt-1 opacity-50">
-                  {new Date(msg.timestamp).toLocaleTimeString()}
+                <div className={`mt-1 font-data text-[0.6875rem] ${metaClass}`}>
+                  {new Date(msg.timestamp).toLocaleTimeString("zh-TW", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </div>
               </div>
             </div>
@@ -130,14 +152,25 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
       </div>
 
       {errorMsg && (
-        <div className="px-4 py-2 bg-rose-900/30 text-rose-200 text-[12px] border-t border-rose-500/20">
-          {errorMsg}
+        <div
+          role="alert"
+          className="flex shrink-0 items-start gap-3 border-t border-critical bg-critical-soft px-4 py-3"
+        >
+          <p className="flex-1 text-sm font-medium text-critical-text">{errorMsg}</p>
+          <button
+            onClick={() => setErrorMsg("")}
+            aria-label="關閉這則訊息"
+            className="-my-1 -mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg text-critical-text active:bg-critical-soft"
+          >
+            ✕
+          </button>
         </div>
       )}
 
+      {/* 打字與送出固定在畫面最下緣的拇指熱區——這是這個畫面唯一的目的 */}
       <form
         onSubmit={handleSubmit}
-        className="px-3 py-3 border-t border-white/5 bg-slate-950/80"
+        className="safe-area-bottom shrink-0 border-t border-line bg-surface px-3 pt-3"
       >
         <div className="flex gap-2">
           <input
@@ -145,17 +178,16 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="輸入訊息…"
+            aria-label="訊息內容"
             disabled={sending}
-            className={`flex-1 bg-slate-900 border rounded-xl px-3 py-3 text-sm text-white placeholder-slate-500 focus:outline-none ${
-              tooLong
-                ? "border-rose-500/60 focus:border-rose-500"
-                : "border-white/10 focus:border-amber-500/50"
+            className={`min-h-[56px] flex-1 rounded-xl border bg-surface-2 px-3.5 text-base text-ink placeholder:text-muted focus:outline-none ${
+              tooLong ? "border-critical" : "border-line focus:border-accent"
             }`}
           />
           <button
             type="submit"
-            disabled={sending || !input.trim() || tooLong}
-            className="px-5 py-3 bg-amber-500/30 text-amber-100 border border-amber-500/40 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-amber-500/40"
+            disabled={!canSend}
+            className="min-h-[56px] shrink-0 rounded-xl bg-primary px-6 text-base font-bold text-primary-ink transition-colors active:opacity-80 disabled:bg-surface-2 disabled:text-muted"
           >
             {sending ? "傳送中…" : "傳送"}
           </button>
@@ -164,9 +196,8 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
         {/* 只在接近上限時才提示，平時不用打擾使用者 */}
         {input.length > MAX_TEXT_LENGTH - 40 && (
           <div
-            className={`mt-1 text-[11px] text-right ${
-              tooLong ? "text-rose-300" : "text-slate-500"
-            }`}
+            aria-live="polite"
+            className={`mt-1.5 text-right text-sm ${tooLong ? "font-bold text-critical-text" : "text-muted"}`}
           >
             {tooLong
               ? `訊息太長了，請刪掉 ${-remaining} 個字`
