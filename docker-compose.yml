@@ -11,5 +11,5 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./firebase-service-account.json.json:/run/secrets/firebase-service-account.json:ro
+      - ./firebase-service-account.json:/run/secrets/firebase-service-account.json:ro
     restart: unless-stopped
