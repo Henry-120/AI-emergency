@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 from firebase_admin import messaging
 
-from .cwa_service import CWAService
-from .firebase_service import firebase_service
+from services.cwa_service import CWAService
+from services.firebase_service import firebase_service
 
 logger = logging.getLogger(__name__)
 
@@ -150,3 +150,30 @@ async def test_poll_and_push_loop(cwa: CWAService) -> None:
         except Exception:
             logger.exception("test push poll iteration failed")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+def send_rescue_dispatch_push(username: str, summary: dict, lat: float, lng: float) -> None:
+    """
+    當 AI 判斷有救援需求時，發送推播給救災人員。
+    (目前預設廣播給所有註冊裝置，未來可透過 topic 或 role 過濾)
+    """
+    urgency = summary.get("urgencyLevel", 1)
+    injury = summary.get("injurySeverity", "unknown")
+    
+    # 決定標題與內容
+    title = f"🚨 緊急救援任務指派｜優先級 {urgency}"
+    body = f"受困者: {username}，傷勢: {injury}。{summary.get('injurySummary', '請查看系統獲取詳細資訊。')}"
+
+    # 呼叫既有的 _send_push
+    _send_push(
+        title=title,
+        body=body,
+        data={
+            "type": "rescue_dispatch",
+            "username": username,
+            "urgencyLevel": str(urgency),
+            "injurySeverity": injury,
+            "isTrapped": str(summary.get("isTrapped", False)),
+            "lat": str(lat) if lat is not None else "",
+            "lng": str(lng) if lng is not None else "",
+        },
+    )

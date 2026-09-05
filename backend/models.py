@@ -74,6 +74,8 @@ class EmergencyReport(Base):
     location_details = Column(Text, default="", nullable=False)
     urgency_level = Column(Integer, default=1, nullable=False)
     confidence = Column(Float, default=0, nullable=False)
+    battery_level = Column(Float, nullable=True)
+    heart_rate = Column(Integer, nullable=True)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     user = relationship("User", back_populates="emergency_report")

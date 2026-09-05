@@ -54,7 +54,7 @@ export function ChatMessageList({
           >
             {m.role === "assistant" && (
               <div className="space-y-4">
-                <p className="text-sm font-medium leading-relaxed text-slate-200">
+                <p className="text-sm font-medium leading-relaxed text-slate-200 whitespace-pre-line">
                   {m.content}
                 </p>
 

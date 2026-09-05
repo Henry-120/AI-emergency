@@ -10,6 +10,7 @@ import {
   EarthquakeAlert,
   isSevereNearbyEarthquake,
 } from "./services/cwaService";
+import { distanceKm } from "./services/offlineSafetyService";
 import {
   notifyEarthquakeAlert,
   onEarthquakeNotificationTapped,
@@ -113,6 +114,7 @@ const App: React.FC = () => {
   const [earthquakeAlert, setEarthquakeAlert] =
     useState<EarthquakeAlert | null>(null);
   const [cwaError, setCwaError] = useState<string>("");
+  const [hasInitializedLbs, setHasInitializedLbs] = useState(false);
 
   // 新增：用戶狀態
   const [userStatus, setUserStatus] = useState<UserStatus>({
@@ -126,6 +128,7 @@ const App: React.FC = () => {
   const earthquakeAlertRef = useRef<EarthquakeAlert | null>(null);
   const notifiedEarthquakeRef = useRef<string | null>(null);
   const sosEarthquakeRef = useRef<string | null>(null);
+  const isFetchingLbsRef = useRef(false);
 
   // 藍牙收件匣必須在 App 層級常駐。
   //
@@ -452,7 +455,7 @@ const App: React.FC = () => {
       magnitude: 6.5,
       location: "模擬強震（測試資料）",
       time: new Date().toISOString(),
-      epicenterLat: location.lat,
+      epicenterLat: location.lat + 0.5,
       epicenterLng: location.lng,
     });
   };
@@ -633,14 +636,27 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const handleOnline = () => {
+    const handleOnline = async () => { // 加上 async
       setIsOffline(false);
-      validateSession().then((user) => {
-        if (!user) logout();
-        setAuthUser(user);
-      });
-      syncPendingUserStatusRecords();
-      syncPendingEmergencyReports();
+
+      try {
+        // 1. 先驗證使用者的 Token 狀態，但我們「等待」它完成
+        const user = await validateSession();
+
+        // 2. 🚨 救命第一優先：無論 Token 是否有效，網路一通就立刻把 SOS 推出去！
+        await syncPendingEmergencyReports();
+        await syncPendingUserStatusRecords();
+
+        // 3. 資料都順利推播後，才來處理 UI 與登出邏輯
+        if (user) {
+          setAuthUser(user);
+        } else {
+          // 確保離線的求救訊號已經盡力送出後，再將過期的帳號登出
+          logout();
+        }
+      } catch (error) {
+        console.error("連線恢復處理失敗:", error);
+      }
     };
     const handleOffline = () => setIsOffline(true);
 
@@ -686,16 +702,48 @@ const App: React.FC = () => {
 
   const announceEarthquakeSafety = () => {
     const alert = earthquakeAlertRef.current;
-    const instruction = alert
-      ? `偵測到規模 ${alert.magnitude} 強震，${alert.location}。請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。`
-      : "請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。";
-    setMessages((previous) => [...previous, {
-      id: `earthquake-${Date.now()}`,
-      role: "assistant",
-      content: `🚨 ${instruction}`,
-      timestamp: new Date(),
-    }]);
-    speak(instruction);
+    
+    // 預設防災指令
+    const defaultInstruction = "請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。";
+
+    if (!alert) {
+      setMessages((previous) => [...previous, {
+        id: `earthquake-${Date.now()}`,
+        role: "assistant",
+        content: `🚨 ${defaultInstruction}`,
+        timestamp: new Date(),
+      }]);
+      speak(defaultInstruction);
+      return;
+    }
+
+    // 計算使用者與震央距離
+    let distanceInfo = "計算中...";
+    const loc = userStatusRef.current.location;
+    if (loc && alert.epicenterLat != null && alert.epicenterLng != null) {
+      const dist = distanceKm(loc.lat, loc.lng, alert.epicenterLat, alert.epicenterLng);
+      distanceInfo = `約 ${dist.toFixed(1)} 公里`;
+    }
+
+    // 將預警資訊與防災措施融合為單一訊息顯示
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: `earthquake-info-${Date.now()}`,
+        role: "assistant",
+        content:
+          `🚨 【系統警報：偵測到有感地震】\n` +
+          `📍 震央位置：${alert.location || "未知"}\n` +
+          `📊 地震規模：${alert.magnitude}\n` +
+          `📏 距離您的位置：${distanceInfo}\n\n` +
+          `⚠️ **緊急應變指示**：\n` +
+          `${defaultInstruction}\n\n` +
+          `⏳ GUARDIA 正在為您評估周遭地理環境，生成專屬逃生避難報告中...`,
+        timestamp: new Date(),
+      },
+    ]);
+    // 語音播報
+    speak(`偵測到規模 ${alert.magnitude} 強震，${alert.location}。${defaultInstruction}`);
   };
 
   useEffect(() => {
@@ -721,18 +769,16 @@ const App: React.FC = () => {
     if (!isSevereNearbyEarthquake(earthquakeAlert, location)) return;
     const key = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
 
+    // 發送推播通知
     if (notifiedEarthquakeRef.current !== key) {
       notifiedEarthquakeRef.current = key;
       void notifyEarthquakeAlert(earthquakeAlert);
     }
+
+    // 觸發背景 BLE 存活訊號
     if (sosEarthquakeRef.current !== key) {
       sosEarthquakeRef.current = key;
-      setMessages((previous) => [...previous, {
-        id: `sos-start-${Date.now()}`,
-        role: "assistant",
-        content: "⚠️ 強震影響範圍內，正在透過 BLE 尋找附近 Guardia 裝置並傳送匿名存活訊號。",
-        timestamp: new Date(),
-      }]);
+
       void sendAutomaticSurvivalSignal(
         userStatusRef.current.location ?? undefined,
       ).then(({ sent }) => {
@@ -740,8 +786,8 @@ const App: React.FC = () => {
           id: `sos-result-${Date.now()}`,
           role: "assistant",
           content: sent > 0
-            ? `✅ 已向 ${sent} 個附近裝置傳送匿名存活訊號。`
-            : "目前沒有找到可接收訊號的 Guardia BLE 裝置；請保持藍牙開啟並嘗試手動傳送。",
+            ? `✅ 強震影響範圍內，已透過 BLE 向 ${sent} 個附近 Guardia 裝置傳送匿名存活訊號。`
+            : "⚠️ 強震影響範圍內，目前沒有找到可接收訊號的 Guardia BLE 裝置；請保持藍牙開啟。",
           timestamp: new Date(),
         }]);
       }).catch((error) => {
@@ -872,6 +918,118 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // ✅ LBS 環境風險分析初始化（線上/離線雙軌）
+  useEffect(() => {
+    // 條件 1：必須還沒初始化過，且已經成功拿到「定位」與「地震警報」
+    if (hasInitializedLbs || !userStatus.location || !earthquakeAlert) return;
+    // 判斷只有當地震是「強震且在附近」時才觸發
+    if (!isSevereNearbyEarthquake(earthquakeAlert, userStatus.location)) return;
+    // 防止重複觸發
+    if (isFetchingLbsRef.current) return;
+    isFetchingLbsRef.current = true; // 上鎖
+
+    const fetchLbsRisk = async () => {
+      const location = userStatus.location;
+      if (!location) return;
+
+      const { lat, lng } = location;
+      const currentLocation = `GPS座標 (緯度: ${lat.toFixed(4)}, 經度: ${lng.toFixed(4)})`;
+
+      // 新增：在此處預先計算與震央的距離
+      let distanceText = "";
+      if (earthquakeAlert.epicenterLat != null && earthquakeAlert.epicenterLng != null) {
+        const dist = distanceKm(lat, lng, earthquakeAlert.epicenterLat, earthquakeAlert.epicenterLng);
+        distanceText = `距離震央 ${dist.toFixed(1)} 公里，`;
+      }
+      // 情況 A：斷網狀態，自動切換至裝置端離線大模型 (0.5B)
+      if (isOffline) {
+        console.log("離線狀態：啟動在地 LLM 地理風險分析...");
+        try {
+          const initTriggerMsg: ChatMessage = {
+            id: `offline-trigger-${Date.now()}`,
+            role: "user",
+            content: `【離線定位觸發】我目前位於 ${currentLocation}，${distanceText}請提供環境警告。`,
+            timestamp: new Date(),
+          };
+
+          const offlineAnalysis = await getOfflineAnalysisWithTimeout([initTriggerMsg]);
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `lbs-offline-${Date.now()}`,
+              role: "assistant",
+              content: "⚠️ **[離線安全報告]** 已根據您的 GPS 座標完成環境風險評估：",
+              analysis: offlineAnalysis,
+              timestamp: new Date(),
+            },
+          ]);
+
+          setCurrentAnalysis(offlineAnalysis);
+          setHasInitializedLbs(true);
+        } catch (error) {
+          console.error("離線環境分析失敗:", error);
+          isFetchingLbsRef.current = false;
+        }
+        return;
+      }
+
+      // 情況 B：有網路，呼叫雲端 LBS API
+      try {
+        const epicenterCoords = (earthquakeAlert.epicenterLat && earthquakeAlert.epicenterLng)
+          ? `[震央座標: 緯度 ${earthquakeAlert.epicenterLat}, 經度 ${earthquakeAlert.epicenterLng}]`
+          : "";
+
+        const disasterInfo = `發生規模 ${earthquakeAlert.magnitude} 地震，震央位於 ${earthquakeAlert.location} ${epicenterCoords}`;
+
+        const riskRes = await fetch("http://127.0.0.1:8000/api/location-risk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: currentLocation,
+            disaster_info: disasterInfo
+          })
+        });
+
+        if (!riskRes.ok) throw new Error("LBS API 呼叫失敗");
+        const riskData = await riskRes.json();
+
+        const warningMessage = `🚨 【在地環境安全警告】\n` + 
+        riskData.environmentalWarnings.map((w: string) => `• ${w}`).join('\n');
+
+        const lbsAnalysis = {
+          missingInfoRequests: riskData.questionsForUser,
+          immediateActions: [], 
+        } as unknown as DisasterAnalysis;
+
+        setMessages(prev => [
+          ...prev,
+          { 
+            id: `lbs-warn-${Date.now()}`, 
+            role: "assistant", 
+            content: warningMessage, 
+            timestamp: new Date() 
+          },
+          { 
+            id: `lbs-quest-${Date.now() + 1}`, 
+            role: "assistant", 
+            content: "為了提供更精準的在地化逃生建議，請協助確認以下環境狀況：", 
+            analysis: lbsAnalysis, 
+            timestamp: new Date() 
+          }
+        ]);
+
+        setHasInitializedLbs(true); 
+
+      } catch (error) {
+        console.error("初始化 LBS 聊天失敗:", error);
+        isFetchingLbsRef.current = false; // 失敗時解鎖允許重試
+      }
+    };
+
+    fetchLbsRisk();
+  }, [userStatus.location, earthquakeAlert, hasInitializedLbs]);
+
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -893,7 +1051,7 @@ const App: React.FC = () => {
 
     // 1. 即時判斷：檢測瀏覽器目前是否有網路
     //const isCurrentlyOffline = true;
-    const isCurrentlyOffline = !navigator.onLine;
+    const isCurrentlyOffline = isOffline;
 
     // --- 狀況 A：明確處於斷網狀態 ---
     if (isCurrentlyOffline) {

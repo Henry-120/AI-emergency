@@ -295,81 +295,122 @@ export async function getPendingEmergencyReports(): Promise<EmergencyReportSyncR
 
 /** 依序同步快照，最後一筆會成為後端的當前救援摘要。 */
 export async function syncPendingEmergencyReports() {
-  const token = getBackendToken();
-  if (!token) {
-    return { success: false, synced: 0, error: "missing_backend_token" };
-  }
+  const token = getBackendToken() || ""; // 容許空值
+  const EMERGENCY_API_KEY = "sos-emergency-override-key-999";
 
   const pending = await getPendingEmergencyReports();
-  let synced = 0;
+  if (pending.length === 0) {
+    return { success: true, synced: 0 };
+  }
+
+  // 1. 依照 local_user_id 分組，找出每個使用者「最新的一筆」紀錄
+  // 由於 getPendingEmergencyReports 已經是依 created_at ASC 排序 (舊到新)
+  // 所以在 Map 賦值時，最後一筆自然會覆蓋掉前面的，保留下最新的那筆
+  const latestRecordsMap = new Map<string, EmergencyReportSyncRecord>();
   for (const record of pending) {
+    latestRecordsMap.set(record.local_user_id, record);
+  }
+
+  let syncedCount = 0;
+
+  // 2. 只把「最新的一筆」送交給後端
+  for (const [userId, latestRecord] of latestRecordsMap.entries()) {
     try {
       const response = await fetch(`${BACKEND}/api/emergency-report`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "X-Emergency-Key": EMERGENCY_API_KEY,      // 🚨 緊急金鑰
+          "X-Emergency-User-Id": userId,            // 🚨 災民的 ID
         },
         body: JSON.stringify({
-          summary: record.summary,
-          latitude: record.latitude ?? null,
-          longitude: record.longitude ?? null,
-          messages: record.messages,
+          summary: latestRecord.summary,
+          latitude: latestRecord.latitude ?? null,
+          longitude: latestRecord.longitude ?? null,
+          messages: latestRecord.messages,
         }),
       });
+
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      await markEmergencyReportSynced(record.id);
-      synced += 1;
+
+      // 3. 找出該 userId 這次積壓的所有紀錄 ID
+      const userPendingIds = pending
+        .filter((record) => record.local_user_id === userId)
+        .map((record) => record.id);
+
+      // 4. 一次性將這些紀錄全部標記為已同步（因為最新狀態已成功上雲）
+      await markEmergencyReportsBatchSynced(userPendingIds);
+      syncedCount += userPendingIds.length;
+
     } catch (error) {
-      await markEmergencyReportFailed(
-        record.id,
+      // 若連最新一筆都失敗，則批次增加重試次數
+      const userPendingIds = pending
+        .filter((record) => record.local_user_id === userId)
+        .map((record) => record.id);
+        
+      await markEmergencyReportsBatchFailed(
+        userPendingIds,
         error instanceof Error ? error.message : "同步失敗",
       );
-      // 保持時間順序；舊快照失敗時不越過它寫入新快照。
-      return { success: false, synced, error: "sync_failed" };
+      return { success: false, synced: syncedCount, error: "sync_failed" };
     }
   }
-  return { success: true, synced };
+  return { success: true, synced: syncedCount };
 }
 
-async function markEmergencyReportSynced(id: string) {
+
+ //批次將多筆報告標記為「已同步」(Synced) 
+async function markEmergencyReportsBatchSynced(ids: string[]) {
+  if (ids.length === 0) return;
   const now = new Date().toISOString();
+
   if (!isNativeSQLite()) {
+    const idSet = new Set(ids);
     const records = getEmergencyFallbackRecords().map((record) =>
-      record.id === id
+      idSet.has(record.id)
         ? { ...record, sync_status: "synced" as const, synced_at: now, last_error: null }
         : record,
     );
     localStorage.setItem(EMERGENCY_FALLBACK_KEY, JSON.stringify(records));
     return;
   }
+
   const db = await getDb();
   if (!db) return;
+  const placeholders = ids.map(() => "?").join(",");
   await db.run(
     `UPDATE emergency_report_queue
      SET sync_status = 'synced', synced_at = ?, updated_at = ?, last_error = NULL
-     WHERE id = ?`,
-    [now, now, id],
+     WHERE id IN (${placeholders})`,
+    [now, now, ...ids],
   );
 }
 
-async function markEmergencyReportFailed(id: string, error: string) {
+ //批次將多筆報告的失敗次數 +1 
+async function markEmergencyReportsBatchFailed(ids: string[], error: string) {
+  if (ids.length === 0) return;
+  const now = new Date().toISOString();
+
   if (!isNativeSQLite()) {
+    const idSet = new Set(ids);
     const records = getEmergencyFallbackRecords().map((record) =>
-      record.id === id
-        ? { ...record, retry_count: record.retry_count + 1, last_error: error }
+      idSet.has(record.id)
+        ? { ...record, retry_count: record.retry_count + 1, last_error: error, updated_at: now }
         : record,
     );
     localStorage.setItem(EMERGENCY_FALLBACK_KEY, JSON.stringify(records));
     return;
   }
+
   const db = await getDb();
   if (!db) return;
+  const placeholders = ids.map(() => "?").join(",");
   await db.run(
     `UPDATE emergency_report_queue
      SET retry_count = retry_count + 1, last_error = ?, updated_at = ?
-     WHERE id = ?`,
-    [error, new Date().toISOString(), id],
+     WHERE id IN (${placeholders})`,
+    [error, now, ...ids],
   );
 }
 

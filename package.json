@@ -16,7 +16,7 @@
     "@awesome-cordova-plugins/health": "^9.4.0",
     "@capacitor-community/bluetooth-le": "^8.2.0",
     "@capacitor-community/sqlite": "^8.1.0",
-    "@capacitor-firebase/messaging": "^8.3.0",
+    "@capacitor-firebase/messaging": "^8.4.0",
     "@capacitor/camera": "^8.2.0",
     "@capacitor/cli": "^8.5.0",
     "@capacitor/core": "^8.5.0",

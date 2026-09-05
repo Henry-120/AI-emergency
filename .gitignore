@@ -31,6 +31,7 @@ ios/App/CapApp-SPM/symlinks/
 !.env.example
 firebase-service-account*.json
 *firebase-adminsdk*.json
+*firebase-key.json
 
 # 藍牙中繼送達的求救記錄（含位置與醫療摘要）——執行時產生的真實個資，不進版控
 data/sos_reports/

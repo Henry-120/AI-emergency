@@ -31,7 +31,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, utils as ec_utils
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from ..sos_keys import ACK_SIGNING_PRIVATE_KEY_PEM, ENCRYPTION_PRIVATE_KEY_PEM, KEY_VERSION
+from sos_keys import ACK_SIGNING_PRIVATE_KEY_PEM, ENCRYPTION_PRIVATE_KEY_PEM, KEY_VERSION
 
 # ---------------------------------------------------------------------------
 # 封包標頭（對應 sosProtocol.ts，v3 格式——緊急度/是否受困/位置/位置描述/電量/

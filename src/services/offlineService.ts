@@ -4,6 +4,7 @@ import { initLlama } from 'llama-cpp-capacitor';
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
 const OFFLINE_MODEL_FILE = "qwen2.5-0.5b-instruct-q4_k_m.gguf";
+
 const OfflineModel = registerPlugin<{
   installBundledModel(options: { fileName: string }): Promise<{ path: string }>;
 }>("OfflineModel");
@@ -17,6 +18,7 @@ async function resolveOfflineModelPath() {
   }
   return OFFLINE_MODEL_FILE;
 }
+
 
 // 1. 本地專家規則庫 (原 getOfflineAnalysis 同步版，重命名為 getLocalKnowledge 作為備用知識庫)
 function getLocalKnowledge(userInput: string, conversationText: string = userInput): DisasterAnalysis {
@@ -458,6 +460,7 @@ function buildOfflineEmergencySummary(
 }
 
 // 3. 混合架構：導出給 UI 使用的全新非同步大模型函式 (來自 HEAD)
+let cachedLlamaContext: any = null;
 export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<DisasterAnalysis> {
   const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
   
@@ -468,12 +471,31 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
   let expertOptions = localKnowledge.missingInfoRequests || [];
   let expertRiskLevel = localKnowledge.riskLevel;
 
-  // 🔥 核心：判斷是不是「沒有命中任何 if/else 規則」，掉到了預設值？
+  const isInitialLocationAlert = lastUserMessage.includes("【離線定位觸發】");
   const isFallbackRule = expertAdvice.includes("目前離線。請描述您的狀況");
 
   let systemPrompt = "";
 
-  if (isFallbackRule) {
+  if (isInitialLocationAlert) {
+    // 💡 路線 A：初始狀態，讓離線 LLM 根據傳入的地理位置生成警告
+    systemPrompt = `你是一個防災專家。強震剛發生，使用者目前位置資訊：${lastUserMessage}。
+請根據此地理特徵（如盆地、高樓、山區等），給出 3 點簡短的「在地環境安全警告」。
+絕對不要輸出任何解釋文字或 Markdown，只能輸出純 JSON 格式：
+{
+  "type": "地震",
+  "riskLevel": 8,
+  "situationSummary": "在地環境安全警告",
+  "immediateActions": [
+    { "title": "環境警告", "description": "具體警告1", "priority": "CRITICAL" },
+    { "title": "環境警告", "description": "具體警告2", "priority": "HIGH" }
+  ],
+  "survivalProbability": 90,
+  "longTermAdvice": "請選擇下方狀態回報"
+}`;
+    // 強制將下方按鈕替換為離線模組主選單
+    expertOptions = ["受困", "出口受阻", "受傷", "我人安全", "有瓦斯味"];
+
+  } else if (isFallbackRule) {
     // 💡 路線 A：自由輸入文字 (LLM 自己想辦法)
     systemPrompt = `你是一個專業的災害應變專家。使用者目前遇到以下緊急狀況：
 【使用者狀況】：${lastUserMessage}
@@ -527,22 +549,24 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
       }))
     ];
 
-    // 1. 載入模型並獲取 LlamaContext 實例
-    const llamaContext = await initLlama({
-      model: await resolveOfflineModelPath(),
-      n_ctx: 2048,
-      n_gpu_layers: 99,
-    });
+    // 修改處：只在第一次呼叫時初始化模型，後續直接重複使用
+    if (!cachedLlamaContext) {
+      console.log("正在載入離線模型...");
+      cachedLlamaContext = await initLlama({
+        model: await resolveOfflineModelPath(),
+        n_ctx: 2048,
+        n_gpu_layers: 99, 
+      });
+    }
 
     // 2. 執行對話，調用實例上的 completion 方法
-    const result = await llamaContext.completion({
+    const result = await cachedLlamaContext.completion({
       messages: formattedMessages as any,
       temperature: isFallbackRule ? 0.3 : 0.0
     });
 
     // 取得模型回傳的文字
     let aiText = result.text || (result as any).content || "";
-
     // 清理字串與解析
     aiText = aiText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
     const jsonStartIndex = aiText.indexOf('{');
@@ -577,10 +601,39 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
     }
 
     return parsedData as DisasterAnalysis;
-
   } catch (error) {
     console.error("⚠️ LLM 解析失敗，啟動強化版靜態降級方案", error);
-    
+    // 如果是【離線定位觸發】，執行座標與距離的離線評估 logic
+    if (isInitialLocationAlert) {
+      const geo = evaluateOfflineGeoLocation(lastUserMessage);
+
+      return {
+        type: "地震" as any,
+        riskLevel: 8,
+        situationSummary: geo.situationSummary, // 👈 乾淨的狀況分析文字
+        immediateActions: [                     // 👈 離線 LLM 報告位置吐出的評估條目
+          {
+            title: "地理方位評估",
+            description: `經 GPS 定位，您目前位於${geo.region}${geo.distanceText}。`,
+            priority: "CRITICAL" as const
+          },
+          {
+            title: "環境安全警訊",
+            description: geo.threatText,
+            priority: "HIGH" as const
+          },
+          {
+            title: "應變指南",
+            description: "請隨時做好「趴下、掩護、穩住」，並請由下方選單回報您目前的最新現況。",
+            priority: "HIGH" as const
+          }
+        ],
+        survivalProbability: 85,
+        longTermAdvice: "目前處於離線安全模式，已根據地理資料為您完成風險分析。",
+        missingInfoRequests: expertOptions,
+        emergencySummary: localKnowledge.emergencySummary
+      };
+    }
     let fallbackActions: any[] = []; 
     
     if (expertAdvice.includes("1.")) {
@@ -623,4 +676,50 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
       emergencySummary: localKnowledge.emergencySummary
     };
   }
+}
+
+// 解析 GPS 座標與震央距離，輸出台灣方位與離線風險評估
+function evaluateOfflineGeoLocation(userInput: string) {
+  const latMatch = userInput.match(/緯度[:：]\s*([\d.]+)/);
+  const lngMatch = userInput.match(/經度[:：]\s*([\d.]+)/);
+  const distMatch = userInput.match(/(?:距離|距離震央)[:：]?\s*([\d.]+)\s*公里/);
+
+  let region = "台灣地區";
+  let distanceText = "";
+  let threatText = "請密切注意防震措施與周遭環境。";
+
+  // 1. 判斷台灣東南西北區域
+  if (latMatch && lngMatch) {
+    const lat = parseFloat(latMatch[1]);
+    const lng = parseFloat(lngMatch[1]);
+
+    if (lat > 24.5) {
+      region = "台灣北部";
+    } else if (lat < 23.3) {
+      region = "台灣南部";
+    } else if (lng > 121.0) {
+      region = "台灣東部";
+    } else {
+      region = "台灣中部";
+    }
+  }
+
+  // 2. 判斷與震央距離威脅度
+  if (distMatch) {
+    const dist = parseFloat(distMatch[1]);
+    distanceText = `，距離震央約 ${dist} 公里`;
+
+    if (dist < 30) {
+      threatText = "屬於強震極危險區域，請嚴防建築結構損傷與強烈餘震！";
+    } else if (dist < 100) {
+      threatText = "屬於中距離影響區，請遠離外牆磁磚、高大家具與玻璃。";
+    } else {
+      threatText = "屬於遠距離影響區，搖晃感較為減緩，仍須防範後續餘震。";
+    }
+  }
+
+  // 3. 組成 human-readable 的狀況分析摘要
+  const situationSummary = `位於${region}${distanceText}。\n【安全評估】${threatText}\n\n請選擇下方按鈕回報自身狀況：`;
+
+  return { region, distanceText, threatText, situationSummary };
 }

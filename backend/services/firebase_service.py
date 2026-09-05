@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
 
-from .. import schemas
+import schemas
 
 
 class FirebaseService:
@@ -118,23 +118,22 @@ class FirebaseService:
         report_ref = db.collection("emergency_reports").document(user_id)
         report_ref.set(payload)
 
-        # Messages live in a subcollection so the report cannot exceed Firestore's
-        # single-document size limit. Rebuild it because the client sends a snapshot.
-        messages = report_ref.collection("chat_history")
-        for page in self._chunks(list(messages.stream()), 450):
-            batch = db.batch()
-            for snapshot in page:
-                batch.delete(snapshot.reference)
-            batch.commit()
+        # Messages live in a subcollection. 
+        # 改用內容雜湊產生固定 ID 並使用 merge=True，避免先刪後寫的雙倍成本與 Race Condition
+        messages = report_ref.collection("chat_history")        
         for page in self._chunks(data.messages, 450):
             batch = db.batch()
             for message in page:
-                ref = messages.document()
+                # 利用時間戳與內容產生固定不變的 Document ID
+                unique_str = f"{message.timestamp}_{message.role}_{message.content[:30]}"
+                msg_id = hashlib.sha256(unique_str.encode("utf-8")).hexdigest()[:24]
+                
+                ref = messages.document(msg_id)
                 batch.set(ref, {
                     "role": message.role,
                     "content": message.content,
                     "timestamp": message.timestamp or now,
-                })
+                }, merge=True)
             batch.commit()
         return payload
 
@@ -145,20 +144,47 @@ class FirebaseService:
     def get_nearby_rescue_cases(self, latitude: float, longitude: float, radius_km: float) -> list[dict]:
         db = self._get_db()
         cases = []
-        for snapshot in db.collection("emergency_reports").where("requiresRescue", "==", True).stream():
+        
+        # 1. 計算緯度 (Latitude) 邊界 (地球上 1 度緯度大約等於 111.32 公里)
+        lat_delta = radius_km / 111.32
+        min_lat = latitude - lat_delta
+        max_lat = latitude + lat_delta
+
+        # 2. 計算經度 (Longitude) 邊界 (經度距離會隨緯度變化，需乘上 cos(緯度))
+        lon_delta = radius_km / (111.32 * math.cos(math.radians(latitude)))
+        min_lon = longitude - lon_delta
+        max_lon = longitude + lon_delta
+
+        # 3. Firestore 查詢過濾 (注意：Firestore 限制只能對單一欄位做範圍查詢，因此我們選擇緯度)
+        query = (
+            db.collection("emergency_reports")
+            .where("requiresRescue", "==", True)
+            .where("latitude", ">=", min_lat)
+            .where("latitude", "<=", max_lat)
+        )
+
+        for snapshot in query.stream():
             report = snapshot.to_dict()
             lat, lon = report.get("latitude"), report.get("longitude")
             if lat is None or lon is None:
                 continue
+
+            # 4. 經度過濾 (在 Python 中快速剔除方塊外的資料，極度輕量)
+            if not (min_lon <= float(lon) <= max_lon):
+                continue
+
+            # 5. 最後才精算圓形半徑的實際距離
             distance = self._distance_km(latitude, longitude, float(lat), float(lon))
             if distance > radius_km:
                 continue
+
             user = self.get_user(str(report.get("userId", snapshot.id))) or {}
             cases.append({
                 **report,
                 "username": user.get("username", "未知使用者"),
                 "distanceKm": round(distance, 2),
             })
+
         return sorted(cases, key=lambda item: (-item.get("urgencyLevel", 1), item["distanceKm"]))
 
     @staticmethod

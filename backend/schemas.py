@@ -108,6 +108,8 @@ class EmergencyReportUpsert(BaseModel):
     messages: List[EmergencyChatMessage] = Field(default_factory=list)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    battery_level: Optional[float] = None
+    heart_rate: Optional[int] = None
 
 class EmergencyReportResponse(EmergencySummary):
     userId: str
@@ -129,6 +131,8 @@ class RescueCaseResponse(BaseModel):
     isTrapped: bool = False
     mobilityStatus: str = "unknown"
     locationDetails: str = ""
+    battery_level: Optional[float] = None
+    heart_rate: Optional[int] = None
     updatedAt: datetime
 
 # --- Cloud Run Gemini 災害對話 ---
@@ -140,6 +144,8 @@ class AIChatRequest(BaseModel):
     messages: List[AIChatMessage] = Field(min_length=1, max_length=30)
     sensor_context: str = Field(default="", max_length=4000)
     image_base64: Optional[str] = None
+    battery_level: Optional[float] = None
+    heart_rate: Optional[int] = None
 
 class AIAction(BaseModel):
     title: str

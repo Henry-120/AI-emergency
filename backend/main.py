@@ -9,8 +9,8 @@ from typing import Optional
 # configuration reads from os.environ. Cloud Run injects these values before
 # process startup, while this fallback keeps direct local runs consistent.
 for env_file in [
-    Path(__file__).resolve().parent.parent / ".env.local",
-    Path(__file__).resolve().parent.parent / ".env",
+    Path(__file__).resolve().parent / ".env.local",
+    Path(__file__).resolve().parent / ".env",
 ]:
     if env_file.exists():
         with env_file.open(encoding="utf-8") as f:
@@ -27,16 +27,18 @@ for env_file in [
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from . import auth, schemas
-from .services.cwa_service import CWAService
-from .services.offline_maps_service import offline_maps_service
-from .services.room_risk_service import room_risk_service
-from .services.disaster_ai_service import DisasterAIError, disaster_ai_service
-from .services.shelter_service import shelter_service
-from .services.firebase_service import firebase_service
-from .services import push_service
-from .services import sos_service
-from .services.sos_store_service import sos_store_service
+import auth, schemas
+from services.cwa_service import CWAService
+from services.offline_maps_service import offline_maps_service
+from services.room_risk_service import room_risk_service
+from services.disaster_ai_service import DisasterAIError, disaster_ai_service
+from services.shelter_service import shelter_service
+from services.firebase_service import firebase_service
+from services import push_service
+from services import sos_service
+from services.sos_store_service import sos_store_service
+from pydantic import BaseModel
+from services.location_ai_service import location_ai_service
 
 cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
@@ -94,7 +96,31 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="使用者不存在")
     return user
+# 系統預設的緊急通關金鑰 (可寫死在環境變數或固定字串)
+EMERGENCY_API_KEY = os.getenv("EMERGENCY_API_KEY", "sos-emergency-override-key-999")
 
+def get_user_for_emergency(
+    authorization: Optional[str] = Header(default=None),
+    x_emergency_key: Optional[str] = Header(default=None),
+    x_emergency_user_id: Optional[str] = Header(default=None),
+) -> dict:
+    """專為緊急求救設計：優先使用 JWT，失效時改認緊急金鑰與 User ID 強制放行。"""
+    # 1. 嘗試常規 JWT 驗證
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        payload = auth.decode_token(token)
+        if payload:
+            user = firebase_service.get_user(str(payload["uid"]))
+            if user:
+                return user
+
+    # 2. Token 無效/遺失，檢查是否帶有緊急救援金鑰
+    if x_emergency_key == EMERGENCY_API_KEY and x_emergency_user_id:
+        # 嘗試抓取使用者。就算 Firebase 查無此人，依然回傳 dict 確保能強行寫入救援資料
+        user = firebase_service.get_user(x_emergency_user_id)
+        return user if user else {"id": x_emergency_user_id, "username": "emergency_override"}
+
+    raise HTTPException(status_code=401, detail="憑證失效且無緊急救援金鑰，無法通報")
 
 @app.post("/api/auth/register", response_model=schemas.AuthResponse)
 def register(data: schemas.RegisterRequest):
@@ -154,22 +180,66 @@ def update_medical_card(
 @app.post("/api/ai/analyze", response_model=schemas.AIAnalysisResponse)
 async def analyze_disaster(
     data: schemas.AIChatRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_user_for_emergency), # 使用緊急放行驗證
 ):
-    """Use the server-side Gemini key; never expose it to the iOS/web client."""
+    """Use the server-side Gemini key; analyze chat, auto-save emergency report, and trigger push if urgent."""
     try:
-        return await disaster_ai_service.analyze(
+        ai_result = await disaster_ai_service.analyze(
             messages=[message.model_dump() for message in data.messages],
             sensor_context=data.sensor_context,
             image_base64=data.image_base64,
+            battery_level=data.battery_level,
+            heart_rate=data.heart_rate,
         )
     except DisasterAIError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    # 自動解析 AI 產生的救援摘要，存入 Firebase 並發送緊急推播
+    summary_data = ai_result.get("emergencySummary") or {}
+    if summary_data:
+        try:
+            # 1. 整理 AI 回傳的 summary 字典資料 (轉成 Pydantic/schemas 所需格式)
+            summary_payload = {
+                "has_injuries": summary_data.get("hasInjuries", False),
+                "injury_summary": summary_data.get("injurySummary", ""),
+                "injury_severity": summary_data.get("injurySeverity", "unknown"),
+                "rescue_needs": summary_data.get("rescueNeeds", []),
+                "is_trapped": summary_data.get("isTrapped", False),
+                "mobility_status": summary_data.get("mobilityStatus", "unknown"),
+                "location_details": summary_data.get("locationDetails", ""),
+                "urgency_level": summary_data.get("urgencyLevel", 1),
+                "confidence": summary_data.get("confidence", 0.0),
+            }
+
+            # 2. 將 summary 包進 EmergencyReportUpsert 中
+            # 如果你的 EmergencyReportUpsert 接收 summary 物件，請用這行：
+            upsert_data = schemas.EmergencyReportUpsert(
+                summary=summary_payload,
+                battery_level=data.battery_level,
+                heart_rate=data.heart_rate,
+            )
+            
+            # 1. 自動更新至 Firebase
+            firebase_service.upsert_emergency_report(current_user["id"], upsert_data)
+
+            # 2. 判斷是否符合高風險條件，發送推播給救災人員
+            if summary_payload["has_injuries"] or summary_payload["is_trapped"] or summary_payload["urgency_level"] >= 3:
+                username = current_user.get("username", "未知使用者")
+                push_service.send_rescue_dispatch_push(
+                    username=username,
+                    summary=summary_data,
+                    lat=None,
+                    lng=None,
+                )
+        except Exception as e:
+            print(f"[Warning] 自動儲存報告或推播失敗: {e}")
+
+    return ai_result
+
 @app.put("/api/emergency-report", response_model=schemas.EmergencyReportResponse)
 def upsert_emergency_report(
     data: schemas.EmergencyReportUpsert,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_user_for_emergency),
 ):
     """保存 AI 從完整對話彙整的「當前」傷勢與救援需求。"""
     return firebase_service.upsert_emergency_report(current_user["id"], data)
@@ -205,6 +275,21 @@ async def get_weather():
 @app.get("/api/weather/list")
 async def get_weather_list():
     return await cwa.get_earthquake_list()
+
+class LocationRiskRequest(BaseModel):
+    location: str       # 接收前端傳來的定位資訊，例如 "新北市板橋區 (25.01, 121.46)"
+    disaster_info: str  # 接收前端傳來的災情資訊，例如 "花蓮外海發生規模 6.5 地震"
+
+@app.post("/api/location-risk")
+async def get_location_risk(request: LocationRiskRequest):
+    """
+    根據使用者位置與即時災情，利用 AI 進行 LBS 適地性環境風險評估。
+    """
+    result = await location_ai_service.analyze_risk(
+        location_info=request.location,
+        disaster_info=request.disaster_info
+    )
+    return result
 
 
 # ==================== 推播裝置註冊 API ====================

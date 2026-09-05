@@ -1,4 +1,3 @@
-
 export enum DisasterType {
   EARTHQUAKE = 'EARTHQUAKE',
   FLOOD = 'FLOOD',
@@ -37,16 +36,6 @@ export interface DisasterAnalysis {
   emergencySummary: EmergencySummary;
 }
 
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  analysis?: DisasterAnalysis;
-  timestamp: Date;
-  imageBase64?: string | null; // 讓 ChatMessage 能夠合法攜帶圖片資料
-  isCloudResponse?: boolean;
-}
-
 export interface UserStatus {
   isMoving: boolean;
   heartRate: number;
@@ -65,23 +54,23 @@ export interface AuthUser {
 
 // 緊急醫療卡 (ICE - In Case of Emergency)
 export interface MedicalCard {
-  fullName: string;                  // 姓名
-  birthday: string;                  // 生日 (YYYY-MM-DD)
-  gender: string;                    // 性別
-  bloodType: string;                 // 血型 (含 Rh)
-  heightCm: string;                  // 身高 (cm)
-  weightKg: string;                  // 體重 (kg)
-  drugAllergies: string;             // 藥物過敏
-  foodAllergies: string;             // 食物 / 其他過敏
-  chronicConditions: string;         // 慢性病史
-  currentMedications: string;        // 目前用藥
-  medicalDevices: string;            // 體內醫療裝置 (心律調節器等)
-  organDonor: boolean;               // 器官捐贈意願
-  emergencyContactName: string;      // 緊急聯絡人姓名
-  emergencyContactPhone: string;     // 緊急聯絡人電話
+  fullName: string;              // 姓名
+  birthday: string;              // 生日 (YYYY-MM-DD)
+  gender: string;                // 性別
+  bloodType: string;             // 血型 (含 Rh)
+  heightCm: string;              // 身高 (cm)
+  weightKg: string;              // 體重 (kg)
+  drugAllergies: string;         // 藥物過敏
+  foodAllergies: string;         // 食物 / 其他過敏
+  chronicConditions: string;     // 慢性病史
+  currentMedications: string;    // 目前用藥
+  medicalDevices: string;        // 體內醫療裝置 (心律調節器等)
+  organDonor: boolean;           // 器官捐贈意願
+  emergencyContactName: string;  // 緊急聯絡人姓名
+  emergencyContactPhone: string; // 緊急聯絡人電話
   emergencyContactRelation: string;  // 與聯絡人關係
-  nationalId: string;                // 身分證 / 健保資訊
-  notes: string;                     // 其他備註
+  nationalId: string;            // 身分證 / 健保資訊
+  notes: string;                 // 其他備註
   updatedAt: string;
 }
 
@@ -130,6 +119,7 @@ export interface RoomRiskAnalysis {
   zones: RoomRiskZone[];
 }
 
+// 完整的聊天訊息介面（已合併空間分析、圖片與雲端回應狀態）
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -137,12 +127,6 @@ export interface ChatMessage {
   analysis?: DisasterAnalysis;
   roomRiskAnalysis?: RoomRiskAnalysis;
   timestamp: Date;
-}
-
-export interface UserStatus {
-  isMoving: boolean;
-  heartRate: number;
-  batteryLevel: number;
-  location: { lat: number; lng: number } | null;
-  hasInjuries: boolean;
+  imageBase64?: string | null; // 讓 ChatMessage 能夠合法攜帶圖片資料
+  isCloudResponse?: boolean;
 }
