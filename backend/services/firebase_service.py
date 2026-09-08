@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
 
-import schemas
+from .. import schemas
 
 
 class FirebaseService:
@@ -213,6 +213,20 @@ class FirebaseService:
                 saved_ids.append(doc_ref.id)
             batch.commit()
         return saved_ids
+
+    def save_earthquake_field_report(
+        self, user_id: str, data: schemas.EarthquakeFieldReportCreate
+    ) -> str:
+        """保存經使用者確認安全後提供的第一手現場災情。"""
+        ref = self._get_db().collection("earthquake_field_reports").document()
+        payload = data.model_dump(mode="python")
+        payload.update({
+            "user_id": user_id,
+            "reporter_confirmed_safe": data.is_safe,
+            "server_timestamp": self._now(),
+        })
+        ref.set(payload)
+        return ref.id
 
     def register_device_token(self, token: str, platform: str, user_id: str | None) -> None:
         ref = self._get_db().collection("device_tokens").document(token)

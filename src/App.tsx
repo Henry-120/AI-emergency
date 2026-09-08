@@ -4,11 +4,12 @@ import {
   analyzeDisaster,
   BackendAuthenticationError,
 } from "./services/geminiService";
-import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
+import { AuthUser, ChatMessage, DisasterAnalysis, EarthquakeAssessment, UserStatus } from "./types";
 import {
   fetchLatestAlert,
   EarthquakeAlert,
   isSevereNearbyEarthquake,
+  SEVERE_EARTHQUAKE_MAGNITUDE,
 } from "./services/cwaService";
 import { distanceKm } from "./services/offlineSafetyService";
 import {
@@ -64,6 +65,10 @@ import { RescueMapPage } from "./components/rescue/RescueMapPage";
 import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 import { initHealthKit, getLatestHeartRate } from "./services/healthService";
+import {
+  assessEarthquakeForUser,
+  submitEarthquakeFieldReport,
+} from "./services/earthquakeResponseService";
 
 const OFFLINE_ANALYSIS_TIMEOUT_MS = 20_000;
 
@@ -114,7 +119,12 @@ const App: React.FC = () => {
   const [earthquakeAlert, setEarthquakeAlert] =
     useState<EarthquakeAlert | null>(null);
   const [cwaError, setCwaError] = useState<string>("");
-  const [hasInitializedLbs, setHasInitializedLbs] = useState(false);
+  const [initializedEarthquakeKey, setInitializedEarthquakeKey] = useState<string | null>(null);
+  const [earthquakeWorkflow, setEarthquakeWorkflow] = useState<{
+    phase: "awaiting_safety" | "collecting_report";
+    assessment: EarthquakeAssessment;
+    alert: EarthquakeAlert;
+  } | null>(null);
 
   // 新增：用戶狀態
   const [userStatus, setUserStatus] = useState<UserStatus>({
@@ -920,10 +930,15 @@ const App: React.FC = () => {
 
   // ✅ LBS 環境風險分析初始化（線上/離線雙軌）
   useEffect(() => {
-    // 條件 1：必須還沒初始化過，且已經成功拿到「定位」與「地震警報」
-    if (hasInitializedLbs || !userStatus.location || !earthquakeAlert) return;
-    // 判斷只有當地震是「強震且在附近」時才觸發
-    if (!isSevereNearbyEarthquake(earthquakeAlert, userStatus.location)) return;
+    // 每一場新地震各啟動一次；不能用單一 boolean，否則第二場地震永遠不會觸發。
+    if (!userStatus.location || !earthquakeAlert) return;
+    const currentEarthquakeKey = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
+    if (initializedEarthquakeKey === currentEarthquakeKey) return;
+    // 遠距使用者也需要得到「留在原地觀察」等不同建議，故此處不套用 100 公里門檻。
+    // 仍限制為近期強震，避免 App 啟動時為 CWA 的舊資料開啟回報流程。
+    if (earthquakeAlert.magnitude < SEVERE_EARTHQUAKE_MAGNITUDE) return;
+    const occurredAt = Date.parse(earthquakeAlert.time || earthquakeAlert.originTime || "");
+    if (Number.isFinite(occurredAt) && Date.now() - occurredAt > 30 * 60 * 1000) return;
     // 防止重複觸發
     if (isFetchingLbsRef.current) return;
     isFetchingLbsRef.current = true; // 上鎖
@@ -966,7 +981,8 @@ const App: React.FC = () => {
           ]);
 
           setCurrentAnalysis(offlineAnalysis);
-          setHasInitializedLbs(true);
+          setInitializedEarthquakeKey(currentEarthquakeKey);
+          isFetchingLbsRef.current = false;
         } catch (error) {
           console.error("離線環境分析失敗:", error);
           isFetchingLbsRef.current = false;
@@ -974,31 +990,25 @@ const App: React.FC = () => {
         return;
       }
 
-      // 情況 B：有網路，呼叫雲端 LBS API
+      // 情況 B：有網路，取得具座標的地震應變分析並啟動安全確認流程。
       try {
-        const epicenterCoords = (earthquakeAlert.epicenterLat && earthquakeAlert.epicenterLng)
-          ? `[震央座標: 緯度 ${earthquakeAlert.epicenterLat}, 經度 ${earthquakeAlert.epicenterLng}]`
-          : "";
-
-        const disasterInfo = `發生規模 ${earthquakeAlert.magnitude} 地震，震央位於 ${earthquakeAlert.location} ${epicenterCoords}`;
-
-        const riskRes = await fetch("http://127.0.0.1:8000/api/location-risk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: currentLocation,
-            disaster_info: disasterInfo
-          })
-        });
-
-        if (!riskRes.ok) throw new Error("LBS API 呼叫失敗");
-        const riskData = await riskRes.json();
-
-        const warningMessage = `🚨 【在地環境安全警告】\n` + 
-        riskData.environmentalWarnings.map((w: string) => `• ${w}`).join('\n');
+        const medicalSummary = summarizeMedicalCard(getMedicalCard());
+        const assessment = await assessEarthquakeForUser(
+          earthquakeAlert,
+          userStatus,
+          medicalSummary,
+        );
+        const warnings = [
+          ...assessment.immediate_actions,
+          ...assessment.environmental_warnings,
+        ];
+        const warningMessage =
+          `🚨 【依位置產生的地震應變】\n` +
+          `您距震央約 ${assessment.distance_km.toFixed(1)} 公里。\n` +
+          warnings.map((warning) => `• ${warning}`).join("\n");
 
         const lbsAnalysis = {
-          missingInfoRequests: riskData.questionsForUser,
+          missingInfoRequests: ["我目前安全", "我需要協助"],
           immediateActions: [], 
         } as unknown as DisasterAnalysis;
 
@@ -1013,13 +1023,19 @@ const App: React.FC = () => {
           { 
             id: `lbs-quest-${Date.now() + 1}`, 
             role: "assistant", 
-            content: "為了提供更精準的在地化逃生建議，請協助確認以下環境狀況：", 
+            content: assessment.safety_question,
             analysis: lbsAnalysis, 
             timestamp: new Date() 
           }
         ]);
 
-        setHasInitializedLbs(true); 
+        setEarthquakeWorkflow({
+          phase: "awaiting_safety",
+          assessment,
+          alert: earthquakeAlert,
+        });
+        setInitializedEarthquakeKey(currentEarthquakeKey);
+        isFetchingLbsRef.current = false;
 
       } catch (error) {
         console.error("初始化 LBS 聊天失敗:", error);
@@ -1028,7 +1044,7 @@ const App: React.FC = () => {
     };
 
     fetchLbsRisk();
-  }, [userStatus.location, earthquakeAlert, hasInitializedLbs]);
+  }, [userStatus.location, earthquakeAlert, initializedEarthquakeKey, isOffline]);
 
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1048,6 +1064,54 @@ const App: React.FC = () => {
     setMessages(updatedMessages);
     setInput("");
     setIsAnalyzing(true);
+
+    if (earthquakeWorkflow?.phase === "awaiting_safety") {
+      const confirmsSafe = /我目前安全|已安全|安全了|目前安全/.test(userMsg.content);
+      if (confirmsSafe) {
+        setEarthquakeWorkflow({ ...earthquakeWorkflow, phase: "collecting_report" });
+        setMessages((previous) => [...previous, {
+          id: `field-report-request-${Date.now()}`,
+          role: "assistant",
+          content:
+            "已確認您目前安全。若不需冒險移動，請用一段話回報您現在看得到的災情：\n" +
+            earthquakeWorkflow.assessment.field_report_questions
+              .map((question) => `• ${question}`)
+              .join("\n") +
+            "\n只回報親眼看到或確定的資訊；不確定可直接說不知道。",
+          timestamp: new Date(),
+        }]);
+        setIsAnalyzing(false);
+        return;
+      }
+      // 未確認安全時仍交給原本的災害 AI，優先提供求救與自救指示。
+    } else if (earthquakeWorkflow?.phase === "collecting_report") {
+      try {
+        const result = await submitEarthquakeFieldReport({
+          assessment: earthquakeWorkflow.assessment,
+          alert: earthquakeWorkflow.alert,
+          status: userStatus,
+          observation: userMsg.content,
+        });
+        setMessages((previous) => [...previous, {
+          id: `field-report-received-${Date.now()}`,
+          role: "assistant",
+          content: `✅ 感謝回報。已將您的位置、與震央距離及第一手觀察送至災情後端（回報編號：${result.id}）。請勿為了補充資訊進入危險區域。`,
+          timestamp: new Date(),
+        }]);
+        setEarthquakeWorkflow(null);
+      } catch (error) {
+        console.error("現場災情回報失敗", error);
+        setMessages((previous) => [...previous, {
+          id: `field-report-error-${Date.now()}`,
+          role: "assistant",
+          content: "目前無法送出災情回報，請先留在安全位置，稍後再試。",
+          timestamp: new Date(),
+        }]);
+      } finally {
+        setIsAnalyzing(false);
+      }
+      return;
+    }
 
     // 1. 即時判斷：檢測瀏覽器目前是否有網路
     //const isCurrentlyOffline = true;

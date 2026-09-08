@@ -44,6 +44,16 @@ export interface UserStatus {
   hasInjuries: boolean;
 }
 
+export interface EarthquakeAssessment {
+  earthquake_key: string;
+  distance_km: number;
+  impact_zone: 'epicentral' | 'near' | 'affected' | 'distant';
+  immediate_actions: string[];
+  environmental_warnings: string[];
+  safety_question: string;
+  field_report_questions: string[];
+}
+
 // 註冊 / 登入後的使用者資料
 export interface AuthUser {
   id: string;

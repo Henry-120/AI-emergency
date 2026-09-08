@@ -27,18 +27,19 @@ for env_file in [
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-import auth, schemas
-from services.cwa_service import CWAService
-from services.offline_maps_service import offline_maps_service
-from services.room_risk_service import room_risk_service
-from services.disaster_ai_service import DisasterAIError, disaster_ai_service
-from services.shelter_service import shelter_service
-from services.firebase_service import firebase_service
-from services import push_service
-from services import sos_service
-from services.sos_store_service import sos_store_service
+from . import auth, schemas
+from .services.cwa_service import CWAService
+from .services.offline_maps_service import offline_maps_service
+from .services.room_risk_service import room_risk_service
+from .services.disaster_ai_service import DisasterAIError, disaster_ai_service
+from .services.shelter_service import shelter_service
+from .services.firebase_service import firebase_service
+from .services import push_service
+from .services import sos_service
+from .services.sos_store_service import sos_store_service
 from pydantic import BaseModel
-from services.location_ai_service import location_ai_service
+from .services.location_ai_service import location_ai_service
+from .services.earthquake_response_service import earthquake_response_service
 
 cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
@@ -290,6 +291,43 @@ async def get_location_risk(request: LocationRiskRequest):
         disaster_info=request.disaster_info
     )
     return result
+
+
+@app.post("/api/earthquake/assess", response_model=schemas.EarthquakeAssessmentResponse)
+async def assess_earthquake(
+    data: schemas.EarthquakeAssessmentRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """依使用者與震央的實際座標，提供第一時間應變與震後回報問題。"""
+    assessment = earthquake_response_service.assess(data)
+    try:
+        location_info = (
+            f"GPS座標（緯度 {data.user_latitude:.5f}，經度 {data.user_longitude:.5f}），"
+            f"距震央 {assessment['distance_km']:.1f} 公里"
+        )
+        disaster_info = (
+            f"規模 {data.magnitude:.1f} 地震，震央 {data.location}，"
+            f"座標 {data.epicenter_latitude:.5f}, {data.epicenter_longitude:.5f}"
+        )
+        ai_result = await location_ai_service.analyze_risk(location_info, disaster_info)
+        warnings = ai_result.get("environmentalWarnings") or []
+        assessment["environmental_warnings"] = [str(item) for item in warnings[:4]]
+    except Exception:
+        # 距離規則仍可獨立運作；AI 在地補充失敗不應阻斷救命指示。
+        pass
+    return assessment
+
+
+@app.post("/api/earthquake/field-report", response_model=schemas.EarthquakeFieldReportResponse)
+def create_earthquake_field_report(
+    data: schemas.EarthquakeFieldReportCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """接收已確認安全之使用者提供的具座標第一手災情。"""
+    if not data.is_safe:
+        raise HTTPException(status_code=409, detail="尚未確認安全，請先依指示避難或求救")
+    report_id = firebase_service.save_earthquake_field_report(current_user["id"], data)
+    return {"id": report_id, "status": "received"}
 
 
 # ==================== 推播裝置註冊 API ====================
