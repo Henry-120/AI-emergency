@@ -7,6 +7,9 @@
  * 藍牙傳訊與多跳求救會發生的情境本來就是沒有網路——用線上圖磚的話，最需要看
  * 地圖的當下只會看到一片空白。圖磚讀不到時退回顯示原始座標，至少能抄下來
  * 轉述給救難單位，不會變成完全無用的畫面。
+ *
+ * 版面重點：使用者打開這頁是為了「往那邊走」。方向與距離做成整頁最大的一行，
+ * 邊走邊瞄一眼就讀得到；地圖是佐證，座標是最後的退路。
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -18,6 +21,10 @@ import {
   registerPmtilesProtocol,
 } from "../offline/offlineMapStyle";
 import { bearingDeg, distanceKm, headingText } from "../../services/offlineSafetyService";
+
+/** 標記顏色。與 command surface 的 critical / safe token 同值 */
+const TARGET_COLOR = "#e0454e";
+const ME_COLOR = "#2f9d5b";
 
 interface Props {
   /** 頁面標題 */
@@ -84,7 +91,7 @@ export function LocationMapView({
     mapRef.current = map;
 
     const markers: Marker[] = [
-      new maplibregl.Marker({ color: "#e11d48" })
+      new maplibregl.Marker({ color: TARGET_COLOR })
         .setLngLat([target.lng, target.lat])
         .setPopup(new maplibregl.Popup({ offset: 24 }).setText(targetLabel))
         .addTo(map),
@@ -92,7 +99,7 @@ export function LocationMapView({
 
     if (myLocation) {
       markers.push(
-        new maplibregl.Marker({ color: "#22c55e" })
+        new maplibregl.Marker({ color: ME_COLOR })
           .setLngLat([myLocation.lng, myLocation.lat])
           .setPopup(new maplibregl.Popup({ offset: 24 }).setText("你的位置"))
           .addTo(map),
@@ -127,7 +134,7 @@ export function LocationMapView({
           type: "line",
           source: "route",
           paint: {
-            "line-color": "#e11d48",
+            "line-color": TARGET_COLOR,
             "line-width": 3,
             "line-dasharray": [2, 1.5],
           },
@@ -143,42 +150,52 @@ export function LocationMapView({
   }, [mapReady, target?.lat, target?.lng, myLocation?.lat, myLocation?.lng, targetLabel]);
 
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
-      <header className="glass-panel safe-area-top px-4 py-3 flex items-center gap-3 border-b border-white/5">
-        <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
-          ← 返回
-        </button>
-        <div className="text-white font-bold">{title}</div>
+    <div className="command-surface flex h-screen flex-col overflow-hidden bg-bg text-ink">
+      <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onBack}
+            aria-label="返回附近的人"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
+          >
+            ←
+          </button>
+          <div className="min-w-0 truncate text-[1.0625rem] font-bold text-ink">{title}</div>
+        </div>
       </header>
 
       {(details || distanceText || (target && !myLocation)) && (
-        <div className="shrink-0 px-4 py-3 bg-slate-900/60 border-b border-white/5 space-y-1">
-          {details}
+        <div className="shrink-0 border-b border-line bg-surface px-4 py-3">
+          {/* 「往哪走、還有多遠」是這頁的主角，字級明顯大過其他資訊 */}
           {distanceText && heading && (
-            <div className="text-amber-200 text-sm font-semibold">
-              在你的 {heading}方 {distanceText}
+            <div className="text-[1.5rem] font-black leading-tight text-ink">
+              往{heading}方 {distanceText}
             </div>
           )}
+          {details && <div className="mt-1.5 space-y-1">{details}</div>}
           {target && !myLocation && (
-            <div className="text-[11px] text-slate-400">
-              你目前沒有定位，無法計算距離與方向
-            </div>
+            <div className="mt-1.5 text-sm text-muted">你目前沒有定位，無法計算距離與方向</div>
           )}
         </div>
       )}
 
       {!target ? (
-        <div className="flex-1 flex items-center justify-center px-8">
-          <div className="text-center text-slate-400 text-sm leading-relaxed">{emptyMessage}</div>
+        <div className="flex flex-1 items-center justify-center px-8">
+          <div className="max-w-[34ch] text-center text-base leading-relaxed text-muted">
+            {emptyMessage}
+          </div>
         </div>
       ) : mapReady === false ? (
         // 圖磚讀不到：不要留一片空白，把座標交出來讓使用者能轉述給救難單位
-        <div className="flex-1 flex items-center justify-center px-8">
-          <div className="text-center text-slate-300 text-sm leading-relaxed">
-            離線地圖無法載入，以下是原始座標：
-            <div className="mt-2 font-mono text-amber-300">
+        <div className="flex flex-1 items-center justify-center px-8">
+          <div className="text-center">
+            <p className="text-base leading-relaxed text-ink">
+              離線地圖無法載入，以下是原始座標：
+            </p>
+            <div className="mt-3 select-all rounded-xl border border-line bg-surface px-4 py-3 font-data text-[1.25rem] font-bold text-ink">
               {target.lat.toFixed(5)}, {target.lng.toFixed(5)}
             </div>
+            <p className="mt-2 text-sm text-muted">可以直接唸給救難單位或抄下來。</p>
           </div>
         </div>
       ) : (
@@ -186,8 +203,11 @@ export function LocationMapView({
       )}
 
       {target && (
-        <div className="shrink-0 px-4 py-2 text-[11px] text-slate-500 border-t border-white/5">
-          座標 {target.lat.toFixed(5)}, {target.lng.toFixed(5)}
+        <div className="safe-area-bottom shrink-0 border-t border-line bg-surface px-4 pt-2.5 text-sm text-muted">
+          座標{" "}
+          <span className="font-data">
+            {target.lat.toFixed(5)}, {target.lng.toFixed(5)}
+          </span>
         </div>
       )}
     </div>

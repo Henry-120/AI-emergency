@@ -50,3 +50,6 @@ __pycache__
 
 # Local LLM weights (large, installed into the iOS app separately)
 models/*.gguf
+
+# 藍牙介面預覽 harness（本機開發用，不進版控）
+preview/

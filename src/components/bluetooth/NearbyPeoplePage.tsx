@@ -6,6 +6,13 @@
  *   - 對話歷史來自常駐收件匣（bluetoothInbox），離開頁面訊息不會遺失
  *   - 畫面上不出現任何藍牙術語（廣播 / 掃描 / RSSI / BLE）
  *   - 移除「所有藍牙裝置」模式：掃到耳機、手環對求生沒有用途，只會稀釋列表
+ *
+ * 按鍵配置照「這個功能實際被用到的當下」決定：
+ *   - 「我需要求救」釘在畫面最下緣的拇指區。求救的人正在慌、可能只有一隻手，
+ *     不該先捲動列表才找得到入口——所以它不隨內容捲走。
+ *   - 「我看到了，我過去」是要邊跑邊按的，給實心綠、寬、56px 高，一按就送。
+ *   - 「讓附近的人看見我」是設定一次就不再碰的開關，做成次要樣式，
+ *     但開/關狀態必須一眼分辨（不只靠顏色，文字本身就說明現在的狀態）。
  */
 
 import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
@@ -95,6 +102,22 @@ function describeDirection(
   const distance = km < 1 ? `${Math.round(km * 1000)} 公尺` : `${km.toFixed(1)} 公里`;
 
   return `${heading}方 ${distance}`;
+}
+
+/**
+ * 緊急度 1–10 轉成標籤與樣式。
+ *
+ * 數字本身對要去幫忙的人沒有意義（「7」是多急？），要幫他翻成能直接判斷的字。
+ * 顏色之外一定同時有文字標籤——紅綠色盲也要分得出輕重。
+ */
+function urgencyBadge(level: number): { label: string; className: string } {
+  if (level >= 8) {
+    return { label: "危及生命", className: "bg-critical-soft text-critical-text border-critical" };
+  }
+  if (level >= 5) {
+    return { label: "緊急", className: "bg-high-soft text-high-text border-high" };
+  }
+  return { label: "需要協助", className: "bg-surface-2 text-ink border-line" };
 }
 
 export function NearbyPeoplePage({ onBack, myLocation }: Props) {
@@ -270,8 +293,22 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
     [myLocation, replyingTo],
   );
 
+  /** 列表上每個人的最後一則訊息。直接由收件匣推導，不另外存一份狀態。 */
+  const lastMessageFor = useCallback((device: NearbyDevice) => {
+    if (!device.localId) return null;
+    const conversation = getConversation(device.localId);
+    const last = conversation[conversation.length - 1];
+    if (!last) return null;
+    return {
+      text: last.message.text,
+      at: last.message.timestamp,
+      incoming: last.direction === "in",
+    };
+  }, []);
+
   // ---- 別人的求救位置（地圖） ----
   if (viewingSos) {
+    const badge = urgencyBadge(viewingSos.urgencyLevel);
     return (
       <LocationMapView
         title="求救位置"
@@ -280,22 +317,34 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
         targetLabel="求救位置"
         details={
           <>
-            <div className="text-rose-200 text-sm font-semibold">
-              緊急度 {viewingSos.urgencyLevel}/10
-              {viewingSos.isTrapped && " · 受困"}
-              {viewingSos.battery !== undefined && ` · 對方電量 ${viewingSos.battery}%`}
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-lg border px-2.5 py-1 text-sm font-bold ${badge.className}`}
+              >
+                {badge.label}
+              </span>
+              {viewingSos.isTrapped && (
+                <span className="rounded-lg border border-critical bg-critical-soft px-2.5 py-1 text-sm font-bold text-critical-text">
+                  受困
+                </span>
+              )}
             </div>
             {viewingSos.locationDetails && (
-              <div className="text-slate-300 text-[12px]">{viewingSos.locationDetails}</div>
+              <div className="text-base text-ink">{viewingSos.locationDetails}</div>
             )}
-            <div className="text-slate-500 text-[11px]">經 {viewingSos.hops} 跳傳到你這裡</div>
+            <div className="text-sm text-muted">
+              {viewingSos.battery !== undefined && (
+                <>對方電量 <span className="font-data">{viewingSos.battery}%</span> · </>
+              )}
+              經 <span className="font-data">{viewingSos.hops}</span> 跳傳到你這裡
+            </div>
           </>
         }
         emptyMessage={
           <>
             這則求救沒有附帶位置。
             <br />
-            <span className="text-slate-500">對方送出時可能沒有定位訊號。</span>
+            對方送出時可能沒有定位訊號。
           </>
         }
         onBack={() => setViewingSos(null)}
@@ -314,7 +363,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
         targetLabel={`${viewingPeer.localId ?? viewingPeer.name} 分享的位置`}
         details={
           known ? (
-            <div className="text-slate-300 text-[12px]">
+            <div className="text-sm text-muted">
               對方在 {new Date(known.at).toLocaleString("zh-TW")} 分享的位置
             </div>
           ) : undefined
@@ -323,9 +372,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
           <>
             還不知道這個人在哪。
             <br />
-            <span className="text-slate-500">
-              對方傳一則帶位置的訊息給你之後，這裡就會顯示地圖。
-            </span>
+            對方傳一則帶位置的訊息給你之後，這裡就會顯示地圖。
           </>
         }
         onBack={() => setViewingPeer(null)}
@@ -356,19 +403,26 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
   // 舊版寫「僅能掃描」是錯的，會誤導使用者以為功能還有一半能用。
   if (status && !status.isNative) {
     return (
-      <div className="h-screen flex flex-col bg-[#020617]">
-        <header className="glass-panel safe-area-top px-4 py-3 flex items-center gap-3 border-b border-white/5">
-          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
-            ← 返回
-          </button>
-          <div className="text-white font-bold">附近的人</div>
+      <div className="command-surface flex h-screen flex-col bg-bg text-ink">
+        <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onBack}
+              aria-label="返回"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
+            >
+              ←
+            </button>
+            <div className="text-[1.0625rem] font-bold text-ink">附近的人</div>
+          </div>
         </header>
-        <div className="flex-1 flex items-center justify-center px-8">
-          <p className="text-center text-slate-300 text-sm leading-relaxed">
-            這項功能需要在手機 App 中使用。
-            <br />
-            <span className="text-slate-500">網頁瀏覽器無法使用手機的藍牙。</span>
-          </p>
+        <div className="flex flex-1 items-center justify-center px-8">
+          <div className="max-w-[34ch] text-center">
+            <p className="text-base leading-relaxed text-ink">這項功能需要在手機 App 中使用。</p>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              網頁瀏覽器無法使用手機的藍牙。
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -383,129 +437,182 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
   const isVisible = status?.isAdvertising ?? false;
 
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
-      <header className="glass-panel safe-area-top px-4 py-3 border-b border-white/5">
-        <div className="flex items-center justify-between mb-2">
-          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
-            ← 返回
-          </button>
-          <div className="text-white font-bold">附近的人</div>
+    <div className="command-surface flex h-screen flex-col overflow-hidden bg-bg text-ink">
+      <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowSos(true)}
-            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-rose-500/20 text-rose-200 border border-rose-500/30"
+            onClick={onBack}
+            aria-label="返回"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
           >
-            求救
+            ←
           </button>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2">
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] text-slate-400">我的識別碼</div>
-            <div className="text-sm font-mono text-amber-300">{getLocalId()}</div>
-            {status && !status.isEnabled && (
-              <div className="text-[11px] text-rose-300 mt-1">
-                手機的藍牙未開啟，無法使用此功能
-              </div>
-            )}
+          <div className="min-w-0 flex-1">
+            <div className="text-[1.0625rem] font-bold text-ink">附近的人</div>
+            <div
+              aria-live="polite"
+              className="flex items-center gap-1.5 text-sm text-muted"
+            >
+              {searching && (
+                <span
+                  aria-hidden="true"
+                  className="inline-block h-2 w-2 shrink-0 rounded-full bg-accent pulse-soft"
+                />
+              )}
+              {searching
+                ? "持續尋找中"
+                : deviceList.length > 0
+                  ? `附近有 ${deviceList.length} 人`
+                  : "附近目前沒有人"}
+            </div>
           </div>
-          <button
-            onClick={handleToggleVisibility}
-            className={`shrink-0 px-4 py-2.5 rounded-xl text-[13px] font-semibold border ${
-              isVisible
-                ? "bg-rose-500/20 text-rose-200 border-rose-500/30"
-                : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
-            }`}
-          >
-            {isVisible ? "停止讓別人看見我" : "讓附近的人看見我"}
-          </button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        {searching && (
-          <div className="flex items-center gap-2 mb-3 text-[12px] text-slate-400">
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            正在尋找附近的人…
-          </div>
-        )}
-
-        {errorMsg && (
-          <div className="mb-3 px-3 py-2 bg-rose-900/30 text-rose-200 text-[12px] rounded-xl border border-rose-500/20">
-            {errorMsg}
-          </div>
-        )}
-
-        {nearbySosSightings.length > 0 && (
-          <div className="mb-3 px-3 py-2 bg-rose-900/40 text-rose-100 text-[12px] rounded-xl border border-rose-500/30 space-y-1.5">
-            <div className="font-semibold">
-              附近有 {nearbySosSightings.length} 人求救,正在幫忙轉發
+      {/* 身分與可見性：設定一次就不再碰的東西，壓在一列，不佔畫面主角位置 */}
+      <div className="shrink-0 border-b border-line bg-surface px-3 pb-3">
+        <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="text-[0.6875rem] font-bold uppercase tracking-wider text-muted">
+              我的識別碼
             </div>
+            <div className="truncate font-data text-base font-bold text-ink">{getLocalId()}</div>
+          </div>
+          <button
+            onClick={handleToggleVisibility}
+            aria-pressed={isVisible}
+            className={`min-h-[48px] shrink-0 rounded-xl border px-4 text-sm font-bold transition-colors active:opacity-80 ${
+              isVisible
+                ? "border-safe bg-safe-soft text-safe-text"
+                : "border-line bg-surface text-muted"
+            }`}
+          >
+            {isVisible ? "別人看得到我" : "別人看不到我"}
+          </button>
+        </div>
+        {status && !status.isEnabled && (
+          <p className="mt-2 text-sm font-medium text-critical-text">
+            手機的藍牙未開啟，無法使用此功能
+          </p>
+        )}
+      </div>
+
+      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        {errorMsg && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 rounded-xl border border-critical bg-critical-soft px-3.5 py-2.5"
+          >
+            <p className="flex-1 text-sm font-medium text-critical-text">{errorMsg}</p>
+            <button
+              onClick={() => setErrorMsg("")}
+              aria-label="關閉這則訊息"
+              className="-my-1.5 -mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg text-critical-text"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* 附近有人求救時，這一段就是整頁的主角，排在所有東西前面 */}
+        {nearbySosSightings.length > 0 && (
+          <section className="space-y-2.5">
+            <h2 className="text-[1.0625rem] font-black text-critical-text">
+              附近有 {nearbySosSightings.length} 人求救
+            </h2>
+
             {nearbySosSightings.map((s) => {
               const direction = describeDirection(myLocation, s.location);
+              const badge = urgencyBadge(s.urgencyLevel);
+              const peer = deviceList.find((d) => d.localId === s.fromLocalId);
+              const sending = replyingTo === s.fromLocalId;
+              const replied = s.fromLocalId ? repliedTo.has(s.fromLocalId) : false;
+
               return (
                 <div
                   key={s.msgId}
-                  className="text-rose-200/80 rounded-lg px-2 py-1.5 -mx-2 bg-rose-500/10 border border-rose-500/20"
+                  className="rounded-2xl border border-critical bg-surface p-4"
                 >
-                  <button onClick={() => setViewingSos(s)} className="w-full text-left">
-                    {s.fromLocalId && (
-                      <div className="font-mono text-rose-100">{s.fromLocalId} 求救</div>
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-lg border px-2.5 py-1 text-sm font-bold ${badge.className}`}
+                    >
+                      {badge.label}
+                    </span>
+                    {s.isTrapped && (
+                      <span className="rounded-lg border border-critical bg-critical-soft px-2.5 py-1 text-sm font-bold text-critical-text">
+                        受困
+                      </span>
                     )}
+                  </div>
+
+                  {/* 「往哪走、多遠」是要去幫忙的人唯一真正需要的資訊 */}
+                  {direction ? (
+                    <div className="text-[1.5rem] font-black leading-tight text-ink">
+                      {direction}
+                    </div>
+                  ) : s.location ? (
+                    // 抓不到自己的定位就無法算方向，退而顯示原始座標讓使用者至少能抄下來
                     <div>
-                      緊急度 {s.urgencyLevel}/10{s.isTrapped ? " · 受困" : ""}
-                      {s.battery !== undefined && ` · 電量 ${s.battery}%`}
-                    </div>
-                    {direction && <div className="text-rose-100 font-semibold">{direction}</div>}
-                    {s.locationDetails && <div>{s.locationDetails}</div>}
-                    {s.location && !direction && (
-                      // 抓不到自己的定位就無法算方向，退而顯示原始座標讓使用者至少能抄下來轉給救難單位
-                      <div className="text-rose-200/60">
-                        對方位置 {s.location.lat.toFixed(4)}, {s.location.lng.toFixed(4)}（你目前沒有定位，無法算方向）
+                      <div className="font-data text-base font-bold text-ink">
+                        {s.location.lat.toFixed(4)}, {s.location.lng.toFixed(4)}
                       </div>
-                    )}
-                    <div className="text-[10px] text-rose-300/60 mt-0.5">
-                      {s.location ? "點一下看地圖 →" : "這則求救沒有附帶位置"}
+                      <div className="text-sm text-muted">你目前沒有定位，無法算方向</div>
                     </div>
-                  </button>
+                  ) : (
+                    <div className="text-base font-bold text-muted">這則求救沒有附帶位置</div>
+                  )}
+
+                  {s.locationDetails && (
+                    <div className="mt-1 text-base text-ink">{s.locationDetails}</div>
+                  )}
+
+                  <div className="mt-1.5 text-sm text-muted">
+                    {s.fromLocalId && (
+                      <><span className="font-data">{s.fromLocalId}</span> · </>
+                    )}
+                    {s.battery !== undefined && (
+                      <>電量 <span className="font-data">{s.battery}%</span> · </>
+                    )}
+                    經 <span className="font-data">{s.hops}</span> 跳傳到你這裡
+                  </div>
 
                   {/* 求救者剛好也在附近列表中 → 可以直接回話。少了這個入口，
                       收到求救的人只能乾著急，沒辦法告訴對方「我看到了，我過去」。 */}
-                  {(() => {
-                    const peer = deviceList.find((d) => d.localId === s.fromLocalId);
-                    if (!peer) return null;
+                  {peer && (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => void handleQuickReply(peer)}
+                        disabled={sending || replied}
+                        className="min-h-[56px] flex-1 rounded-xl bg-safe px-4 text-[1.0625rem] font-bold text-white transition-colors active:opacity-80 disabled:bg-surface-2 disabled:text-muted"
+                      >
+                        {sending ? "送出中…" : replied ? "✓ 對方知道你要過去了" : "我看到了，我過去"}
+                      </button>
+                      <button
+                        onClick={() => setChatPeer(peer)}
+                        className="min-h-[56px] shrink-0 rounded-xl border border-line bg-surface-2 px-4 text-base font-bold text-ink transition-colors active:opacity-80"
+                      >
+                        對話
+                      </button>
+                    </div>
+                  )}
 
-                    const sending = replyingTo === s.fromLocalId;
-                    const replied = repliedTo.has(s.fromLocalId);
-
-                    return (
-                      <div className="mt-1.5 flex gap-1.5">
-                        <button
-                          onClick={() => void handleQuickReply(peer)}
-                          disabled={sending || replied}
-                          className="flex-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-amber-500/20 text-amber-200 border border-amber-500/30 disabled:opacity-60"
-                        >
-                          {sending
-                            ? "送出中…"
-                            : replied
-                              ? "✓ 已回覆，對方知道你要過去了"
-                              : `回覆「${QUICK_REPLY_TEXT}」`}
-                        </button>
-                        <button
-                          onClick={() => setChatPeer(peer)}
-                          className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] bg-slate-700/50 text-slate-200 border border-white/10"
-                        >
-                          對話
-                        </button>
-                      </div>
-                    );
-                  })()}
+                  {s.location && (
+                    <button
+                      onClick={() => setViewingSos(s)}
+                      className="mt-2 min-h-[48px] w-full rounded-xl border border-line bg-surface-2 px-4 text-base font-bold text-ink transition-colors active:opacity-80"
+                    >
+                      在地圖上看位置
+                    </button>
+                  )}
                 </div>
               );
             })}
-            <div className="text-[10px] text-rose-300/70">
-              傷勢細節與真實身分已加密,只有救援端解得開
-            </div>
-          </div>
+
+            <p className="text-sm text-muted">
+              {"你的手機正在幫忙把這些求救轉發出去。傷勢細節與真實身分已加密，只有救援端解得開。"}
+            </p>
+          </section>
         )}
 
         <NearbyDevicesList
@@ -516,7 +623,18 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
           hasKnownLocation={(device) =>
             Boolean(device.localId && getPeerLastKnownLocation(device.localId))
           }
+          lastMessage={lastMessageFor}
         />
+      </div>
+
+      {/* 求救入口釘在拇指區。慌張的人不該先捲動列表才找得到它。 */}
+      <div className="safe-area-bottom shrink-0 border-t border-line bg-surface px-4 pt-3">
+        <button
+          onClick={() => setShowSos(true)}
+          className="min-h-[64px] w-full rounded-xl bg-critical text-[1.25rem] font-black text-white transition-colors active:opacity-80"
+        >
+          我需要求救
+        </button>
       </div>
     </div>
   );
