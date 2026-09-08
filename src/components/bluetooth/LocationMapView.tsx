@@ -143,24 +143,24 @@ export function LocationMapView({
   }, [mapReady, target?.lat, target?.lng, myLocation?.lat, myLocation?.lng, targetLabel]);
 
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
-      <header className="glass-panel safe-area-top px-4 py-3 flex items-center gap-3 border-b border-white/5">
-        <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
+    <div className="h-screen flex flex-col bg-bg overflow-hidden">
+      <header className="safe-area-top border-b border-line bg-surface px-4 py-3 flex items-center gap-3 border-b border-line">
+        <button onClick={onBack} className="text-muted hover:text-ink text-sm">
           ← 返回
         </button>
-        <div className="text-white font-bold">{title}</div>
+        <div className="text-ink font-bold">{title}</div>
       </header>
 
       {(details || distanceText || (target && !myLocation)) && (
-        <div className="shrink-0 px-4 py-3 bg-slate-900/60 border-b border-white/5 space-y-1">
+        <div className="shrink-0 px-4 py-3 bg-surface border-b border-line space-y-1">
           {details}
           {distanceText && heading && (
-            <div className="text-amber-200 text-sm font-semibold">
+            <div className="text-accent text-sm font-semibold">
               在你的 {heading}方 {distanceText}
             </div>
           )}
           {target && !myLocation && (
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[11px] text-muted">
               你目前沒有定位，無法計算距離與方向
             </div>
           )}
@@ -169,14 +169,14 @@ export function LocationMapView({
 
       {!target ? (
         <div className="flex-1 flex items-center justify-center px-8">
-          <div className="text-center text-slate-400 text-sm leading-relaxed">{emptyMessage}</div>
+          <div className="text-center text-muted text-sm leading-relaxed">{emptyMessage}</div>
         </div>
       ) : mapReady === false ? (
         // 圖磚讀不到：不要留一片空白，把座標交出來讓使用者能轉述給救難單位
         <div className="flex-1 flex items-center justify-center px-8">
-          <div className="text-center text-slate-300 text-sm leading-relaxed">
+          <div className="text-center text-ink text-sm leading-relaxed">
             離線地圖無法載入，以下是原始座標：
-            <div className="mt-2 font-mono text-amber-300">
+            <div className="mt-2 font-mono text-accent">
               {target.lat.toFixed(5)}, {target.lng.toFixed(5)}
             </div>
           </div>
@@ -186,7 +186,7 @@ export function LocationMapView({
       )}
 
       {target && (
-        <div className="shrink-0 px-4 py-2 text-[11px] text-slate-500 border-t border-white/5">
+        <div className="shrink-0 px-4 py-2 text-[11px] text-muted border-t border-line">
           座標 {target.lat.toFixed(5)}, {target.lng.toFixed(5)}
         </div>
       )}

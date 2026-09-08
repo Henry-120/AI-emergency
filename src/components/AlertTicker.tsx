@@ -36,16 +36,16 @@ const AlertTicker: React.FC<Props> = ({ alerts }) => {
     .join("　　•　　");
 
   return (
-    <div className="bg-red-500/10 border-b border-red-500/20 overflow-hidden">
+    <div className="bg-critical-soft border-b border-critical overflow-hidden">
       <div className="flex items-center">
-        <div className="flex-shrink-0 px-3 py-1.5 flex items-center gap-1.5 text-red-500 bg-red-500/10">
+        <div className="flex-shrink-0 px-3 py-1.5 flex items-center gap-1.5 text-critical-text bg-critical-soft">
           <i className="fas fa-bolt text-[10px] animate-pulse"></i>
           <span className="text-[10px] font-bold tracking-widest whitespace-nowrap">
             即時地震
           </span>
         </div>
         <div className="flex-1 overflow-hidden whitespace-nowrap py-1.5">
-          <div className="inline-block ticker-anim text-[11px] text-red-100/80 font-mono pl-4">
+          <div className="inline-block ticker-anim text-[11px] text-critical-text font-mono pl-4">
             {text}　　•　　{text}
           </div>
         </div>

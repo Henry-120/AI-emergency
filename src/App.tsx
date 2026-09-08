@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { analyzeDisaster } from "./services/geminiService";
+import { Device } from "@capacitor/device";
+import {
+  analyzeDisaster,
+  BackendAuthenticationError,
+} from "./services/geminiService";
 import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
 import {
   fetchLatestAlert,
@@ -15,12 +19,14 @@ import {
   onPushEarthquakeNotificationTapped,
 } from "./services/pushNotificationService";
 import { AppFooter } from "./components/app/AppFooter";
+import { playCloudSpeech, stopCloudSpeech } from "./services/VoiceTTS";
+import { toUrgentSpeech } from "./services/urgentSpeech";
+import { AppTabBar } from "./components/app/AppTabBar";
 import { AppHeader } from "./components/app/AppHeader";
 import { ChatMessageList } from "./components/app/ChatMessageList";
 import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
 import { RoomRiskScanner } from "./components/room-risk/RoomRiskScanner";
-import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
 import { analyzeRoomRisk } from "./services/roomRiskService";
 import {
@@ -58,6 +64,26 @@ import { MedicalCardPage } from "./components/medical/MedicalCardPage";
 import { RescueMapPage } from "./components/rescue/RescueMapPage";
 import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
+import { initHealthKit, getLatestHeartRate } from "./services/healthService";
+
+const OFFLINE_ANALYSIS_TIMEOUT_MS = 20_000;
+
+async function getOfflineAnalysisWithTimeout(messages: ChatMessage[]) {
+  let timeoutId: number | undefined;
+  try {
+    return await Promise.race([
+      getOfflineAnalysis(messages),
+      new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(
+          () => reject(new Error("離線模型啟動逾時")),
+          OFFLINE_ANALYSIS_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
+}
 
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() =>
@@ -90,10 +116,7 @@ const App: React.FC = () => {
     useState<EarthquakeAlert | null>(null);
   const [cwaError, setCwaError] = useState<string>("");
 
-  // 全局管理相機相簿選取的 Base64 圖片狀態
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-
-  // 用戶狀態
+  // 新增：用戶狀態
   const [userStatus, setUserStatus] = useState<UserStatus>({
     isMoving: false,
     heartRate: 72,
@@ -103,6 +126,8 @@ const App: React.FC = () => {
   });
   const userStatusRef = useRef(userStatus);
   const earthquakeAlertRef = useRef<EarthquakeAlert | null>(null);
+  // 每 +1 一次就要求 AppFooter 自動開麥克風。
+  const [autoListenSignal, setAutoListenSignal] = useState(0);
   const notifiedEarthquakeRef = useRef<string | null>(null);
   const sosEarthquakeRef = useRef<string | null>(null);
 
@@ -188,7 +213,7 @@ const App: React.FC = () => {
   };
 
   const requestDevicePermissions = async () => {
-    setPermissionStatus("正在請求相機、麥克風與定位權限…");
+    setPermissionStatus("正在請求相機、麥克風、定位與通知權限…");
 
     try {
       if (navigator.geolocation) {
@@ -202,6 +227,16 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.warn("定位權限請求失敗：", error);
+    }
+
+    // 通知權限也要在這一步就要。留到地震真的發生才問，使用者往往正在慌亂中；
+    // 而且瀏覽器只會問一次，錯過或誤按拒絕之後就再也不會跳，警報等於永遠靜音。
+    try {
+      if ("Notification" in window && Notification.permission === "default") {
+        await Notification.requestPermission();
+      }
+    } catch (error) {
+      console.warn("通知權限請求失敗：", error);
     }
 
     // 相機與麥克風分開請求：合併成一次 getUserMedia 時，只要其中一項被拒絕，
@@ -220,15 +255,15 @@ const App: React.FC = () => {
   };
 
   const disclaimerModal = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 text-slate-100">
-      <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-slate-950/95 shadow-2xl shadow-black/50 overflow-hidden">
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-[var(--overlay)] px-4 py-6 text-ink">
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--elev-2)]">
         <div className="p-6 sm:p-8">
-          <h1 className="mb-4 text-2xl font-bold text-amber-300">
+          <h1 className="mb-4 text-balance text-2xl font-bold text-ink">
             地震救災協助 App 免責聲明
           </h1>
           {disclaimerStep === 1 ? (
             <div className="space-y-4">
-              <div className="max-h-[55vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+              <div className="max-h-[55vh] overflow-y-auto rounded-xl border border-line bg-surface-2 p-4 text-sm leading-relaxed text-ink">
                 <p>歡迎您使用本地震救災協助 App（以下簡稱「本 App」）。為保障您的權益，請於使用前詳細閱讀本免責聲明。當您使用本 App，即表示您已閱讀、理解並同意以下內容。</p>
                 <p className="mt-3 font-semibold">一、服務目的</p>
                 <p>本 App 旨在提供地震防災、災害應變及救災資訊服務，包括但不限於：</p>
@@ -312,7 +347,7 @@ const App: React.FC = () => {
                   type="checkbox"
                   checked={disclaimerChecked}
                   onChange={(e) => setDisclaimerChecked(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded-sm border-slate-600 bg-slate-900 text-amber-400 focus:ring-amber-300"
+                  className="mt-0.5 h-5 w-5 shrink-0 rounded border-line bg-surface text-primary focus:ring-accent"
                 />
                 <span>我已閱讀並理解上述免責聲明</span>
               </label>
@@ -321,7 +356,7 @@ const App: React.FC = () => {
                   type="button"
                   disabled={!disclaimerChecked}
                   onClick={handleProceedToPermissions}
-                  className="inline-flex items-center justify-center rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-[48px] items-center justify-center rounded-xl bg-primary px-5 text-sm font-bold text-primary-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   下一步：開啟權限
                 </button>
@@ -329,32 +364,32 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-5">
-              <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-sm leading-relaxed text-rose-100">
-                <p className="font-semibold text-rose-200">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
+              <div className="rounded-xl border border-line bg-surface-2 p-5 text-sm leading-relaxed text-ink">
+                <p className="font-bold text-ink">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
                 <p className="mt-3">所有權限皆依 iOS 系統規範，由使用者自行決定是否授權；若拒絕部分權限，可能導致部分功能無法正常使用。</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+              <div className="rounded-xl border border-line bg-surface-2 p-4 text-sm leading-relaxed text-ink">
                 <p>請按下方按鈕，同意後系統將請求相機、麥克風與定位權限。若您拒絕，仍可稍後於功能啟用時再次授權。</p>
-                <p className="mt-3 text-xs text-slate-400">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
+                <p className="mt-3 text-sm text-muted">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
               </div>
               <div className="space-y-3">
                 <button
                   type="button"
                   onClick={requestDevicePermissions}
-                  className="w-full rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-400"
+                  className="min-h-[48px] w-full rounded-xl bg-primary px-5 text-sm font-bold text-primary-ink transition-opacity hover:opacity-90"
                 >
                   同意並請求相機、麥克風與定位權限
                 </button>
                 <button
                   type="button"
                   onClick={acceptDisclaimer}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-800 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"
+                  className="min-h-[48px] w-full rounded-xl border border-line bg-surface-2 px-5 text-sm font-semibold text-ink transition-colors hover:bg-line"
                 >
                   已閱讀，稍後再授權
                 </button>
               </div>
               {permissionStatus && (
-                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                <div className="rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm text-ink">
                   {permissionStatus}
                 </div>
               )}
@@ -433,6 +468,7 @@ const App: React.FC = () => {
       time: new Date().toISOString(),
       epicenterLat: location.lat,
       epicenterLng: location.lng,
+      simulated: true,
     });
   };
 
@@ -639,43 +675,167 @@ const App: React.FC = () => {
     }
   }, [authUser]);
 
-  const speak = (text: string) => {
+  /**
+   * 挑最自然的中文語音。
+   * 舊寫法是 voices.find(zh-TW) 取第一個，但 Windows / Edge 清單裡排在前面的
+   * 通常是舊的本機合成語音（HanHan、Zhiwei），聽起來就是機器人；真正自然的
+   * 神經網路語音名稱會帶 Natural / Neural / Online，得靠評分挑出來。
+   */
+  const pickChineseVoice = () => {
+    let best: SpeechSynthesisVoice | null = null;
+    let bestScore = 0;
+
+    for (const voice of window.speechSynthesis.getVoices()) {
+      const lang = voice.lang.replace("_", "-").toLowerCase();
+      let score = 0;
+      if (lang.startsWith("zh-tw")) score = 100;
+      else if (lang.startsWith("zh")) score = 50;
+      else continue;
+
+      const name = voice.name.toLowerCase();
+      if (name.includes("natural") || name.includes("neural")) score += 30;
+      if (name.includes("online")) score += 15;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = voice;
+      }
+    }
+    return best;
+  };
+
+  /**
+   * 朗讀語速。1.0 是原速；災害提示講快一點才不會拖到後續動作，但太快會聽不清。
+   * Google 與瀏覽器兩條路徑共用同一個值，聽起來才一致。
+   */
+  const SPEECH_RATE = 1.2;
+
+  /**
+   * 朗讀。優先用 Google Cloud 語音（自然許多），失敗才退回瀏覽器內建語音。
+   *
+   * 退回的情況包含：後端沒設定憑證、Cloud TTS API 未啟用、離線、或瀏覽器
+   * 擋下自動播放。無論走哪一條路，onEnd 都保證會被呼叫，因為地震流程要靠
+   * 它接著自動開麥克風。
+   */
+  const speak = (text: string, onEnd?: () => void) => {
     window.speechSynthesis.cancel();
+    stopCloudSpeech();
 
+    let handled = false;
+    const finishOnce = () => {
+      if (handled) return;
+      handled = true;
+      onEnd?.();
+    };
+
+    playCloudSpeech(text, SPEECH_RATE)
+      .then(finishOnce)
+      .catch((error) => {
+        console.warn("雲端語音失敗，改用瀏覽器內建語音：", error);
+        if (handled) return;
+        speakWithBrowser(text, finishOnce);
+      });
+  };
+
+  const speakWithBrowser = (text: string, onEnd?: () => void) => {
+    window.speechSynthesis.cancel();
+    let started = false;
+
+    const startSpeaking = () => {
+      if (started) return;
+      started = true;
+      speakNow(text, onEnd);
+    };
+
+    // getVoices() 在頁面剛載入時會回傳空陣列，要等 voiceschanged。
+    // 少了這一步，第一次朗讀（正好就是地震警報）會抓不到中文語音，
+    // 直接用預設的英文語音去唸中文，聽起來格外不像人。
+    if (window.speechSynthesis.getVoices().length > 0) {
+      startSpeaking();
+    } else {
+      window.speechSynthesis.addEventListener("voiceschanged", startSpeaking, {
+        once: true,
+      });
+      // 有些瀏覽器不會派送 voiceschanged，補一個保底，不能讓警報啞掉。
+      window.setTimeout(startSpeaking, 1000);
+    }
+  };
+
+  const speakNow = (text: string, onEnd?: () => void) => {
     const utterance = new SpeechSynthesisUtterance(text);
-    // 1. 取得目前裝置支援的所有聲音
-    const voices = window.speechSynthesis.getVoices();
-
-    // 2. 優先尋找台灣中文 (zh-TW)，其次是 zh-HK 或 zh-CN
-    const chineseVoice =
-      voices.find((v) => v.lang.includes("zh-TW")) ||
-      voices.find((v) => v.lang.includes("zh-HK")) ||
-      voices.find((v) => v.lang.includes("zh-CN"));
+    const chineseVoice = pickChineseVoice();
 
     if (chineseVoice) {
-      document.body.click(); // 嘗試觸發使用者互動以符合瀏覽器政策
-      utterance.voice = chineseVoice; // 強制指定中文聲音物件
+      utterance.voice = chineseVoice;
     }
 
-    utterance.lang = "zh-tw";
-    utterance.rate = 1.0;
-    utterance.pitch = 1.1;
+    utterance.lang = "zh-TW";
+    utterance.rate = SPEECH_RATE;
+    // 原本是 1.1。神經網路語音本身就有自然語調，硬把音高拉高反而更假。
+    utterance.pitch = 1.0;
+
+    if (onEnd) {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        onEnd();
+      };
+      utterance.onend = finish;
+      // 朗讀失敗（例如系統沒有中文語音）也要往下走，否則麥克風永遠不會開。
+      utterance.onerror = finish;
+      // 有些瀏覽器會靜靜地不播（例如還沒取得使用者互動授權），onend 與
+      // onerror 兩個都不會來。這裡自己判定「根本沒開始講」，避免整條流程卡死。
+      window.setTimeout(() => {
+        if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+          finish();
+        }
+      }, 1500);
+    }
 
     window.speechSynthesis.speak(utterance);
   };
 
+  // 注意事項只顯示、不朗讀：唸完一長串才開麥克風太慢，而且使用者
+  // 正在搖晃中，用聽的也記不住，不如留在畫面上隨時可以回頭看。
+  const EARTHQUAKE_SAFETY_NOTES = [
+    "立即趴下、掩護頭頸部，抓穩固定物",
+    "遠離窗戶及可能掉落的家具",
+    "搖晃停止後再確認逃生路線",
+    "切勿搭乘電梯",
+  ];
+
   const announceEarthquakeSafety = () => {
     const alert = earthquakeAlertRef.current;
-    const instruction = alert
-      ? `偵測到規模 ${alert.magnitude} 強震，${alert.location}。請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。`
-      : "請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。";
+    // 語音只問一句：人身安全 + 周遭狀況，講完立刻開麥克風讓使用者直接回答。
+    const spokenPrompt = alert
+      ? `偵測到規模 ${alert.magnitude} 強震。你還好嗎？請說出你現在的狀況，以及周遭有沒有危險。`
+      : "你還好嗎？請說出你現在的狀況，以及周遭有沒有危險。";
+    const notes = EARTHQUAKE_SAFETY_NOTES
+      .map((note, index) => `${index + 1}. ${note}`)
+      .join("\n");
+
     setMessages((previous) => [...previous, {
       id: `earthquake-${Date.now()}`,
       role: "assistant",
-      content: `🚨 ${instruction}`,
+      content: `🚨 ${spokenPrompt}
+
+【避難注意事項】
+${notes}`,
       timestamp: new Date(),
     }]);
-    speak(instruction);
+
+    // 畫面上保留正常標點好閱讀；唸出來的版本把標點拿掉，避免一句話中間
+    // 停頓一兩秒——災害當下那段沉默會讓人以為程式當掉了。
+    speak(toUrgentSpeech(spokenPrompt), () => {
+      setMessages((previous) => [...previous, {
+        id: `mic-open-${Date.now()}`,
+        role: "assistant",
+        content: "🎤 麥克風已開啟，請直接說話回報你的狀況。說完會自動停止，也可以改用鍵盤輸入。",
+        timestamp: new Date(),
+      }]);
+      setAutoListenSignal((value) => value + 1);
+    });
   };
 
   useEffect(() => {
@@ -698,12 +858,27 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!earthquakeAlert) return;
     const location = userStatusRef.current.location;
-    if (!isSevereNearbyEarthquake(earthquakeAlert, location)) return;
+    // 模擬警報是測試用的，不能因為瀏覽器還沒拿到 GPS 定位就整個靜悄悄。
+    // isSevereNearbyEarthquake 在 location 為 null 時一律回 false。
+    if (!earthquakeAlert.simulated && !isSevereNearbyEarthquake(earthquakeAlert, location)) return;
     const key = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
 
     if (notifiedEarthquakeRef.current !== key) {
       notifiedEarthquakeRef.current = key;
-      void notifyEarthquakeAlert(earthquakeAlert);
+      void notifyEarthquakeAlert(earthquakeAlert).then((result) => {
+        if (result.shown) return;
+        // 通知被擋掉時要講出來。原本這裡靜靜吞掉失敗，使用者只會覺得「按了沒反應」。
+        // 先取出 reason：result 是參數，型別收窄不會延續進下面的 callback。
+        const blockedText = result.reason === "unsupported"
+          ? "（此瀏覽器不支援系統通知，警報僅顯示於畫面上。）"
+          : "（系統通知權限未開啟，警報僅顯示於畫面上。請點網址列左側的鎖頭圖示，將「通知」改為允許。）";
+        setMessages((previous) => [...previous, {
+          id: `notify-blocked-${Date.now()}`,
+          role: "assistant",
+          content: blockedText,
+          timestamp: new Date(),
+        }]);
+      });
     }
     if (sosEarthquakeRef.current !== key) {
       sosEarthquakeRef.current = key;
@@ -771,6 +946,43 @@ const App: React.FC = () => {
     }
   }, [messages]);
 
+  // ✅ 電量與心率狀態即時更新
+  useEffect(() => {
+    // 1. App 開啟時，嘗試初始化 iOS HealthKit 權限 (如果在 iOS 手機上會跳出授權視窗)
+    initHealthKit();
+
+    const updateDeviceStatus = async () => {
+      try {
+        // 抓取真實電量
+        const batteryInfo = await Device.getBatteryInfo();
+        const realBattery = batteryInfo.batteryLevel !== undefined 
+          ? batteryInfo.batteryLevel * 100 
+          : undefined;
+
+        // 抓取真實心率 (如果抓不到，例如在網頁上，會回傳 null)
+        const realHeartRate = await getLatestHeartRate();
+
+        setUserStatus((prev) => ({
+          ...prev,
+          // 若有真實電量用真實電量，否則維持原值
+          batteryLevel: realBattery !== undefined ? realBattery : prev.batteryLevel,
+          
+          // 關鍵：如果抓得到真實心率就顯示真實數字，若在瀏覽器測試(回傳 null)則維持模擬數值
+          heartRate: realHeartRate !== null 
+            ? realHeartRate 
+            : (70 + Math.floor(Math.random() * 10)), 
+        }));
+      } catch (error) {
+        console.error("無法更新裝置狀態:", error);
+      }
+    };
+
+    updateDeviceStatus();
+    const interval = setInterval(updateDeviceStatus, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ✅ 初始對話訊息、定位與地圖下載（獨立的最外層 useEffect）
   useEffect(() => {
     // 初始系統訊息
     setMessages([
@@ -806,19 +1018,9 @@ const App: React.FC = () => {
       setLocationError("此設備不支援地理定位。請使用支援的瀏覽器。");
     }
 
-    // 模擬心率和電量變化
-    const interval = setInterval(() => {
-      setUserStatus((prev) => ({
-        ...prev,
-        heartRate: 70 + Math.floor(Math.random() * 10),
-        batteryLevel: Math.max(0, prev.batteryLevel - 0.01),
-      }));
-    }, 10000);
-
     loadDownloadedMaps();
 
     return () => {
-      clearInterval(interval);
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
       }
@@ -828,74 +1030,67 @@ const App: React.FC = () => {
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!authUser || !input.trim() || isAnalyzing) return;
 
-    // 同時檢查 authUser 以及確保有輸入文字或選擇了要傳送的圖片
-    if (!authUser || (!input.trim() && !selectedImage) || isAnalyzing) return;
-
-    // 紀錄這次發送要使用的圖片，並立刻清空全局圖片暫存
-    const imageToSend = selectedImage;
-    setSelectedImage(null);
-
-    // 立即在 UI 顯示使用者訊息，補上 imageBase64 欄位讓歷史訊息記得圖片資訊
+    // 立即在 UI 顯示使用者訊息，並保留本次圖片。
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: input || "【傳送了現場照片】",
+      content: input,
       timestamp: new Date(),
-      imageBase64: imageToSend,
     };
 
+    // 立即在 UI 顯示使用者訊息
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
-    const currentInput = input;
     setInput("");
-
     setIsAnalyzing(true);
 
-    // --- 狀況 A：明確處於斷網狀態，改用本機離線大模型 ---
-    if (isOffline) {
+    // 1. 即時判斷：檢測瀏覽器目前是否有網路
+    //const isCurrentlyOffline = true;
+    const isCurrentlyOffline = !navigator.onLine;
+
+    // --- 狀況 A：明確處於斷網狀態 ---
+    if (isCurrentlyOffline) {
       console.log("偵測到無網路，直接啟動本地離線大模型...");
       try {
-        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
-
+        const offlineAnalysis = await getOfflineAnalysisWithTimeout(updatedMessages);
         const assistantMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "⚠️ 偵測到目前無網路連線，已啟動內建緊急應變模組（無法處理影像分析）：",
+          content: "⚠️ 偵測到目前無網路連線，已啟動裝置端離線應變模型：",
           analysis: offlineAnalysis,
           timestamp: new Date(),
         };
-
         setMessages((prev) => [...prev, assistantMsg]);
         setCurrentAnalysis(offlineAnalysis);
-
-        // 儲存進本地資料庫，等候背景復網時排程同步
-        saveEmergencyReport(
+        await saveEmergencyReport(
           authUser.id,
           offlineAnalysis.emergencySummary,
           [...updatedMessages, assistantMsg],
           userStatus.location,
-        ).catch((error) => console.error("離線救援摘要儲存失敗", error));
-
-        if (offlineAnalysis.immediateActions && offlineAnalysis.immediateActions.length > 0) {
-          speak(offlineAnalysis.immediateActions[0].description);
-        }
-      } catch (err) {
-        console.error("本地離線模型執行失敗", err);
+        );
+      } catch (error) {
+        console.error("離線應變模型失敗", error);
+        setMessages((prev) => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "離線分析暫時無法使用，請保持冷靜並撥打 119 或 112。",
+          timestamp: new Date(),
+        }]);
       } finally {
         setIsAnalyzing(false);
       }
-      return; // 結束離線處理，不往下執行雲端 Gemini
+      return;
     }
-
     // --- 狀況 B：有網路，嘗試呼叫雲端 Gemini ---
     try {
-      console.log("嘗試使用雲端 Gemini 引擎...");
       const sensorContext = getSensorContext();
 
       // 呼叫雲端分析服務，AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊
-      const analysis = await analyzeDisaster(updatedMessages, sensorContext, imageToSend);
+      const analysis = await analyzeDisaster(updatedMessages, sensorContext);
 
+      // AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊`
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -904,7 +1099,6 @@ const App: React.FC = () => {
           : `分析更新：根據最新資訊，請優先執行以下行動：`,
         analysis,
         timestamp: new Date(),
-        isCloudResponse: true,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -920,61 +1114,45 @@ const App: React.FC = () => {
         })
         .catch((error) => console.error("救援摘要本機儲存失敗", error));
 
-      if (analysis.immediateActions && analysis.immediateActions.length > 0) {
-        const text = `緊急指令${analysis.immediateActions[0].title}`;
-        playAudio(text).catch(() => {
-          console.log("切換至原生語音降級模式");
-          speak(text);
-        });
-      } else if (analysis.missingInfoRequests?.length) {
-        speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
-      }
+      // 後續回覆一律不自動朗讀：使用者已經進入打字對話，突然出聲會蓋掉
+      // 現場聲音，也可能在避難時暴露位置。要語音請自行按播放。
     } catch (error) {
+      if (error instanceof BackendAuthenticationError) {
+        // A local/offline session can outlive its Cloud Run token. Do not start
+        // the large offline model in this case: it looks like the send button
+        // is stuck and cannot repair authentication. Return to login instead.
+        window.alert(error.message);
+        logout();
+        setAuthUser(null);
+        return;
+      }
       // 終極保險：系統判定有網路，但可能遇上訊號死角或 DNS 解析失敗，自動降級切換至本地離線大模型
       console.warn("雲端 Gemini 連線失敗，自動降級切換至本地離線大模型！", error);
-
       try {
-        const offlineAnalysis = await getOfflineAnalysis(updatedMessages);
+        const offlineAnalysis = await getOfflineAnalysisWithTimeout(updatedMessages);
         const fallbackMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "⚠️ 雲端伺服器無回應，自動降級至內建緊急應變模組：",
+          content: "⚠️ 雲端模型無法回應，已自動切換裝置端離線應變模型：",
           analysis: offlineAnalysis,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, fallbackMsg]);
         setCurrentAnalysis(offlineAnalysis);
-
-        // 降級時同樣寫入本地 SQLite 保存
-        saveEmergencyReport(
+        await saveEmergencyReport(
           authUser.id,
           offlineAnalysis.emergencySummary,
           [...updatedMessages, fallbackMsg],
           userStatus.location,
-        ).catch((err) => console.error("降級離線救援摘要儲存失敗", err));
-
-        if (offlineAnalysis.immediateActions && offlineAnalysis.immediateActions.length > 0) {
-          speak(offlineAnalysis.immediateActions[0].description);
-        }
+        );
       } catch (fallbackError) {
-        // 若連本地端離線解析也崩潰（極端狀況），則進行最後的錯誤回報並智慧解析 API 錯誤
-        const detail = error instanceof Error ? error.message : "未知錯誤";
-        const isModelUnavailable = /not found|no longer available|404/i.test(detail);
-        const isQuotaLimited = /quota|resource_exhausted|429/i.test(detail);
-
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            role: "assistant",
-            content: isModelUnavailable
-              ? "分析模型目前不可用，請重新整理後再試；若持續發生，請檢查 Gemini model 設定。"
-              : isQuotaLimited
-                ? "Gemini API 額度暫時用完，請稍後再試或檢查 API 配額。"
-                : "系統發生錯誤且離線模組無法啟動，請保持冷靜，並嘗試撥打 119 或 112 求救。",
-            timestamp: new Date(),
-          },
-        ]);
+        console.error("離線模型降級也失敗", fallbackError);
+        setMessages((prev) => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "雲端與離線分析暫時無法使用，請保持冷靜並撥打 119 或 112。",
+          timestamp: new Date(),
+        }]);
       }
     } finally {
       setIsAnalyzing(false);
@@ -993,7 +1171,7 @@ const App: React.FC = () => {
 
   if (isCheckingSession) {
     return (
-      <div className="h-[100dvh] flex items-center justify-center bg-[#020617] text-slate-400">
+      <div className="flex h-[100dvh] items-center justify-center bg-bg text-muted">
         正在確認線上帳號…
       </div>
     );
@@ -1003,49 +1181,120 @@ const App: React.FC = () => {
     return <AuthPage onAuthed={setAuthUser} />;
   }
 
-  if (showMedicalCard) {
-    return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
-  }
+  /**
+   * 子頁面。原本每個都是 early return 直接吃掉整個畫面，
+   * 底部分頁列因此消失、使用者失去方向感。
+   * 改成統一包在同一個外殼裡，分頁列常駐，並標示目前所在位置。
+   */
+  const goHome = () => {
+    setShowMedicalCard(false);
+    setShowRescueMap(false);
+    setShowShelterNavigator(false);
+    setShowNearbyPeople(false);
+    setSelectedMap(null);
+  };
 
-  if (showRescueMap) {
-    return <RescueMapPage location={userStatus.location} onBack={() => setShowRescueMap(false)} />;
-  }
+  const subPage = showMedicalCard
+    ? {
+        key: "medical",
+        title: "緊急醫療卡",
+        node: <MedicalCardPage onBack={goHome} />,
+      }
+    : showRescueMap
+      ? {
+          key: "rescue",
+          title: "救援任務地圖",
+          node: (
+            <RescueMapPage location={userStatus.location} onBack={goHome} />
+          ),
+        }
+      : selectedMap
+        ? {
+            key: "more",
+            title: "離線地圖",
+            node: (
+              <OfflineMapPage
+                map={selectedMap}
+                onBack={() => {
+                  setSelectedMap(null);
+                  loadDownloadedMaps();
+                }}
+              />
+            ),
+          }
+        : showShelterNavigator && offlineSafetyPack
+          ? {
+              key: "more",
+              title: "避難導航",
+              node: (
+                <ShelterNavigatorPage
+                  pack={offlineSafetyPack}
+                  location={userStatus.location}
+                  onBack={goHome}
+                />
+              ),
+            }
+          : // 藍牙模組：附近的人頁面
+            showNearbyPeople
+            ? {
+                key: "nearby",
+                title: "附近的人",
+                node: (
+                  <NearbyPeoplePage
+                    onBack={goHome}
+                    myLocation={userStatus.location}
+                  />
+                ),
+              }
+            : null;
 
-  if (selectedMap) {
+  const tabBar = (activeKey: string) => (
+    <AppTabBar
+      activeKey={activeKey}
+      onGoHome={goHome}
+      isDownloadingMap={isDownloadingMap}
+      offlineSafetyPackReady={Boolean(offlineSafetyPack)}
+      nearbyUnreadCount={bleUnread}
+      hasAuthUser={Boolean(authUser)}
+      onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
+      onShowShelterNavigator={() => setShowShelterNavigator(true)}
+      onShowNearbyPeople={() => setShowNearbyPeople(true)}
+      onShowMedicalCard={() => setShowMedicalCard(true)}
+      onShowRescueMap={() => setShowRescueMap(true)}
+      onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
+      onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
+      onLogout={handleLogout}
+    />
+  );
+
+  if (subPage) {
     return (
-      <OfflineMapPage
-        map={selectedMap}
-        onBack={() => {
-          setSelectedMap(null);
-          loadDownloadedMaps();
-        }}
-      />
-    );
-  }
+      <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-bg text-ink">
+        {/* 電腦版：子頁面上方的標題列，首頁鈕在右上。手機版由底部分頁列負責。 */}
+        <div className="grad-chrome hidden shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2 safe-area-top sm:flex">
+          <span className="truncate text-xs font-semibold text-white">
+            {subPage.title}
+          </span>
+          <button
+            onClick={goHome}
+            aria-label="回到首頁"
+            className="has-tip relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[#c8ced6] transition-[background-color,color,transform] duration-100 hover:bg-white/15 hover:text-white active:scale-90 active:bg-white/25"
+          >
+            <i className="fas fa-house text-[15px]" aria-hidden="true"></i>
+            <span className="tip">首頁</span>
+          </button>
+        </div>
 
-  if (showShelterNavigator && offlineSafetyPack) {
-    return (
-      <ShelterNavigatorPage
-        pack={offlineSafetyPack}
-        location={userStatus.location}
-        onBack={() => setShowShelterNavigator(false)}
-      />
-    );
-  }
+        <div className="min-h-0 flex-1 overflow-hidden">{subPage.node}</div>
 
-  // 藍牙模組：附近的人頁面（獨立全螢幕）
-  if (showNearbyPeople) {
-    return (
-      <NearbyPeoplePage
-        onBack={() => setShowNearbyPeople(false)}
-        myLocation={userStatus.location}
-      />
+        {tabBar(subPage.key)}
+      </div>
     );
   }
 
   // 渲染 UI
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
+    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-bg text-ink">
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}
@@ -1085,6 +1334,7 @@ const App: React.FC = () => {
         />
       )}
       <AppFooter
+        autoListenSignal={autoListenSignal}
         downloadedMaps={downloadedMaps}
         input={input}
         isAnalyzing={isAnalyzing}
@@ -1094,9 +1344,8 @@ const App: React.FC = () => {
         onSubmit={handleSubmit}
         onViewMap={handleViewMap}
         setInput={setInput}
-        selectedImage={selectedImage}
-        setSelectedImage={setSelectedImage}
       />
+      {tabBar("guide")}
     </div>
   );
 };

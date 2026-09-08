@@ -30,6 +30,10 @@
 	<string>Guardian 需要藍牙，讓附近的使用者能夠找到您並接收您的求救訊息。</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Guardian 需要使用相機拍攝緊急現場照片進行 AI 分析，以及掃描室內家具標示地震時的危險波及區。</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Guardian 需要讀取您的心率資料，以便在緊急狀況下監測您的生理狀態並提供適當的救援建議。</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Guardian 需要存取健康資料以確保您的生命徵象安全。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Guardian 需要使用麥克風，讓您在雙手不便或視線受阻時，以語音描述災情與求救內容。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

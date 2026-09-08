@@ -194,12 +194,13 @@ def encode_header(header: PacketHeader, body: bytes) -> bytes:
 # 解密求救內容（對應 sosCrypto.ts 的 decryptAsBackend）
 # ---------------------------------------------------------------------------
 
-_encryption_private_key = serialization.load_pem_private_key(
-    ENCRYPTION_PRIVATE_KEY_PEM.encode(), password=None
-)
-_ack_signing_private_key = serialization.load_pem_private_key(
-    ACK_SIGNING_PRIVATE_KEY_PEM.encode(), password=None
-)
+def _load_private_key(value: str, variable_name: str):
+    if not value:
+        raise SosProtocolError(f"後端尚未設定 {variable_name}")
+    try:
+        return serialization.load_pem_private_key(value.encode(), password=None)
+    except Exception as exc:  # noqa: BLE001 - runtime secret validation
+        raise SosProtocolError(f"{variable_name} 格式無效") from exc
 
 
 def decrypt_sos_payload(body: bytes) -> dict:
@@ -223,7 +224,10 @@ def decrypt_sos_payload(body: bytes) -> dict:
         )
         # 與前端 Web Crypto 的 deriveKey({name:"ECDH"}, ...) 對齊：
         # 共享密鑰（X 座標，32 bytes）直接當 AES-256 金鑰，無 HKDF。
-        shared_key = _encryption_private_key.exchange(ec.ECDH(), ephemeral_public_key)
+        encryption_private_key = _load_private_key(
+            ENCRYPTION_PRIVATE_KEY_PEM, "SOS_ENCRYPTION_PRIVATE_KEY_PEM"
+        )
+        shared_key = encryption_private_key.exchange(ec.ECDH(), ephemeral_public_key)
         plaintext = AESGCM(shared_key).decrypt(iv, ciphertext, None)
         return json.loads(plaintext.decode("utf-8"))
     except SosProtocolError:
@@ -250,7 +254,10 @@ def sign_ack(ref_id: str, uploaded_at_ms: Optional[int] = None) -> bytes:
     body = json.dumps(payload).encode("utf-8")
 
     # cryptography 預設輸出 DER；前端 Web Crypto 用的是 raw r‖s，需要轉換格式。
-    der_signature = _ack_signing_private_key.sign(body, ec.ECDSA(hashes.SHA256()))
+    ack_signing_private_key = _load_private_key(
+        ACK_SIGNING_PRIVATE_KEY_PEM, "SOS_ACK_SIGNING_PRIVATE_KEY_PEM"
+    )
+    der_signature = ack_signing_private_key.sign(body, ec.ECDSA(hashes.SHA256()))
     r, s = ec_utils.decode_dss_signature(der_signature)
     raw_signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
 

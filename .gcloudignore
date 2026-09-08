@@ -1,0 +1,9 @@
+# Cloud Run source builds only need the backend container inputs.
+# Keep large offline maps, iOS assets, frontend dependencies, and local secrets out.
+**
+!Dockerfile
+!.dockerignore
+!backend/
+!backend/**
+backend/**/__pycache__/
+backend/**/*.py[co]

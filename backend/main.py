@@ -5,22 +5,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from . import auth, schemas
-from .services.cwa_service import CWAService
-from .services.offline_maps_service import offline_maps_service
-from .services.room_risk_service import room_risk_service
-from .services.shelter_service import shelter_service
-from .services.firebase_service import firebase_service
-from .services import push_service
-from .services import sos_service
-from .services.sos_store_service import sos_store_service
-
-# Load environment variables from .env files when starting the backend directly.
-# This ensures CWA_API_KEY from .env.local is available without requiring external env loader.
-for env_file in [Path(__file__).resolve().parent.parent / ".env.local", Path(__file__).resolve().parent.parent / ".env"]:
+# Load local environment files before importing services whose module-level
+# configuration reads from os.environ. Cloud Run injects these values before
+# process startup, while this fallback keeps direct local runs consistent.
+for env_file in [
+    Path(__file__).resolve().parent.parent / ".env.local",
+    Path(__file__).resolve().parent.parent / ".env",
+]:
     if env_file.exists():
         with env_file.open(encoding="utf-8") as f:
             for line in f:
@@ -33,12 +24,31 @@ for env_file in [Path(__file__).resolve().parent.parent / ".env.local", Path(__f
                 if key and key not in os.environ:
                     os.environ[key] = value
 
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
+from . import auth, schemas
+from .services.cwa_service import CWAService
+from .services.offline_maps_service import offline_maps_service
+from .services.room_risk_service import room_risk_service
+from .services.disaster_ai_service import DisasterAIError, disaster_ai_service
+from .services.shelter_service import shelter_service
+from .services.firebase_service import firebase_service
+from .services import push_service
+from .services import sos_service
+from .services.sos_store_service import sos_store_service
+from .services.tts_service import TTSError, tts_service
+
 cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    tasks = [asyncio.create_task(push_service.poll_and_push_loop(cwa))]
+    tasks = []
+    # Request-based Cloud Run may suspend CPU between requests. Keep permanent
+    # polling opt-in; production can trigger this work with Cloud Scheduler.
+    if os.getenv("ENABLE_PUSH_POLLING", "false").lower() == "true":
+        tasks.append(asyncio.create_task(push_service.poll_and_push_loop(cwa)))
     if os.getenv("ENABLE_TEST_PUSH", "false").lower() == "true":
         tasks.append(asyncio.create_task(push_service.test_poll_and_push_loop(cwa)))
     yield
@@ -61,6 +71,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/api/health", include_in_schema=False)
+def health():
+    """Lightweight liveness endpoint for Cloud Run and deployment checks."""
+    return {"status": "ok"}
 
 
 # ==================== 認證 / 帳號 API ====================
@@ -136,6 +152,21 @@ def update_medical_card(
 
 # ==================== AI 傷勢 / 救援需求 API ====================
 
+@app.post("/api/ai/analyze", response_model=schemas.AIAnalysisResponse)
+async def analyze_disaster(
+    data: schemas.AIChatRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Use the server-side Gemini key; never expose it to the iOS/web client."""
+    try:
+        return await disaster_ai_service.analyze(
+            messages=[message.model_dump() for message in data.messages],
+            sensor_context=data.sensor_context,
+            image_base64=data.image_base64,
+        )
+    except DisasterAIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
 @app.put("/api/emergency-report", response_model=schemas.EmergencyReportResponse)
 def upsert_emergency_report(
     data: schemas.EmergencyReportUpsert,
@@ -178,6 +209,30 @@ async def get_weather_list():
 
 
 # ==================== 推播裝置註冊 API ====================
+
+@app.post("/api/tts")
+async def synthesize_speech(payload: schemas.TTSRequest):
+    """把文字轉成語音回傳 MP3。
+
+    金鑰留在後端，前端只拿得到音訊。合成失敗時回 503，前端會自動退回
+    瀏覽器內建語音，警報不會因此啞掉。
+    """
+    try:
+        audio = await tts_service.synthesize(
+            payload.text,
+            voice=payload.voice,
+            speaking_rate=payload.speakingRate or 1.0,
+        )
+    except TTSError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        # 同一句警報可能重播，讓瀏覽器也能快取。
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
 
 @app.post("/api/push/register", response_model=schemas.DeviceTokenResponse)
 def register_device_token(
@@ -276,8 +331,7 @@ def get_nearby_sos_reports(
     """
     救援地圖用：附近透過藍牙中繼送達的求救記錄。
 
-    存在本機 JSON 檔案（見 sos_store_service.py），不經過 Firestore——跟
-    offline_maps_service 同一套模式，後端就算離線自架也能運作。登入要求
+    求救記錄存於現有 Firestore，確保 Cloud Run 重啟後仍能保留。登入要求
     比照現有的救援地圖端點，這個 App 目前沒有另外區分「救援人員」帳號，
     任何登入的使用者都能查看，維持與既有端點一致的權限模型。
     """

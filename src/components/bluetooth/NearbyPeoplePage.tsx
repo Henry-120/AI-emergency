@@ -280,22 +280,22 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
         targetLabel="求救位置"
         details={
           <>
-            <div className="text-rose-200 text-sm font-semibold">
+            <div className="text-critical-text text-sm font-semibold">
               緊急度 {viewingSos.urgencyLevel}/10
               {viewingSos.isTrapped && " · 受困"}
               {viewingSos.battery !== undefined && ` · 對方電量 ${viewingSos.battery}%`}
             </div>
             {viewingSos.locationDetails && (
-              <div className="text-slate-300 text-[12px]">{viewingSos.locationDetails}</div>
+              <div className="text-ink text-[12px]">{viewingSos.locationDetails}</div>
             )}
-            <div className="text-slate-500 text-[11px]">經 {viewingSos.hops} 跳傳到你這裡</div>
+            <div className="text-muted text-[11px]">經 {viewingSos.hops} 跳傳到你這裡</div>
           </>
         }
         emptyMessage={
           <>
             這則求救沒有附帶位置。
             <br />
-            <span className="text-slate-500">對方送出時可能沒有定位訊號。</span>
+            <span className="text-muted">對方送出時可能沒有定位訊號。</span>
           </>
         }
         onBack={() => setViewingSos(null)}
@@ -314,7 +314,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
         targetLabel={`${viewingPeer.localId ?? viewingPeer.name} 分享的位置`}
         details={
           known ? (
-            <div className="text-slate-300 text-[12px]">
+            <div className="text-ink text-[12px]">
               對方在 {new Date(known.at).toLocaleString("zh-TW")} 分享的位置
             </div>
           ) : undefined
@@ -323,7 +323,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
           <>
             還不知道這個人在哪。
             <br />
-            <span className="text-slate-500">
+            <span className="text-muted">
               對方傳一則帶位置的訊息給你之後，這裡就會顯示地圖。
             </span>
           </>
@@ -356,18 +356,18 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
   // 舊版寫「僅能掃描」是錯的，會誤導使用者以為功能還有一半能用。
   if (status && !status.isNative) {
     return (
-      <div className="h-screen flex flex-col bg-[#020617]">
-        <header className="glass-panel safe-area-top px-4 py-3 flex items-center gap-3 border-b border-white/5">
-          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
+      <div className="h-screen flex flex-col bg-bg">
+        <header className="safe-area-top border-b border-line bg-surface px-4 py-3 flex items-center gap-3 border-b border-line">
+          <button onClick={onBack} className="text-muted hover:text-ink text-sm">
             ← 返回
           </button>
-          <div className="text-white font-bold">附近的人</div>
+          <div className="text-ink font-bold">附近的人</div>
         </header>
         <div className="flex-1 flex items-center justify-center px-8">
-          <p className="text-center text-slate-300 text-sm leading-relaxed">
+          <p className="text-center text-ink text-sm leading-relaxed">
             這項功能需要在手機 App 中使用。
             <br />
-            <span className="text-slate-500">網頁瀏覽器無法使用手機的藍牙。</span>
+            <span className="text-muted">網頁瀏覽器無法使用手機的藍牙。</span>
           </p>
         </div>
       </div>
@@ -383,27 +383,27 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
   const isVisible = status?.isAdvertising ?? false;
 
   return (
-    <div className="h-screen flex flex-col bg-[#020617] overflow-hidden">
-      <header className="glass-panel safe-area-top px-4 py-3 border-b border-white/5">
+    <div className="h-screen flex flex-col bg-bg overflow-hidden">
+      <header className="safe-area-top border-b border-line bg-surface px-4 py-3 border-b border-line">
         <div className="flex items-center justify-between mb-2">
-          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">
+          <button onClick={onBack} className="text-muted hover:text-ink text-sm">
             ← 返回
           </button>
-          <div className="text-white font-bold">附近的人</div>
+          <div className="text-ink font-bold">附近的人</div>
           <button
             onClick={() => setShowSos(true)}
-            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-rose-500/20 text-rose-200 border border-rose-500/30"
+            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-critical-soft text-critical-text border border-critical"
           >
             求救
           </button>
         </div>
 
-        <div className="flex items-center justify-between gap-3 bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2">
+        <div className="flex items-center justify-between gap-3 bg-surface border border-line rounded-xl px-3 py-2">
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] text-slate-400">我的識別碼</div>
-            <div className="text-sm font-mono text-amber-300">{getLocalId()}</div>
+            <div className="text-[11px] text-muted">我的識別碼</div>
+            <div className="text-sm font-mono text-accent">{getLocalId()}</div>
             {status && !status.isEnabled && (
-              <div className="text-[11px] text-rose-300 mt-1">
+              <div className="text-[11px] text-critical-text mt-1">
                 手機的藍牙未開啟，無法使用此功能
               </div>
             )}
@@ -412,8 +412,8 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
             onClick={handleToggleVisibility}
             className={`shrink-0 px-4 py-2.5 rounded-xl text-[13px] font-semibold border ${
               isVisible
-                ? "bg-rose-500/20 text-rose-200 border-rose-500/30"
-                : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
+                ? "bg-critical-soft text-critical-text border-critical"
+                : "bg-safe-soft text-safe-text border-safe"
             }`}
           >
             {isVisible ? "停止讓別人看見我" : "讓附近的人看見我"}
@@ -423,20 +423,20 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {searching && (
-          <div className="flex items-center gap-2 mb-3 text-[12px] text-slate-400">
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          <div className="flex items-center gap-2 mb-3 text-[12px] text-muted">
+            <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
             正在尋找附近的人…
           </div>
         )}
 
         {errorMsg && (
-          <div className="mb-3 px-3 py-2 bg-rose-900/30 text-rose-200 text-[12px] rounded-xl border border-rose-500/20">
+          <div className="mb-3 px-3 py-2 bg-critical-soft text-critical-text text-[12px] rounded-xl border border-critical">
             {errorMsg}
           </div>
         )}
 
         {nearbySosSightings.length > 0 && (
-          <div className="mb-3 px-3 py-2 bg-rose-900/40 text-rose-100 text-[12px] rounded-xl border border-rose-500/30 space-y-1.5">
+          <div className="mb-3 px-3 py-2 bg-critical-soft text-critical-text text-[12px] rounded-xl border border-critical space-y-1.5">
             <div className="font-semibold">
               附近有 {nearbySosSightings.length} 人求救,正在幫忙轉發
             </div>
@@ -445,25 +445,25 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
               return (
                 <div
                   key={s.msgId}
-                  className="text-rose-200/80 rounded-lg px-2 py-1.5 -mx-2 bg-rose-500/10 border border-rose-500/20"
+                  className="text-critical-text rounded-lg px-2 py-1.5 -mx-2 bg-critical-soft border border-critical"
                 >
                   <button onClick={() => setViewingSos(s)} className="w-full text-left">
                     {s.fromLocalId && (
-                      <div className="font-mono text-rose-100">{s.fromLocalId} 求救</div>
+                      <div className="font-mono text-critical-text">{s.fromLocalId} 求救</div>
                     )}
                     <div>
                       緊急度 {s.urgencyLevel}/10{s.isTrapped ? " · 受困" : ""}
                       {s.battery !== undefined && ` · 電量 ${s.battery}%`}
                     </div>
-                    {direction && <div className="text-rose-100 font-semibold">{direction}</div>}
+                    {direction && <div className="text-critical-text font-semibold">{direction}</div>}
                     {s.locationDetails && <div>{s.locationDetails}</div>}
                     {s.location && !direction && (
                       // 抓不到自己的定位就無法算方向，退而顯示原始座標讓使用者至少能抄下來轉給救難單位
-                      <div className="text-rose-200/60">
+                      <div className="text-critical-text">
                         對方位置 {s.location.lat.toFixed(4)}, {s.location.lng.toFixed(4)}（你目前沒有定位，無法算方向）
                       </div>
                     )}
-                    <div className="text-[10px] text-rose-300/60 mt-0.5">
+                    <div className="text-[10px] text-critical-text mt-0.5">
                       {s.location ? "點一下看地圖 →" : "這則求救沒有附帶位置"}
                     </div>
                   </button>
@@ -482,7 +482,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
                         <button
                           onClick={() => void handleQuickReply(peer)}
                           disabled={sending || replied}
-                          className="flex-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-amber-500/20 text-amber-200 border border-amber-500/30 disabled:opacity-60"
+                          className="flex-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-surface-2 text-accent border border-accent disabled:opacity-60"
                         >
                           {sending
                             ? "送出中…"
@@ -492,7 +492,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
                         </button>
                         <button
                           onClick={() => setChatPeer(peer)}
-                          className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] bg-slate-700/50 text-slate-200 border border-white/10"
+                          className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] bg-surface-2 text-ink border border-line"
                         >
                           對話
                         </button>
@@ -502,7 +502,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
                 </div>
               );
             })}
-            <div className="text-[10px] text-rose-300/70">
+            <div className="text-[10px] text-critical-text">
               傷勢細節與真實身分已加密,只有救援端解得開
             </div>
           </div>

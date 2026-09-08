@@ -374,18 +374,16 @@ export function RoomRiskScanner({
   };
 
   return (
-    <section className="fixed inset-0 z-40 flex min-h-0 flex-col bg-[#07111f] safe-area-top">
-      <div className="shrink-0 flex items-center justify-between border-b border-white/10 bg-[#07111f]/95 px-3 py-2 sm:px-4 sm:py-3">
+    <section className="safe-area-top fixed inset-0 z-overlay flex min-h-0 flex-col bg-bg">
+      <div className="flex shrink-0 items-center justify-between border-b border-line bg-surface px-3 py-2 sm:px-4 sm:py-3">
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
-            AR Floor Guide
-          </div>
-          <h2 className="text-base font-bold text-white">室內地震安全掃描</h2>
+          <div className="text-[11px] font-semibold text-safe-text">AR Floor Guide</div>
+          <h2 className="text-base font-bold text-ink">室內地震安全掃描</h2>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-300 active:scale-95"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-line bg-surface-2 text-ink transition-colors hover:bg-line"
           aria-label="關閉房間風險掃描"
         >
           <i className="fas fa-times"></i>
@@ -395,18 +393,18 @@ export function RoomRiskScanner({
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain safe-area-bottom">
         <div className="mx-auto max-w-3xl px-3 py-3 sm:px-4">
           <div className="mb-3 flex items-center justify-center gap-2 text-[11px] font-bold">
-            <span className="rounded-full bg-[#ff6770]/15 px-3 py-1.5 text-[#ffb7bc]">
+            <span className="rounded-full bg-[#ff6770]/20 px-3 py-1.5 text-[#a01922]">
               紅色 危險
             </span>
-            <span className="rounded-full bg-[#ffbe4d]/15 px-3 py-1.5 text-[#ffdc98]">
+            <span className="rounded-full bg-[#ffbe4d]/30 px-3 py-1.5 text-[#8a5a00]">
               黃色 注意
             </span>
-            <span className="rounded-full bg-[#4bd3a6]/15 px-3 py-1.5 text-[#9cf0d3]">
+            <span className="rounded-full bg-[#4bd3a6]/25 px-3 py-1.5 text-[#0f6b4d]">
               綠色 安全
             </span>
           </div>
 
-          <div className="relative min-h-[42dvh] sm:min-h-[52vh] overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl shadow-black/30">
+          <div className="relative min-h-[42dvh] overflow-hidden rounded-xl border border-line bg-black sm:min-h-[52vh]">
             {imageUrl ? (
               <img
                 src={imageUrl}
@@ -445,10 +443,10 @@ export function RoomRiskScanner({
                     type="button"
                     onClick={captureFrame}
                     disabled={!cameraReady}
-                    className="flex h-20 w-20 items-center justify-center rounded-full border-[5px] border-white bg-emerald-300 shadow-xl shadow-black/30 transition-transform active:scale-90 disabled:opacity-40"
+                    className="flex h-20 w-20 items-center justify-center rounded-full border-[5px] border-white bg-white/90 transition-transform active:scale-90 disabled:opacity-40"
                     aria-label="拍攝並分析"
                   >
-                    <span className="h-14 w-14 rounded-full border-2 border-emerald-700/20 bg-emerald-200" />
+                    <span className="h-14 w-14 rounded-full bg-white" />
                   </button>
                   <div className="h-12 w-12" aria-hidden="true" />
                 </div>
@@ -470,11 +468,11 @@ export function RoomRiskScanner({
             {isAnalyzing && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#07111f]/72 backdrop-blur-sm">
                 <div className="relative h-16 w-16">
-                  <div className="absolute inset-0 rounded-full border-2 border-emerald-300/20" />
-                  <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-emerald-300" />
-                  <i className="fas fa-couch absolute inset-0 flex items-center justify-center text-lg text-emerald-200"></i>
+                  <div className="absolute inset-0 rounded-full border-2 border-white/20" />
+                  <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-white" />
+                  <i className="fas fa-couch absolute inset-0 flex items-center justify-center text-lg text-white"></i>
                 </div>
-                <div className="text-xs font-bold tracking-widest text-emerald-100">
+                <div className="text-sm font-bold text-white">
                   正在推算地面波及範圍
                 </div>
               </div>
@@ -493,31 +491,31 @@ export function RoomRiskScanner({
           </div>
 
           {cameraError && !imageUrl && (
-            <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+            <div className="mt-3 rounded-lg border border-high bg-high-soft px-4 py-3 text-sm leading-relaxed text-high-text">
               {cameraError}
             </div>
           )}
 
-          <p className="mt-2 text-center text-[10px] leading-relaxed text-slate-500">
+          <p className="mt-2 text-center text-sm leading-relaxed text-muted">
             色塊為 AI 影像推估，請同時確認家具固定狀況與現場逃生動線。
           </p>
 
           {error && (
-            <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            <div className="mt-4 rounded-lg border border-critical bg-critical-soft px-4 py-3 text-sm text-critical-text">
               {error}
             </div>
           )}
 
           {analysis && (
             <div className="mt-4 space-y-4">
-              <div className="border-l-4 border-emerald-300 bg-white/5 p-4">
+              <div className="rounded-xl border border-line bg-surface p-4">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-bold text-white">掃描摘要</h3>
-                  <span className="rounded-full bg-amber-400/15 px-3 py-1 text-[11px] font-bold text-amber-100">
+                  <h3 className="text-sm font-bold text-ink">掃描摘要</h3>
+                  <span className="font-data shrink-0 rounded-full bg-surface-2 px-3 py-1 text-xs font-bold tabular-nums text-muted">
                     風險 {analysis.overallRiskLevel}/5
                   </span>
                 </div>
-                <p className="text-sm leading-relaxed text-slate-300">
+                <p className="text-sm leading-relaxed text-muted">
                   {analysis.summary}
                 </p>
               </div>
@@ -526,20 +524,20 @@ export function RoomRiskScanner({
                 {analysis.objects.map((object, index) => (
                   <div
                     key={`${object.label}-card-${index}`}
-                    className="border border-white/10 bg-white/[0.04] p-4"
+                    className="rounded-xl border border-line bg-surface p-4"
                   >
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <h4 className="text-sm font-bold text-white">
+                      <h4 className="text-sm font-bold text-ink">
                         {object.label}
                       </h4>
-                      <span className="text-[11px] font-bold text-emerald-200">
+                      <span className="shrink-0 text-xs font-bold text-muted">
                         {riskLabel(object.risk)}
                       </span>
                     </div>
-                    <p className="text-xs leading-relaxed text-slate-400">
+                    <p className="text-sm leading-relaxed text-muted">
                       {object.reason}
                     </p>
-                    <p className="mt-2 text-xs leading-relaxed text-amber-100/80">
+                    <p className="mt-2 text-sm font-medium leading-relaxed text-ink">
                       {object.recommendation}
                     </p>
                   </div>

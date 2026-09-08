@@ -17,6 +17,7 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+ios/App/CapApp-SPM/symlinks/
 *.suo
 *.ntvs*
 *.njsproj
@@ -45,3 +46,9 @@ __pycache__
 
 # SQLite local database
 *.db
+
+# Local LLM weights (large, installed into the iOS app separately)
+models/*.gguf
+
+# 本機開發用自簽憑證
+.certs/

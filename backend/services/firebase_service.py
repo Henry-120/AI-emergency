@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import math
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -15,6 +16,7 @@ class FirebaseService:
 
     def __init__(self) -> None:
         self._db = None
+        self._db_lock = threading.Lock()
 
     @staticmethod
     def _now() -> datetime:
@@ -245,12 +247,18 @@ class FirebaseService:
         except ImportError as exc:
             raise RuntimeError("firebase-admin is not installed") from exc
 
-        if not firebase_admin._apps:
-            credential = self._load_credential(credentials)
-            project_id = os.getenv("FIREBASE_PROJECT_ID")
-            options = {"projectId": project_id} if project_id else None
-            firebase_admin.initialize_app(credential, options)
-        self._db = firestore.client()
+        # 同步端點跑在 threadpool，多個請求會同時進來。沒有鎖的話兩條執行緒
+        # 會同時看到 _apps 是空的，第二個 initialize_app() 就會拋
+        # "The default Firebase app already exists"，變成 500。
+        with self._db_lock:
+            if self._db is not None:
+                return self._db
+            if not firebase_admin._apps:
+                credential = self._load_credential(credentials)
+                project_id = os.getenv("FIREBASE_PROJECT_ID")
+                options = {"projectId": project_id} if project_id else None
+                firebase_admin.initialize_app(credential, options)
+            self._db = firestore.client()
         return self._db
 
     def _load_credential(self, credentials):

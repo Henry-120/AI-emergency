@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.henry.guardian',
+  appId: 'com.guoshuohong.guardiaai',
   appName: 'Guardian',
   webDir: 'dist',
   experimental: {

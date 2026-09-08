@@ -48,7 +48,7 @@ export function NearbyDevicesList({
 }: Props) {
   if (devices.length === 0) {
     return (
-      <div className="text-center text-slate-400 text-sm py-10">
+      <div className="text-center text-muted text-sm py-10">
         {searching ? "正在尋找附近的人…" : "附近目前沒有找到人"}
       </div>
     );
@@ -69,23 +69,23 @@ export function NearbyDevicesList({
             key={device.localId ?? device.deviceId}
             className={`rounded-2xl border p-4 ${
               isUser
-                ? "bg-amber-500/5 border-amber-500/30"
-                : "bg-slate-900/60 border-white/10"
+                ? "bg-surface-2 border-accent"
+                : "bg-surface border-line"
             }`}
           >
             <div className="flex items-start justify-between gap-3 mb-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   {isUser && (
-                    <span className="text-[9px] font-bold tracking-wider text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded-full">
+                    <span className="text-[9px] font-bold tracking-wider text-accent bg-surface-2 px-2 py-0.5 rounded-full">
                       使用同一個 App
                     </span>
                   )}
-                  <div className="text-sm font-semibold text-white truncate">
+                  <div className="text-sm font-semibold text-ink truncate">
                     {device.name}
                   </div>
                 </div>
-                <div className="text-[11px] text-slate-400">
+                <div className="text-[11px] text-muted">
                   {distanceLabel(device.rssi)}
                 </div>
               </div>
@@ -96,7 +96,7 @@ export function NearbyDevicesList({
                     <button
                       onClick={() => onShowLocation(device)}
                       title="在地圖上查看對方分享過的位置"
-                      className="px-3 py-2 bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 rounded-xl text-[13px] font-semibold hover:bg-emerald-500/30"
+                      className="px-3 py-2 bg-safe-soft text-safe-text border border-safe rounded-xl text-[13px] font-semibold hover:bg-safe-soft"
                     >
                       位置
                     </button>
@@ -109,7 +109,7 @@ export function NearbyDevicesList({
                         ? undefined
                         : "對方的 App 目前不在畫面上，暫時無法傳訊息"
                     }
-                    className="px-4 py-2 bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-xl text-[13px] font-semibold hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-surface-2 text-accent border border-accent rounded-xl text-[13px] font-semibold hover:bg-surface-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     傳訊息
                   </button>
@@ -118,10 +118,10 @@ export function NearbyDevicesList({
             </div>
 
             {/* 訊號強度視覺條 */}
-            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all ${
-                  isUser ? "bg-amber-400" : "bg-slate-500"
+                  isUser ? "bg-primary" : "bg-surface-2"
                 }`}
                 style={{ width: `${strength}%` }}
               />

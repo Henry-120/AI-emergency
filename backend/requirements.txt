@@ -1,5 +1,5 @@
-cryptography
 fastapi
+cryptography
 firebase-admin>=6.5
 httpx
 python-multipart

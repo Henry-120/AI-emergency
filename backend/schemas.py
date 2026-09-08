@@ -131,20 +131,47 @@ class RescueCaseResponse(BaseModel):
     locationDetails: str = ""
     updatedAt: datetime
 
+# --- Cloud Run Gemini 災害對話 ---
+class AIChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+
+class AIChatRequest(BaseModel):
+    messages: List[AIChatMessage] = Field(min_length=1, max_length=30)
+    sensor_context: str = Field(default="", max_length=4000)
+    image_base64: Optional[str] = None
+
+class AIAction(BaseModel):
+    title: str
+    description: str
+    priority: Literal["CRITICAL", "HIGH", "MEDIUM"]
+
+class AIAnalysisResponse(BaseModel):
+    type: str
+    riskLevel: int
+    situationSummary: str
+    immediateActions: List[AIAction]
+    longTermAdvice: str
+    survivalProbability: int
+    missingInfoRequests: List[str] = Field(default_factory=list)
+    emergencySummary: EmergencySummary
+
 # --- 氣象局資料回傳格式 ---
 class WeatherAlert(BaseModel):
     magnitude: float
     location: str
     time: str
 
+
 # --- 推播裝置註冊 ---
 class DeviceTokenRegister(BaseModel):
     token: str
     platform: Literal["ios"] = "ios"
 
+
 class DeviceTokenResponse(BaseModel):
     status: str
-    
+
 # --- 離線地圖用 ---
 class MapBounds(BaseModel):
     min_lat: float
@@ -225,6 +252,7 @@ class RoomRiskAnalysisResponse(BaseModel):
     objects: List[RoomRiskObject]
     zones: List[RoomRiskZone]
 
+
 # --- SOS 多跳中繼 ---
 class SosReportRequest(BaseModel):
     """
@@ -271,3 +299,10 @@ class SosCaseResponse(BaseModel):
     drug_allergies: str = ""
     chronic_conditions: str = ""
     received_at: datetime
+
+class TTSRequest(BaseModel):
+    """語音合成請求。voice 留空時使用後端 GOOGLE_TTS_VOICE 設定值。"""
+
+    text: str
+    voice: Optional[str] = None
+    speakingRate: Optional[float] = None
