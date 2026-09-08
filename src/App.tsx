@@ -833,48 +833,55 @@ const App: React.FC = () => {
 
   const announceEarthquakeSafety = () => {
     const alert = earthquakeAlertRef.current;
-    
-    // 預設防災指令
-    const defaultInstruction = "請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。";
 
-    if (!alert) {
+    // 語音只問一句：人身安全 + 周遭狀況，講完立刻開麥克風讓使用者直接回答。
+    // 搖晃當下沒有人聽得完一整段防災指令，先確認人還好不好才是要緊的。
+    const spokenPrompt = alert
+      ? `偵測到規模 ${alert.magnitude} 強震。你還好嗎？請說出你現在的狀況，以及周遭有沒有危險。`
+      : "你還好嗎？請說出你現在的狀況，以及周遭有沒有危險。";
+
+    const notes = EARTHQUAKE_SAFETY_NOTES
+      .map((note, index) => `${index + 1}. ${note}`)
+      .join("\n");
+
+    // 震央、規模、距離只顯示不朗讀——唸出來會拖慢開麥克風的時機。
+    let header = `🚨 ${spokenPrompt}`;
+    if (alert) {
+      let distanceInfo = "計算中...";
+      const loc = userStatusRef.current.location;
+      if (loc && alert.epicenterLat != null && alert.epicenterLng != null) {
+        const dist = distanceKm(loc.lat, loc.lng, alert.epicenterLat, alert.epicenterLng);
+        distanceInfo = `約 ${dist.toFixed(1)} 公里`;
+      }
+      header =
+        `🚨 【系統警報：偵測到有感地震】\n` +
+        `📍 震央位置：${alert.location || "未知"}\n` +
+        `📊 地震規模：${alert.magnitude}\n` +
+        `📏 距離您的位置：${distanceInfo}\n\n` +
+        `${spokenPrompt}`;
+    }
+
+    setMessages((previous) => [...previous, {
+      id: `earthquake-${Date.now()}`,
+      role: "assistant",
+      content: `${header}
+
+【避難注意事項】
+${notes}`,
+      timestamp: new Date(),
+    }]);
+
+    // 畫面上保留正常標點好閱讀；唸出來的版本把標點拿掉，避免一句話中間
+    // 停頓一兩秒——災害當下那段沉默會讓人以為程式當掉了。
+    speak(toUrgentSpeech(spokenPrompt), () => {
       setMessages((previous) => [...previous, {
-        id: `earthquake-${Date.now()}`,
+        id: `mic-open-${Date.now()}`,
         role: "assistant",
-        content: `🚨 ${defaultInstruction}`,
+        content: "🎤 麥克風已開啟，請直接說話回報你的狀況。說完會自動停止，也可以改用鍵盤輸入。",
         timestamp: new Date(),
       }]);
-      speak(defaultInstruction);
-      return;
-    }
-
-    // 計算使用者與震央距離
-    let distanceInfo = "計算中...";
-    const loc = userStatusRef.current.location;
-    if (loc && alert.epicenterLat != null && alert.epicenterLng != null) {
-      const dist = distanceKm(loc.lat, loc.lng, alert.epicenterLat, alert.epicenterLng);
-      distanceInfo = `約 ${dist.toFixed(1)} 公里`;
-    }
-
-    // 將預警資訊與防災措施融合為單一訊息顯示
-    setMessages((previous) => [
-      ...previous,
-      {
-        id: `earthquake-info-${Date.now()}`,
-        role: "assistant",
-        content:
-          `🚨 【系統警報：偵測到有感地震】\n` +
-          `📍 震央位置：${alert.location || "未知"}\n` +
-          `📊 地震規模：${alert.magnitude}\n` +
-          `📏 距離您的位置：${distanceInfo}\n\n` +
-          `⚠️ **緊急應變指示**：\n` +
-          `${defaultInstruction}\n\n` +
-          `⏳ GUARDIA 正在為您評估周遭地理環境，生成專屬逃生避難報告中...`,
-        timestamp: new Date(),
-      },
-    ]);
-    // 語音播報
-    speak(`偵測到規模 ${alert.magnitude} 強震，${alert.location}。${defaultInstruction}`);
+      setAutoListenSignal((value) => value + 1);
+    });
   };
 
   useEffect(() => {
