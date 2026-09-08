@@ -1,4 +1,4 @@
-import { BACKEND } from "./backend";
+import { BACKEND, buildBackendUrl } from "./backend";
 
 export interface Shelter {
   id: string;
@@ -35,7 +35,7 @@ export async function downloadOfflineSafetyPack(
   radiusKm = 10,
 ): Promise<{ success: boolean; pack?: OfflineSafetyPack; message: string }> {
   try {
-    const url = new URL(`${BACKEND}/api/shelters/nearby`);
+    const url = buildBackendUrl("/api/shelters/nearby");
     url.searchParams.set("latitude", String(latitude));
     url.searchParams.set("longitude", String(longitude));
     url.searchParams.set("radius_km", String(radiusKm));

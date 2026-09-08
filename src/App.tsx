@@ -21,13 +21,14 @@ import {
   onPushEarthquakeNotificationTapped,
 } from "./services/pushNotificationService";
 import { AppFooter } from "./components/app/AppFooter";
+import { playCloudSpeech, stopCloudSpeech } from "./services/VoiceTTS";
+import { toUrgentSpeech } from "./services/urgentSpeech";
+import { AppTabBar } from "./components/app/AppTabBar";
 import { AppHeader } from "./components/app/AppHeader";
 import { ChatMessageList } from "./components/app/ChatMessageList";
 import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
 import { RoomRiskScanner } from "./components/room-risk/RoomRiskScanner";
-import { playCloudSpeech, stopCloudSpeech } from "./services/VoiceTTS";
-import { toUrgentSpeech } from "./services/urgentSpeech";
 import { getOfflineAnalysis } from "./services/offlineService";
 import { analyzeRoomRisk } from "./services/roomRiskService";
 import {
@@ -225,7 +226,7 @@ const App: React.FC = () => {
   };
 
   const requestDevicePermissions = async () => {
-    setPermissionStatus("正在請求相機、麥克風與定位權限…");
+    setPermissionStatus("正在請求相機、麥克風、定位與通知權限…");
 
     try {
       if (navigator.geolocation) {
@@ -239,6 +240,16 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.warn("定位權限請求失敗：", error);
+    }
+
+    // 通知權限也要在這一步就要。留到地震真的發生才問，使用者往往正在慌亂中；
+    // 而且瀏覽器只會問一次，錯過或誤按拒絕之後就再也不會跳，警報等於永遠靜音。
+    try {
+      if ("Notification" in window && Notification.permission === "default") {
+        await Notification.requestPermission();
+      }
+    } catch (error) {
+      console.warn("通知權限請求失敗：", error);
     }
 
     // 相機與麥克風分開請求：合併成一次 getUserMedia 時，只要其中一項被拒絕，
@@ -257,15 +268,15 @@ const App: React.FC = () => {
   };
 
   const disclaimerModal = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6 text-ink">
-      <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-surface shadow-2xl shadow-black/50 overflow-hidden">
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-[var(--overlay)] px-4 py-6 text-ink">
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--elev-2)]">
         <div className="p-6 sm:p-8">
-          <h1 className="mb-4 text-2xl font-bold text-amber-300">
+          <h1 className="mb-4 text-balance text-2xl font-bold text-ink">
             地震救災協助 App 免責聲明
           </h1>
           {disclaimerStep === 1 ? (
             <div className="space-y-4">
-              <div className="max-h-[55vh] overflow-y-auto rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm leading-relaxed text-ink">
+              <div className="max-h-[55vh] overflow-y-auto rounded-xl border border-line bg-surface-2 p-4 text-sm leading-relaxed text-ink">
                 <p>歡迎您使用本地震救災協助 App（以下簡稱「本 App」）。為保障您的權益，請於使用前詳細閱讀本免責聲明。當您使用本 App，即表示您已閱讀、理解並同意以下內容。</p>
                 <p className="mt-3 font-semibold">一、服務目的</p>
                 <p>本 App 旨在提供地震防災、災害應變及救災資訊服務，包括但不限於：</p>
@@ -349,7 +360,7 @@ const App: React.FC = () => {
                   type="checkbox"
                   checked={disclaimerChecked}
                   onChange={(e) => setDisclaimerChecked(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded-sm border-line bg-surface-2 text-amber-400 focus:ring-amber-300"
+                  className="mt-0.5 h-5 w-5 shrink-0 rounded border-line bg-surface text-primary focus:ring-accent"
                 />
                 <span>我已閱讀並理解上述免責聲明</span>
               </label>
@@ -358,7 +369,7 @@ const App: React.FC = () => {
                   type="button"
                   disabled={!disclaimerChecked}
                   onClick={handleProceedToPermissions}
-                  className="inline-flex items-center justify-center rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-[48px] items-center justify-center rounded-xl bg-primary px-5 text-sm font-bold text-primary-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   下一步：開啟權限
                 </button>
@@ -366,32 +377,32 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-5">
-              <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-sm leading-relaxed text-rose-100">
-                <p className="font-semibold text-rose-200">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
+              <div className="rounded-xl border border-line bg-surface-2 p-5 text-sm leading-relaxed text-ink">
+                <p className="font-bold text-ink">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
                 <p className="mt-3">所有權限皆依 iOS 系統規範，由使用者自行決定是否授權；若拒絕部分權限，可能導致部分功能無法正常使用。</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm leading-relaxed text-ink">
+              <div className="rounded-xl border border-line bg-surface-2 p-4 text-sm leading-relaxed text-ink">
                 <p>請按下方按鈕，同意後系統將請求相機、麥克風與定位權限。若您拒絕，仍可稍後於功能啟用時再次授權。</p>
-                <p className="mt-3 text-xs text-muted">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
+                <p className="mt-3 text-sm text-muted">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
               </div>
               <div className="space-y-3">
                 <button
                   type="button"
                   onClick={requestDevicePermissions}
-                  className="w-full rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-400"
+                  className="min-h-[48px] w-full rounded-xl bg-primary px-5 text-sm font-bold text-primary-ink transition-opacity hover:opacity-90"
                 >
                   同意並請求相機、麥克風與定位權限
                 </button>
                 <button
                   type="button"
                   onClick={acceptDisclaimer}
-                  className="w-full rounded-2xl border border-white/10 bg-surface-2 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-surface"
+                  className="min-h-[48px] w-full rounded-xl border border-line bg-surface-2 px-5 text-sm font-semibold text-ink transition-colors hover:bg-line"
                 >
                   已閱讀，稍後再授權
                 </button>
               </div>
               {permissionStatus && (
-                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                <div className="rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm text-ink">
                   {permissionStatus}
                 </div>
               )}
@@ -811,6 +822,15 @@ const App: React.FC = () => {
     window.speechSynthesis.speak(utterance);
   };
 
+  // 注意事項只顯示、不朗讀：唸完一長串才開麥克風太慢，而且使用者
+  // 正在搖晃中，用聽的也記不住，不如留在畫面上隨時可以回頭看。
+  const EARTHQUAKE_SAFETY_NOTES = [
+    "立即趴下、掩護頭頸部，抓穩固定物",
+    "遠離窗戶及可能掉落的家具",
+    "搖晃停止後再確認逃生路線",
+    "切勿搭乘電梯",
+  ];
+
   const announceEarthquakeSafety = () => {
     const alert = earthquakeAlertRef.current;
     
@@ -885,7 +905,20 @@ const App: React.FC = () => {
     // 發送推播通知
     if (notifiedEarthquakeRef.current !== key) {
       notifiedEarthquakeRef.current = key;
-      void notifyEarthquakeAlert(earthquakeAlert);
+      void notifyEarthquakeAlert(earthquakeAlert).then((result) => {
+        if (result.shown) return;
+        // 通知被擋掉時要講出來。原本這裡靜靜吞掉失敗，使用者只會覺得「按了沒反應」。
+        // 先取出 reason：result 是參數，型別收窄不會延續進下面的 callback。
+        const blockedText = result.reason === "unsupported"
+          ? "（此瀏覽器不支援系統通知，警報僅顯示於畫面上。）"
+          : "（系統通知權限未開啟，警報僅顯示於畫面上。請點網址列左側的鎖頭圖示，將「通知」改為允許。）";
+        setMessages((previous) => [...previous, {
+          id: `notify-blocked-${Date.now()}`,
+          role: "assistant",
+          content: blockedText,
+          timestamp: new Date(),
+        }]);
+      });
     }
 
     // 觸發背景 BLE 存活訊號
@@ -1351,43 +1384,114 @@ const App: React.FC = () => {
     return <AuthPage onAuthed={setAuthUser} />;
   }
 
-  if (showMedicalCard) {
-    return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
-  }
+  /**
+   * 子頁面。原本每個都是 early return 直接吃掉整個畫面，
+   * 底部分頁列因此消失、使用者失去方向感。
+   * 改成統一包在同一個外殼裡，分頁列常駐，並標示目前所在位置。
+   */
+  const goHome = () => {
+    setShowMedicalCard(false);
+    setShowRescueMap(false);
+    setShowShelterNavigator(false);
+    setShowNearbyPeople(false);
+    setSelectedMap(null);
+  };
 
-  if (showRescueMap) {
-    return <RescueMapPage location={userStatus.location} onBack={() => setShowRescueMap(false)} />;
-  }
+  const subPage = showMedicalCard
+    ? {
+        key: "medical",
+        title: "緊急醫療卡",
+        node: <MedicalCardPage onBack={goHome} />,
+      }
+    : showRescueMap
+      ? {
+          key: "rescue",
+          title: "救援任務地圖",
+          node: (
+            <RescueMapPage location={userStatus.location} onBack={goHome} />
+          ),
+        }
+      : selectedMap
+        ? {
+            key: "more",
+            title: "離線地圖",
+            node: (
+              <OfflineMapPage
+                map={selectedMap}
+                onBack={() => {
+                  setSelectedMap(null);
+                  loadDownloadedMaps();
+                }}
+              />
+            ),
+          }
+        : showShelterNavigator && offlineSafetyPack
+          ? {
+              key: "more",
+              title: "避難導航",
+              node: (
+                <ShelterNavigatorPage
+                  pack={offlineSafetyPack}
+                  location={userStatus.location}
+                  onBack={goHome}
+                />
+              ),
+            }
+          : // 藍牙模組：附近的人頁面
+            showNearbyPeople
+            ? {
+                key: "nearby",
+                title: "附近的人",
+                node: (
+                  <NearbyPeoplePage
+                    onBack={goHome}
+                    myLocation={userStatus.location}
+                  />
+                ),
+              }
+            : null;
 
-  if (selectedMap) {
+  const tabBar = (activeKey: string) => (
+    <AppTabBar
+      activeKey={activeKey}
+      onGoHome={goHome}
+      isDownloadingMap={isDownloadingMap}
+      offlineSafetyPackReady={Boolean(offlineSafetyPack)}
+      nearbyUnreadCount={bleUnread}
+      hasAuthUser={Boolean(authUser)}
+      onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
+      onShowShelterNavigator={() => setShowShelterNavigator(true)}
+      onShowNearbyPeople={() => setShowNearbyPeople(true)}
+      onShowMedicalCard={() => setShowMedicalCard(true)}
+      onShowRescueMap={() => setShowRescueMap(true)}
+      onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
+      onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
+      onLogout={handleLogout}
+    />
+  );
+
+  if (subPage) {
     return (
-      <OfflineMapPage
-        map={selectedMap}
-        onBack={() => {
-          setSelectedMap(null);
-          loadDownloadedMaps();
-        }}
-      />
-    );
-  }
+      <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-bg text-ink">
+        {/* 電腦版：子頁面上方的標題列，首頁鈕在右上。手機版由底部分頁列負責。 */}
+        <div className="grad-chrome hidden shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2 safe-area-top sm:flex">
+          <span className="truncate text-xs font-semibold text-white">
+            {subPage.title}
+          </span>
+          <button
+            onClick={goHome}
+            aria-label="回到首頁"
+            className="has-tip relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[#c8ced6] transition-[background-color,color,transform] duration-100 hover:bg-white/15 hover:text-white active:scale-90 active:bg-white/25"
+          >
+            <i className="fas fa-house text-[15px]" aria-hidden="true"></i>
+            <span className="tip">首頁</span>
+          </button>
+        </div>
 
-  if (showShelterNavigator && offlineSafetyPack) {
-    return (
-      <ShelterNavigatorPage
-        pack={offlineSafetyPack}
-        location={userStatus.location}
-        onBack={() => setShowShelterNavigator(false)}
-      />
-    );
-  }
+        <div className="min-h-0 flex-1 overflow-hidden">{subPage.node}</div>
 
-  // 藍牙模組：附近的人頁面（獨立全螢幕）
-  if (showNearbyPeople) {
-    return (
-      <NearbyPeoplePage
-        onBack={() => setShowNearbyPeople(false)}
-        myLocation={userStatus.location}
-      />
+        {tabBar(subPage.key)}
+      </div>
     );
   }
 
@@ -1444,6 +1548,7 @@ const App: React.FC = () => {
         onViewMap={handleViewMap}
         setInput={setInput}
       />
+      {tabBar("guide")}
     </div>
   );
 };

@@ -9,6 +9,9 @@ from typing import Optional
 # configuration reads from os.environ. Cloud Run injects these values before
 # process startup, while this fallback keeps direct local runs consistent.
 for env_file in [
+    # 專案根目錄優先（.env.example 放在這裡），再回退到 backend/ 底下。
+    Path(__file__).resolve().parent.parent / ".env.local",
+    Path(__file__).resolve().parent.parent / ".env",
     Path(__file__).resolve().parent / ".env.local",
     Path(__file__).resolve().parent / ".env",
 ]:

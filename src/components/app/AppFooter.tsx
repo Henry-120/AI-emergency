@@ -2,6 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { MapInfo } from "../../services/offlineMapsService";
 import { createSpeechRecognizer } from "../../services/VoiceInput";
 
+/**
+ * 版面回到最初的結構（狀態列、離線地圖預覽、AR 鈕、快捷標籤、輸入列）。
+ * 底色接續報頭的紫→深藍漸層，送出鈕帶漸層。
+ */
 export function AppFooter({
   autoListenSignal = 0,
   downloadedMaps,
@@ -98,54 +102,54 @@ export function AppFooter({
   }, [autoListenSignal]);
 
   return (
-    <footer className="glass-panel shrink-0 px-3 pt-2 sm:p-4 safe-area-bottom">
+    <footer className="grad-chrome footer-safe shrink-0 border-t border-white/10 px-3 pt-2 sm:p-4">
       <div className="max-w-xl mx-auto min-w-0">
         {offlineMapStatus && (
-          <div className="mb-2 max-h-16 overflow-y-auto px-3 py-2 rounded-xl bg-slate-900/80 border border-amber-500/15 text-[11px] sm:text-[12px] text-amber-100">
+          <div className="mb-2 max-h-16 overflow-y-auto px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-[11px] sm:text-[12px] text-[#e9eaef]">
             {offlineMapStatus}
           </div>
         )}
+
         {downloadedMaps.length > 0 && (
           <div className="mb-2 max-h-36 overflow-y-auto overscroll-contain grid gap-2 sm:max-h-52 sm:gap-4">
-            <div className="font-bold text-xs text-amber-300 uppercase tracking-wider">
+            <div className="font-bold text-xs text-[#c3b8dc] uppercase tracking-wider">
               已下載離線地圖預覽 ({downloadedMaps.length})
             </div>
             <div className="grid gap-2 sm:gap-4 sm:grid-cols-2">
               {downloadedMaps.map((map) => (
                 <div
                   key={map.map_id}
-                  className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 shadow-lg shadow-black/30 transition-all hover:-translate-y-0.5 hover:shadow-2xl"
+                  className="overflow-hidden rounded-3xl border border-white/15 bg-white/[0.07] transition-all hover:-translate-y-0.5"
                 >
-                  <div className="relative h-20 sm:h-40 overflow-hidden bg-slate-800 text-slate-200 flex flex-col items-center justify-center gap-1 sm:gap-2 p-3 sm:p-4">
-                    <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                  <div className="grad-05 relative h-20 sm:h-40 overflow-hidden flex flex-col items-center justify-center gap-1 sm:gap-2 p-3 sm:p-4">
+                    <div className="text-[10px] uppercase tracking-[0.3em] text-white/60">
                       離線地圖預覽
                     </div>
                     <div className="text-sm font-semibold text-white text-center">
                       {map.map_id}
                     </div>
-                    <div className="text-[11px] text-slate-400 text-center">
-                      {map.tiles_count} 張瓦片 · 縮放{" "}
-                      {map.zoom_levels.join(", ")}
+                    <div className="font-data text-[11px] text-white/70 text-center">
+                      {map.tiles_count} 張瓦片 · 縮放 {map.zoom_levels.join(", ")}
                     </div>
                   </div>
                   <div className="hidden p-4 space-y-2 sm:block">
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 uppercase tracking-widest">
+                    <div className="flex items-center justify-between text-[11px] text-[#a9aec0] uppercase tracking-widest">
                       <span>半徑</span>
-                      <span>{map.radius_km} km</span>
+                      <span className="font-data">{map.radius_km} km</span>
                     </div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 uppercase tracking-widest">
+                    <div className="flex items-center justify-between text-[11px] text-[#a9aec0] uppercase tracking-widest">
                       <span>瓦片數</span>
-                      <span>{map.tiles_count}</span>
+                      <span className="font-data">{map.tiles_count}</span>
                     </div>
-                    <div className="text-[11px] text-slate-300">
+                    <div className="font-data text-[11px] text-[#c8ced6]">
                       中心：{map.center_latitude.toFixed(4)},{" "}
                       {map.center_longitude.toFixed(4)}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
-                      <span className="rounded-full bg-white/5 px-2 py-1">
+                    <div className="grid grid-cols-2 gap-2 text-[10px] text-[#a9aec0]">
+                      <span className="rounded-full bg-white/10 px-2 py-1 text-center">
                         {map.zoom_levels.join(" ")}
                       </span>
-                      <span className="rounded-full bg-white/5 px-2 py-1">
+                      <span className="rounded-full bg-white/10 px-2 py-1 text-center">
                         {map.status}
                       </span>
                     </div>
@@ -153,13 +157,13 @@ export function AppFooter({
                   <div className="p-3 pt-0 flex items-center gap-2">
                     <button
                       onClick={() => onDeleteMap(map.map_id)}
-                      className="flex-1 py-2 bg-rose-600/10 text-rose-300 border border-rose-500/10 rounded-xl text-[12px] font-semibold hover:bg-rose-600/20"
+                      className="flex-1 rounded-xl border border-[rgba(178,54,75,0.45)] bg-[rgba(178,54,75,0.25)] py-2 text-[12px] font-semibold text-[#f2b4bd] transition-colors hover:bg-[rgba(178,54,75,0.4)]"
                     >
                       刪除地圖
                     </button>
                     <button
                       onClick={() => onViewMap(map)}
-                      className="py-2 px-3 bg-white/5 text-slate-300 border border-white/10 rounded-xl text-[12px] font-semibold hover:bg-white/10"
+                      className="py-2 px-3 bg-white/10 text-[#e9eaef] border border-white/15 rounded-xl text-[12px] font-semibold hover:bg-white/20"
                     >
                       開啟地圖
                     </button>
@@ -174,7 +178,7 @@ export function AppFooter({
           type="button"
           onClick={onOpenRoomRiskScanner}
           disabled={isAnalyzing}
-          className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 sm:py-3 text-xs sm:text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          className="mb-2 hidden w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-xs font-bold text-[#e9eaef] transition-all hover:bg-white/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 sm:flex sm:rounded-2xl sm:py-3 sm:text-sm"
           aria-label="開啟 AR 房間風險掃描"
         >
           <i className="fas fa-camera"></i>
@@ -186,12 +190,13 @@ export function AppFooter({
             <button
               key={tag}
               onClick={() => setInput(tag)}
-              className="whitespace-nowrap px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] text-slate-400 active:bg-amber-500 active:text-black transition-all"
+              className="whitespace-nowrap px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-[10px] text-[#c8ced6] active:bg-white/25 transition-all"
             >
               {tag}
             </button>
           ))}
         </div>
+
         <form
           ref={formRef}
           onSubmit={(event) => {
@@ -206,7 +211,7 @@ export function AppFooter({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="回報進度或回答問題..."
-              className="w-full min-w-0 bg-slate-800/40 border border-white/10 rounded-2xl py-3 pl-4 pr-12 text-base sm:text-sm text-white caret-amber-400 focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-slate-500 shadow-inner"
+              className="w-full min-w-0 bg-black/25 border border-white/15 rounded-2xl py-3 pl-4 pr-12 text-base sm:text-sm text-white caret-[#c3b8dc] focus:outline-none focus:border-[#c3b8dc] transition-all placeholder:text-[#8f95a8]"
               disabled={isAnalyzing}
             />
             <button
@@ -217,11 +222,11 @@ export function AppFooter({
               disabled={isAnalyzing || !speechSupported}
               className={`absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2 ${
                 isRecording
-                  ? "text-rose-400"
+                  ? "text-[#f2b4bd]"
                   : speechSupported
-                    ? "text-slate-500"
-                    : "text-slate-600/40"
-              } active:text-amber-500`}
+                    ? "text-[#8f95a8]"
+                    : "text-white/20"
+              } active:text-[#c3b8dc]`}
               aria-label={isRecording ? "停止語音輸入" : "開始語音輸入"}
               title={
                 !speechSupported
@@ -232,7 +237,7 @@ export function AppFooter({
               }
             >
               {isRecording && (
-                <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#f2b4bd]" />
               )}
               <i className="fas fa-microphone"></i>
             </button>
@@ -251,7 +256,7 @@ export function AppFooter({
                 setInput(finalTranscript);
                 formRef.current?.requestSubmit();
               }}
-              className="bg-emerald-500 text-black w-11 h-11 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(16,185,129,0.2)] active:scale-90 transition-all"
+              className="bg-safe text-white w-11 h-11 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
               aria-label="確認送出語音辨識結果"
             >
               <i className="fas fa-check"></i>
@@ -260,7 +265,7 @@ export function AppFooter({
             <button
               type="submit"
               disabled={isAnalyzing || !input.trim()}
-              className="bg-amber-500 text-black w-11 h-11 rounded-2xl flex items-center justify-center shadow-[0_4px_15px_rgba(251,191,36,0.3)] active:scale-90 transition-all disabled:opacity-30 disabled:shadow-none"
+              className="grad-action text-white w-11 h-11 rounded-2xl flex items-center justify-center active:scale-90 transition-all disabled:opacity-30"
             >
               <i
                 className={`fas ${isAnalyzing ? "fa-circle-notch fa-spin" : "fa-arrow-up"}`}

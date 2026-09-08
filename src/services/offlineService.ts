@@ -1,6 +1,5 @@
 // src/services/offlineService.ts
 import { DisasterAnalysis, ChatMessage, DisasterType } from "../types";
-import { initLlama } from 'llama-cpp-capacitor';
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
 const OFFLINE_MODEL_FILE = "qwen2.5-0.5b-instruct-q4_k_m.gguf";
@@ -549,9 +548,17 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
       }))
     ];
 
-    // 修改處：只在第一次呼叫時初始化模型，後續直接重複使用
+    // 裝置端模型是 iOS 原生外掛，網頁端沒有。在 web 上必須先擋掉，不能試著
+    // 載入一個不存在的原生模組——靜態 import 會讓整包 chunk 在頁面載入時就
+    // 丟出 ReferenceError。
+    if (!Capacitor.isNativePlatform()) {
+      throw new Error("裝置端模型僅在 App 內可用，網頁版不提供離線推論");
+    }
+
+    // 只在第一次呼叫時初始化模型，後續直接重複使用
     if (!cachedLlamaContext) {
       console.log("正在載入離線模型...");
+      const { initLlama } = await import("llama-cpp-capacitor");
       cachedLlamaContext = await initLlama({
         model: await resolveOfflineModelPath(),
         n_ctx: 2048,
