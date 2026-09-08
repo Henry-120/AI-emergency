@@ -351,3 +351,11 @@ class SosCaseResponse(BaseModel):
     drug_allergies: str = ""
     chronic_conditions: str = ""
     received_at: datetime
+
+
+class TTSRequest(BaseModel):
+    """語音合成請求。voice 留空時使用後端 GOOGLE_TTS_VOICE 設定值。"""
+
+    text: str
+    voice: Optional[str] = None
+    speakingRate: Optional[float] = None

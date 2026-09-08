@@ -3,6 +3,7 @@ import { MapInfo } from "../../services/offlineMapsService";
 import { createSpeechRecognizer } from "../../services/VoiceInput";
 
 export function AppFooter({
+  autoListenSignal = 0,
   downloadedMaps,
   input,
   isAnalyzing,
@@ -13,6 +14,8 @@ export function AppFooter({
   onViewMap,
   setInput,
 }: {
+  /** 數值每變動一次就自動開始聆聽。地震語音提示念完後由 App 觸發。 */
+  autoListenSignal?: number;
   downloadedMaps: MapInfo[];
   input: string;
   isAnalyzing: boolean;
@@ -42,40 +45,57 @@ export function AppFooter({
     };
   }, []);
 
-  const toggleRecording = () => {
-    if (!recognizerRef.current) {
-      if (!speechSupported) {
+  const ensureRecognizer = (notifyUnsupported: boolean) => {
+    if (recognizerRef.current) return recognizerRef.current;
+    if (!speechSupported) {
+      if (notifyUnsupported) {
         alert(
           "此瀏覽器不支援語音辨識。請使用支援的瀏覽器或 HTTPS/localhost 測試。",
         );
-        return;
       }
-
-      recognizerRef.current = createSpeechRecognizer(
-        (text, isFinal) => {
-          setInput(text);
-          if (isFinal) {
-            setIsRecording(false);
-            setFinalTranscript(text);
-          }
-        },
-        (error) => {
-          console.error("Speech error:", error);
-          setIsRecording(false);
-          alert(`語音辨識錯誤：${error}`);
-        },
-      );
+      return null;
     }
 
+    recognizerRef.current = createSpeechRecognizer(
+      (text, isFinal) => {
+        setInput(text);
+        if (isFinal) {
+          setIsRecording(false);
+          setFinalTranscript(text);
+        }
+      },
+      (error) => {
+        console.error("Speech error:", error);
+        setIsRecording(false);
+        alert(`語音辨識錯誤：${error}`);
+      },
+    );
+    return recognizerRef.current;
+  };
+
+  const startRecording = (notifyUnsupported: boolean) => {
+    const recognizer = ensureRecognizer(notifyUnsupported);
+    if (!recognizer) return;
+    recognizer.start();
+    setFinalTranscript("");
+    setIsRecording(true);
+  };
+
+  const toggleRecording = () => {
     if (!isRecording) {
-      recognizerRef.current.start();
-      setFinalTranscript("");
-      setIsRecording(true);
+      startRecording(true);
     } else {
-      recognizerRef.current.stop();
+      recognizerRef.current?.stop();
       setIsRecording(false);
     }
   };
+
+  // 地震語音提示念完後自動開麥克風。使用者正在避難，不該還要先找按鈕。
+  // 初始值 0 代表「沒有要求」，所以跳過第一次執行。
+  useEffect(() => {
+    if (!autoListenSignal) return;
+    startRecording(false);
+  }, [autoListenSignal]);
 
   return (
     <footer className="glass-panel shrink-0 px-3 pt-2 sm:p-4 safe-area-bottom">

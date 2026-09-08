@@ -26,7 +26,8 @@ import { ChatMessageList } from "./components/app/ChatMessageList";
 import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
 import { RoomRiskScanner } from "./components/room-risk/RoomRiskScanner";
-import { playAudio } from "./services/VoiceTTS";
+import { playCloudSpeech, stopCloudSpeech } from "./services/VoiceTTS";
+import { toUrgentSpeech } from "./services/urgentSpeech";
 import { getOfflineAnalysis } from "./services/offlineService";
 import { analyzeRoomRisk } from "./services/roomRiskService";
 import {
@@ -136,6 +137,8 @@ const App: React.FC = () => {
   });
   const userStatusRef = useRef(userStatus);
   const earthquakeAlertRef = useRef<EarthquakeAlert | null>(null);
+  // 每 +1 一次就要求 AppFooter 自動開麥克風。
+  const [autoListenSignal, setAutoListenSignal] = useState(0);
   const notifiedEarthquakeRef = useRef<string | null>(null);
   const sosEarthquakeRef = useRef<string | null>(null);
   const isFetchingLbsRef = useRef(false);
@@ -254,15 +257,15 @@ const App: React.FC = () => {
   };
 
   const disclaimerModal = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 text-slate-100">
-      <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-slate-950/95 shadow-2xl shadow-black/50 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6 text-ink">
+      <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-surface shadow-2xl shadow-black/50 overflow-hidden">
         <div className="p-6 sm:p-8">
           <h1 className="mb-4 text-2xl font-bold text-amber-300">
             地震救災協助 App 免責聲明
           </h1>
           {disclaimerStep === 1 ? (
             <div className="space-y-4">
-              <div className="max-h-[55vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+              <div className="max-h-[55vh] overflow-y-auto rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm leading-relaxed text-ink">
                 <p>歡迎您使用本地震救災協助 App（以下簡稱「本 App」）。為保障您的權益，請於使用前詳細閱讀本免責聲明。當您使用本 App，即表示您已閱讀、理解並同意以下內容。</p>
                 <p className="mt-3 font-semibold">一、服務目的</p>
                 <p>本 App 旨在提供地震防災、災害應變及救災資訊服務，包括但不限於：</p>
@@ -346,7 +349,7 @@ const App: React.FC = () => {
                   type="checkbox"
                   checked={disclaimerChecked}
                   onChange={(e) => setDisclaimerChecked(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded-sm border-slate-600 bg-slate-900 text-amber-400 focus:ring-amber-300"
+                  className="mt-1 h-4 w-4 rounded-sm border-line bg-surface-2 text-amber-400 focus:ring-amber-300"
                 />
                 <span>我已閱讀並理解上述免責聲明</span>
               </label>
@@ -367,9 +370,9 @@ const App: React.FC = () => {
                 <p className="font-semibold text-rose-200">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
                 <p className="mt-3">所有權限皆依 iOS 系統規範，由使用者自行決定是否授權；若拒絕部分權限，可能導致部分功能無法正常使用。</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+              <div className="rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm leading-relaxed text-ink">
                 <p>請按下方按鈕，同意後系統將請求相機、麥克風與定位權限。若您拒絕，仍可稍後於功能啟用時再次授權。</p>
-                <p className="mt-3 text-xs text-slate-400">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
+                <p className="mt-3 text-xs text-muted">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
               </div>
               <div className="space-y-3">
                 <button
@@ -382,7 +385,7 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={acceptDisclaimer}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-800 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"
+                  className="w-full rounded-2xl border border-white/10 bg-surface-2 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-surface"
                 >
                   已閱讀，稍後再授權
                 </button>
@@ -467,6 +470,7 @@ const App: React.FC = () => {
       time: new Date().toISOString(),
       epicenterLat: location.lat + 0.5,
       epicenterLng: location.lng,
+      simulated: true,
     });
   };
 
@@ -686,26 +690,123 @@ const App: React.FC = () => {
     }
   }, [authUser]);
 
-  const speak = (text: string) => {
+  /**
+   * 朗讀語速。1.0 是原速；災害提示講快一點才不會拖到後續動作，但太快會聽不清。
+   * Google 與瀏覽器兩條路徑共用同一個值，聽起來才一致。
+   */
+  const SPEECH_RATE = 1.2;
+
+  /**
+   * 挑最自然的中文語音。
+   * 舊寫法是 voices.find(zh-TW) 取第一個，但 Windows / Edge 清單裡排在前面的
+   * 通常是舊的本機合成語音（HanHan、Zhiwei），聽起來就是機器人；真正自然的
+   * 神經網路語音名稱會帶 Natural / Neural / Online，得靠評分挑出來。
+   */
+  const pickChineseVoice = () => {
+    let best: SpeechSynthesisVoice | null = null;
+    let bestScore = 0;
+
+    for (const voice of window.speechSynthesis.getVoices()) {
+      const lang = voice.lang.replace("_", "-").toLowerCase();
+      let score = 0;
+      if (lang.startsWith("zh-tw")) score = 100;
+      else if (lang.startsWith("zh")) score = 50;
+      else continue;
+
+      const name = voice.name.toLowerCase();
+      if (name.includes("natural") || name.includes("neural")) score += 30;
+      if (name.includes("online")) score += 15;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = voice;
+      }
+    }
+    return best;
+  };
+
+  /**
+   * 朗讀。優先用 Google Cloud 語音（自然許多），失敗才退回瀏覽器內建語音。
+   *
+   * 退回的情況包含：後端沒設定憑證、Cloud TTS API 未啟用、離線、或瀏覽器
+   * 擋下自動播放。無論走哪一條路，onEnd 都保證會被呼叫，因為地震流程要靠
+   * 它接著自動開麥克風。
+   */
+  const speak = (text: string, onEnd?: () => void) => {
     window.speechSynthesis.cancel();
+    stopCloudSpeech();
 
+    let handled = false;
+    const finishOnce = () => {
+      if (handled) return;
+      handled = true;
+      onEnd?.();
+    };
+
+    playCloudSpeech(text, SPEECH_RATE)
+      .then(finishOnce)
+      .catch((error) => {
+        console.warn("雲端語音失敗，改用瀏覽器內建語音：", error);
+        if (handled) return;
+        speakWithBrowser(text, finishOnce);
+      });
+  };
+
+  const speakWithBrowser = (text: string, onEnd?: () => void) => {
+    window.speechSynthesis.cancel();
+    let started = false;
+
+    const startSpeaking = () => {
+      if (started) return;
+      started = true;
+      speakNow(text, onEnd);
+    };
+
+    // getVoices() 在頁面剛載入時會回傳空陣列，要等 voiceschanged。
+    // 少了這一步，第一次朗讀（正好就是地震警報）會抓不到中文語音，
+    // 直接用預設的英文語音去念中文，聽起來格外不像人。
+    if (window.speechSynthesis.getVoices().length > 0) {
+      startSpeaking();
+    } else {
+      window.speechSynthesis.addEventListener("voiceschanged", startSpeaking, {
+        once: true,
+      });
+      // 有些瀏覽器不會派送 voiceschanged，補一個保底，不能讓警報啦掉。
+      window.setTimeout(startSpeaking, 1000);
+    }
+  };
+
+  const speakNow = (text: string, onEnd?: () => void) => {
     const utterance = new SpeechSynthesisUtterance(text);
-    // 1. 取得目前裝置支援的所有聲音
-    const voices = window.speechSynthesis.getVoices();
-
-    // 2. 優先尋找台灣中文 (zh-TW)，其次是 zh-HK 或 zh-CN
-    const chineseVoice =
-      voices.find((v) => v.lang.includes("zh-TW")) ||
-      voices.find((v) => v.lang.includes("zh-HK")) ||
-      voices.find((v) => v.lang.includes("zh-CN"));
+    const chineseVoice = pickChineseVoice();
 
     if (chineseVoice) {
-      utterance.voice = chineseVoice; // 強制指定中文聲音物件
+      utterance.voice = chineseVoice;
     }
 
-    utterance.lang = "zh-tw";
-    utterance.rate = 1.0;
-    utterance.pitch = 1.1;
+    utterance.lang = "zh-TW";
+    utterance.rate = SPEECH_RATE;
+    // 原本是 1.1。神經網路語音本身就有自然語調，硬把音高拉高反而更假。
+    utterance.pitch = 1.0;
+
+    if (onEnd) {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        onEnd();
+      };
+      utterance.onend = finish;
+      // 朗讀失敗（例如系統沒有中文語音）也要往下走，否則麥克風永遠不會開。
+      utterance.onerror = finish;
+      // 有些瀏覽器會靜靜地不播（例如還沒取得使用者互動授權），onend 與
+      // onerror 兩個都不會來。這裡自己判定「根本沒開始講」，避免整條流程卡死。
+      window.setTimeout(() => {
+        if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+          finish();
+        }
+      }, 1500);
+    }
 
     window.speechSynthesis.speak(utterance);
   };
@@ -776,7 +877,9 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!earthquakeAlert) return;
     const location = userStatusRef.current.location;
-    if (!isSevereNearbyEarthquake(earthquakeAlert, location)) return;
+    // 模擬警報是測試用的，不能因為瀏覽器還沒拿到 GPS 定位就整個靜悄悄。
+    // isSevereNearbyEarthquake 在 location 為 null 時一律回 false。
+    if (!earthquakeAlert.simulated && !isSevereNearbyEarthquake(earthquakeAlert, location)) return;
     const key = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
 
     // 發送推播通知
@@ -1137,9 +1240,6 @@ const App: React.FC = () => {
           [...updatedMessages, assistantMsg],
           userStatus.location,
         );
-        if (offlineAnalysis.immediateActions.length) {
-          speak(offlineAnalysis.immediateActions[0].description);
-        }
       } catch (error) {
         console.error("離線應變模型失敗", error);
         setMessages((prev) => [...prev, {
@@ -1184,17 +1284,8 @@ const App: React.FC = () => {
         })
         .catch((error) => console.error("救援摘要本機儲存失敗", error));
 
-      if (analysis.immediateActions && analysis.immediateActions.length > 0) {
-        const text = `緊急指令${analysis.immediateActions[0].title}`;
-        // 優先嘗試 OpenAI，失敗則用原生降級
-        playAudio(text).catch(() => {
-          console.log("切換至原生語音降級模式");
-          speak(text);
-        });
-      } else if (analysis.missingInfoRequests?.length) {
-        // 如果是請求資訊
-        speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
-      }
+      // 後續回覆一律不自動朗讀：使用者已經進入打字對話，突然出聲會蓋掉
+      // 現場聲音，也可能在避難時暴露位置。要語音請自行按麥克風。
     } catch (error) {
       if (error instanceof BackendAuthenticationError) {
         // A local/offline session can outlive its Cloud Run token. Do not start
@@ -1224,9 +1315,6 @@ const App: React.FC = () => {
           [...updatedMessages, fallbackMsg],
           userStatus.location,
         );
-        if (offlineAnalysis.immediateActions.length) {
-          speak(offlineAnalysis.immediateActions[0].description);
-        }
       } catch (fallbackError) {
         console.error("離線模型降級也失敗", fallbackError);
         setMessages((prev) => [...prev, {
@@ -1253,7 +1341,7 @@ const App: React.FC = () => {
 
   if (isCheckingSession) {
     return (
-      <div className="h-[100dvh] flex items-center justify-center bg-[#020617] text-slate-400">
+      <div className="h-[100dvh] flex items-center justify-center bg-bg text-muted">
         正在確認線上帳號…
       </div>
     );
@@ -1305,7 +1393,7 @@ const App: React.FC = () => {
 
   // 渲染 UI
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}
@@ -1345,6 +1433,7 @@ const App: React.FC = () => {
         />
       )}
       <AppFooter
+        autoListenSignal={autoListenSignal}
         downloadedMaps={downloadedMaps}
         input={input}
         isAnalyzing={isAnalyzing}

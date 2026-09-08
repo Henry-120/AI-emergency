@@ -67,23 +67,23 @@ export function OfflineMapPage({
   }, [map]);
 
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
-      <header className="safe-area-top shrink-0 border-b border-white/10 bg-[#020617] px-3 py-2 sm:px-4 sm:py-3">
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
+      <header className="safe-area-top shrink-0 border-b border-line bg-bg px-3 py-2 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between gap-3">
           <button
             onClick={onBack}
-            className="w-11 h-11 shrink-0 rounded-xl border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+            className="w-11 h-11 shrink-0 rounded-xl border border-line bg-surface-2 text-ink hover:bg-surface-2"
             aria-label="返回"
           >
             <i className="fas fa-arrow-left text-sm"></i>
           </button>
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] uppercase tracking-[0.24em] text-amber-300">
+            <div className="text-[10px] uppercase tracking-[0.24em] text-accent">
               離線地圖
             </div>
             <h1 className="truncate text-lg font-bold">{map.map_id}</h1>
           </div>
-          <div className="text-right text-[11px] text-slate-400">
+          <div className="text-right text-[11px] text-muted">
             <div>
               {validCount} / {map.tiles_count} 瓦片
             </div>
@@ -94,15 +94,15 @@ export function OfflineMapPage({
 
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4 space-y-3 sm:space-y-4 safe-area-bottom">
         <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <div className="text-slate-500">中心座標</div>
-            <div className="mt-1 break-all font-mono text-slate-200">
+          <div className="rounded-xl border border-line bg-surface-2 p-3">
+            <div className="text-muted">中心座標</div>
+            <div className="mt-1 break-all font-mono text-ink">
               {map.center_latitude.toFixed(5)}, {map.center_longitude.toFixed(5)}
             </div>
           </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <div className="text-slate-500">涵蓋半徑</div>
-            <div className="mt-1 font-mono text-slate-200">
+          <div className="rounded-xl border border-line bg-surface-2 p-3">
+            <div className="text-muted">涵蓋半徑</div>
+            <div className="mt-1 font-mono text-ink">
               {map.radius_km} km
             </div>
           </div>
@@ -117,8 +117,8 @@ export function OfflineMapPage({
                 onClick={() => setZoom(level)}
                 className={`min-w-16 rounded-xl border px-3 py-2 text-[12px] font-semibold ${
                   zoom === level
-                    ? "border-amber-400 bg-amber-400 text-black"
-                    : "border-white/10 bg-white/5 text-slate-300"
+                    ? "border-accent bg-primary text-primary-ink"
+                    : "border-line bg-surface-2 text-ink"
                 }`}
               >
                 z{level}
@@ -129,11 +129,11 @@ export function OfflineMapPage({
         </div>
 
         {hasValidTiles ? (
-          <div className="relative mx-auto grid max-w-[720px] grid-cols-5 gap-px overflow-hidden rounded-xl border border-white/10 bg-slate-800">
+          <div className="relative mx-auto grid max-w-[720px] grid-cols-5 gap-px overflow-hidden rounded-xl border border-line bg-surface-2">
             {visibleTiles.map((tile) => (
               <div
                 key={`${zoom}-${tile.x}-${tile.y}`}
-                className="aspect-square bg-slate-950"
+                className="aspect-square bg-bg"
               >
                 <img
                   src={getTileUrl(map.map_id, zoom, tile.x, tile.y)}
@@ -145,19 +145,19 @@ export function OfflineMapPage({
                 />
               </div>
             ))}
-            <div className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-amber-400 shadow-lg shadow-amber-400/40"></div>
+            <div className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-line bg-primary"></div>
           </div>
         ) : (
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5 text-amber-100">
+          <div className="rounded-2xl border border-accent bg-surface-2 p-5 text-accent">
             <div className="font-bold">這包地圖沒有可顯示的有效瓦片</div>
-            <p className="mt-2 text-sm leading-relaxed text-amber-100/75">
+            <p className="mt-2 text-sm leading-relaxed text-accent">
               目前磁碟上的瓦片檔案是空檔、錯誤圖，或是 OSM 403
               封鎖提示。請刪除這包地圖，改用允許離線快取的地圖來源後重新下載。
             </p>
           </div>
         )}
 
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-[12px] text-slate-400">
+        <div className="rounded-xl border border-line bg-surface-2 p-3 text-[12px] text-muted">
           此頁已在 React App 內建，不再開啟後端預覽分頁。之後接 iOS
           本機儲存時，瓦片來源可替換成本機檔案路徑。
         </div>

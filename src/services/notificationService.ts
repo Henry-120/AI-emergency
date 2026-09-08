@@ -3,6 +3,13 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import type { EarthquakeAlert } from "./cwaService";
 
 const EARTHQUAKE_NOTIFICATION_ID = 81001;
+
+/** 通知送出的結果。失敗時帶原因，讓畫面能告訴使用者為什麼沒跳通知。 */
+export interface EarthquakeNotifyResult {
+  shown: boolean;
+  reason?: "unsupported" | "denied";
+}
+
 let tapHandler: (() => void) | null = null;
 let listenersReady = false;
 
@@ -22,7 +29,9 @@ export async function onEarthquakeNotificationTapped(handler: () => void) {
   };
 }
 
-export async function notifyEarthquakeAlert(alert: EarthquakeAlert) {
+export async function notifyEarthquakeAlert(
+  alert: EarthquakeAlert,
+): Promise<EarthquakeNotifyResult> {
   // 文字需與後端推播 Backend/services/push_service.py 的 send_earthquake_push 保持一致。
   const location = alert.location.replace(/\s+/g, " ").trim();
   const depthText = alert.depth != null ? `，深度 ${Math.round(alert.depth)} 公里` : "";
@@ -31,7 +40,7 @@ export async function notifyEarthquakeAlert(alert: EarthquakeAlert) {
   if (Capacitor.isNativePlatform()) {
     await ensureNativeListeners();
     const permission = await LocalNotifications.requestPermissions();
-    if (permission.display !== "granted") return false;
+    if (permission.display !== "granted") return { shown: false, reason: "denied" };
     await LocalNotifications.schedule({
       notifications: [{
         id: EARTHQUAKE_NOTIFICATION_ID,
@@ -41,18 +50,18 @@ export async function notifyEarthquakeAlert(alert: EarthquakeAlert) {
         extra: { type: "earthquake" },
       }],
     });
-    return true;
+    return { shown: true };
   }
-  if (!("Notification" in window)) return false;
+  if (!("Notification" in window)) return { shown: false, reason: "unsupported" };
   const permission = Notification.permission === "default"
     ? await Notification.requestPermission()
     : Notification.permission;
-  if (permission !== "granted") return false;
+  if (permission !== "granted") return { shown: false, reason: "denied" };
   const notification = new Notification(title, { body, tag: "guardia-earthquake" });
   notification.onclick = () => {
     window.focus();
     tapHandler?.();
     notification.close();
   };
-  return true;
+  return { shown: true };
 }

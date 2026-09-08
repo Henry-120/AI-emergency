@@ -25,7 +25,7 @@ for env_file in [
                     os.environ[key] = value
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from . import auth, schemas
 from .services.cwa_service import CWAService
@@ -37,6 +37,7 @@ from .services.firebase_service import firebase_service
 from .services import push_service
 from .services import sos_service
 from .services.sos_store_service import sos_store_service
+from .services.tts_service import TTSError, tts_service
 from pydantic import BaseModel
 from .services.location_ai_service import location_ai_service
 from .services.earthquake_response_service import earthquake_response_service
@@ -331,6 +332,30 @@ def create_earthquake_field_report(
 
 
 # ==================== 推播裝置註冊 API ====================
+
+@app.post("/api/tts")
+async def synthesize_speech(payload: schemas.TTSRequest):
+    """把文字轉成語音回傳 MP3。
+
+    金鑰留在後端，前端只拿得到音訊。合成失敗時回 503，前端會自動退回
+    瀏覽器內建語音，警報不會因此啦掉。
+    """
+    try:
+        audio = await tts_service.synthesize(
+            payload.text,
+            voice=payload.voice,
+            speaking_rate=payload.speakingRate or 1.0,
+        )
+    except TTSError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        # 同一句警報可能重播，讓瀏覽器也能快取。
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
 
 @app.post("/api/push/register", response_model=schemas.DeviceTokenResponse)
 def register_device_token(
