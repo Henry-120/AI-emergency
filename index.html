@@ -157,6 +157,8 @@
 
         --overlay: rgba(39, 42, 59, 0.45);
         --elev-1: 0 1px 2px rgba(39, 42, 59, 0.06);
+        /* 卡片用：不靠框線分界，改用一層糊開的陰影把卡片從畫布上抬起來。 */
+        --elev-soft: 0 4px 18px rgba(39, 42, 59, 0.10);
         --elev-2: 0 10px 40px rgba(39, 42, 59, 0.18);
         color-scheme: light;
       }
@@ -196,6 +198,7 @@
 
         --overlay: rgba(15, 16, 24, 0.62);
         --elev-1: none;
+        --elev-soft: 0 4px 18px rgba(0, 0, 0, 0.38);
         --elev-2: 0 10px 40px rgba(0, 0, 0, 0.55);
         color-scheme: dark;
       }
@@ -235,6 +238,7 @@
 
           --overlay: rgba(15, 16, 24, 0.62);
           --elev-1: none;
+          --elev-soft: 0 4px 18px rgba(0, 0, 0, 0.38);
           --elev-2: 0 10px 40px rgba(0, 0, 0, 0.55);
           color-scheme: dark;
         }
@@ -273,6 +277,7 @@
         --safe-text: #79d39a;
         --overlay: rgba(0, 0, 0, 0.6);
         --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --elev-soft: 0 4px 18px rgba(0, 0, 0, 0.38);
         --elev-2: 0 6px 20px rgba(0, 0, 0, 0.5);
         color-scheme: dark;
       }
@@ -337,6 +342,28 @@
         opacity: 1;
         transform: translateX(-50%) translateY(0);
       }
+      /* 往上展開的變體。底部輸入列的按鈕不能用預設的向下，
+         提示會掉出畫面外。箭頭也要跟著翻到下緣。 */
+      .has-tip .tip.tip-up {
+        top: auto;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%) translateY(3px);
+      }
+      .has-tip .tip.tip-up::before {
+        bottom: auto;
+        top: 100%;
+        border-bottom-color: transparent;
+        border-top-color: #15161f;
+      }
+      @media (hover: hover) {
+        .has-tip:hover .tip.tip-up {
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+      .has-tip:focus-visible .tip.tip-up {
+        transform: translateX(-50%) translateY(0);
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .has-tip .tip {
           transition: none;
@@ -407,6 +434,118 @@
           padding-bottom: max(1rem, env(safe-area-inset-bottom));
         }
       }
+      /* 手機版：輸入列浮貼在聊天內容之上——圓角、半透明、背景模糊，
+         訊息從它下面捲過去。這是 iOS 工具列的系統材質語彙，不是裝飾用的
+         玻璃擬態：模糊的是真的會動的內容，不是一塊靜止的花紋。
+         sm 以上回到貼齊全寬的實心列。 */
+      .footer-shell {
+        margin-left: 0.75rem;
+        margin-right: 0.75rem;
+        border-radius: 1.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background-color: rgba(39, 42, 59, 0.82);
+        -webkit-backdrop-filter: blur(18px) saturate(150%);
+        backdrop-filter: blur(18px) saturate(150%);
+        box-shadow: var(--elev-2);
+      }
+      /* 分頁列膠囊：淺色半透明 + 背景模糊，內容會從它下面透出來。
+         透明度必須寫在這裡而不是用 Tailwind 的 bg-surface/75——那種寫法
+         沒辦法把 alpha 套進 CSS 變數，整條規則不會生成，膠囊會變全透明。 */
+      .tabbar-shell {
+        border-radius: 26px;
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        background-color: rgba(255, 255, 255, 0.32);
+        -webkit-backdrop-filter: blur(34px) saturate(190%);
+        backdrop-filter: blur(34px) saturate(190%);
+        box-shadow: var(--elev-2);
+      }
+      :root.theme-dark .tabbar-shell,
+      :root[data-theme="dark"] .tabbar-shell {
+        border-color: rgba(255, 255, 255, 0.14);
+        background-color: rgba(40, 44, 58, 0.32);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) .tabbar-shell {
+          border-color: rgba(255, 255, 255, 0.14);
+          background-color: rgba(40, 44, 58, 0.32);
+        }
+      }
+      /* 可點擊的區塊：滑鼠移上去整塊變深。拿掉框線之後，這是「這裡可以點」
+         的主要線索，不能只靠游標形狀——手機上根本沒有游標。
+         用 brightness 而不是各寫一組 hover 底色：不管底下是白的、淡彩的
+         還是實心品牌色，變深的幅度都一致。 */
+      .tappable {
+        transition: filter 0.12s ease-out;
+      }
+      @media (hover: hover) {
+        .tappable:hover {
+          filter: brightness(0.94);
+        }
+      }
+      .tappable:active {
+        filter: brightness(0.89);
+      }
+
+      /* 膠囊是浮起來的，上下各留了空隙（下方還要讓開 iPhone 的home 指示區）。
+         那段空隙看起來仍像「底部那一列」的一部分，拇指很容易落在上面，點了
+         卻沒反應。所以把每個分頁的可點範圍延伸到空隙上——看得到的還是浮貼
+         的膠囊，但點到邊緣一樣有效。 */
+      .tabbar-shell > button::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -0.5rem;
+        bottom: calc(-1 * (env(safe-area-inset-bottom) + 0.5rem));
+      }
+      /* 兩端再補到畫面邊緣，膠囊左右的內縮同樣是容易誤觸的空隙。 */
+      .tabbar-shell > button:first-child::after {
+        left: -0.75rem;
+      }
+      .tabbar-shell > button:last-child::after {
+        right: -0.75rem;
+      }
+
+      /* 作用中分頁的底色刻意做成近乎不透明。膠囊本身很透，底下捲過什麼顏色
+         都會影響對比；選取狀態是最需要一眼認出來的，不能讓它跟著飄。 */
+      .tabbar-active {
+        background-color: rgba(255, 255, 255, 0.86);
+      }
+      :root.theme-dark .tabbar-active,
+      :root[data-theme="dark"] .tabbar-active {
+        background-color: rgba(71, 76, 107, 0.9);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) .tabbar-active {
+          background-color: rgba(71, 76, 107, 0.9);
+        }
+      }
+
+      /* 膠囊浮在內容上，捲動區要留出等高的下方留白，最後一筆才不會被壓住。 */
+      :root {
+        --tabbar-clearance: calc(env(safe-area-inset-bottom) + 4.75rem);
+      }
+      @media (min-width: 640px) {
+        :root {
+          --tabbar-clearance: 0px;
+        }
+      }
+
+      @media (min-width: 640px) {
+        .footer-shell {
+          margin-left: 0;
+          margin-right: 0;
+          border-radius: 0;
+          border-width: 1px 0 0 0;
+          border-color: rgba(255, 255, 255, 0.1);
+          background-color: transparent;
+          background-image: linear-gradient(180deg, #3b3653 0%, #272a3b 100%);
+          -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+          box-shadow: none;
+        }
+      }
+
       .safe-area-top {
         padding-top: env(safe-area-inset-top);
       }

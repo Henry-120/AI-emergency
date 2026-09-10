@@ -8,6 +8,7 @@ import { createSpeechRecognizer } from "../../services/VoiceInput";
  */
 export function AppFooter({
   autoListenSignal = 0,
+  compact = false,
   downloadedMaps,
   input,
   isAnalyzing,
@@ -20,6 +21,8 @@ export function AppFooter({
 }: {
   /** 數值每變動一次就自動開始聆聽。地震語音提示念完後由 App 觸發。 */
   autoListenSignal?: number;
+  /** 使用者正在往上翻舊訊息時為 true：收起 AR 鈕與建議標籤，把畫面讓給訊息。 */
+  compact?: boolean;
   downloadedMaps: MapInfo[];
   input: string;
   isAnalyzing: boolean;
@@ -30,6 +33,7 @@ export function AppFooter({
   onViewMap: (map: MapInfo) => void;
   setInput: (value: string) => void;
 }) {
+  const [inputFocused, setInputFocused] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [finalTranscript, setFinalTranscript] = useState("");
@@ -94,6 +98,10 @@ export function AppFooter({
     }
   };
 
+  // 聚焦輸入框時一律展開：使用者已經要打字了，這時候把工具列藏起來
+  // 反而讓他找不到 AR 鈕。
+  const hideQuickBar = compact && !inputFocused;
+
   // 地震語音提示念完後自動開麥克風。使用者正在避難，不該還要先找按鈕。
   // 初始值 0 代表「沒有要求」，所以跳過第一次執行。
   useEffect(() => {
@@ -102,8 +110,8 @@ export function AppFooter({
   }, [autoListenSignal]);
 
   return (
-    <footer className="grad-chrome footer-safe shrink-0 border-t border-white/10 px-3 pt-2 sm:p-4">
-      <div className="max-w-xl mx-auto min-w-0">
+    <footer className="footer-shell footer-safe shrink-0 px-3 pt-2 sm:p-4">
+      <div className="max-w-3xl mx-auto min-w-0">
         {offlineMapStatus && (
           <div className="mb-2 max-h-16 overflow-y-auto px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-[11px] sm:text-[12px] text-[#e9eaef]">
             {offlineMapStatus}
@@ -174,27 +182,71 @@ export function AppFooter({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={onOpenRoomRiskScanner}
-          disabled={isAnalyzing}
-          className="mb-2 hidden w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-xs font-bold text-[#e9eaef] transition-all hover:bg-white/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 sm:flex sm:rounded-2xl sm:py-3 sm:text-sm"
-          aria-label="開啟 AR 房間風險掃描"
+        {/* 往上翻舊訊息時收起這一列，把畫面讓給訊息；輸入框一聚焦就展開。
+            用 grid-rows 0fr↔1fr 過場，不必寫死高度——這一列的高度會隨
+            標籤是否換行而變，寫死的話收合到一半會跳。 */}
+        <div
+          className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${
+            hideQuickBar ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+          }`}
+          aria-hidden={hideQuickBar}
+          {...(hideQuickBar ? { inert: "" as unknown as boolean } : {})}
         >
-          <i className="fas fa-camera"></i>
-          AR 房間風險掃描
-        </button>
-
-        <div className="flex gap-2 mb-2 overflow-x-auto pb-1 no-scrollbar">
-          {["出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
-            <button
-              key={tag}
-              onClick={() => setInput(tag)}
-              className="whitespace-nowrap px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-[10px] text-[#c8ced6] active:bg-white/25 transition-all"
+          <div className="overflow-hidden">
+        {/* AR 鈕放在捲動容器外面：overflow-x-auto 會把浮出的提示裁掉，
+            而且這樣標籤左右捲動時，它也不會跟著滑走。 */}
+        <div className="mb-2 flex items-center gap-2">
+          {/* 它是「開一個新畫面」，和後面那些「把字填進輸入框」不同類，
+              所以用實心底和圖示跟它們區隔開。 */}
+          <button
+            type="button"
+            onClick={onOpenRoomRiskScanner}
+            disabled={isAnalyzing}
+            aria-label="開啟 AR 房間風險掃描"
+            className="has-tip grad-action relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white shadow-[var(--elev-1)] transition-all active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {/* 四角取景框 + AR 字樣。Font Awesome 沒有帶字樣的圖示，
+                所以自己畫；currentColor 讓它跟著按鈕文字色走。 */}
+            <svg
+              viewBox="0 0 24 24"
+              className="h-[18px] w-[18px]"
+              fill="none"
+              aria-hidden="true"
             >
-              {tag}
-            </button>
-          ))}
+              <path
+                d="M3 8.5V5.5A2.5 2.5 0 0 1 5.5 3H8.5M15.5 3H18.5A2.5 2.5 0 0 1 21 5.5V8.5M21 15.5V18.5A2.5 2.5 0 0 1 18.5 21H15.5M8.5 21H5.5A2.5 2.5 0 0 1 3 18.5V15.5"
+                stroke="currentColor"
+                strokeWidth="2.1"
+                strokeLinecap="round"
+              />
+              <text
+                x="12"
+                y="15.6"
+                textAnchor="middle"
+                fontSize="9.5"
+                fontWeight="700"
+                letterSpacing="-0.4"
+                fill="currentColor"
+              >
+                AR
+              </text>
+            </svg>
+            <span className="tip tip-up">AR 房間風險掃描</span>
+          </button>
+
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {["出口受阻", "呼吸困難", "已抵達頂樓"].map((tag) => (
+              <button
+                key={tag}
+                onClick={() => setInput(tag)}
+                className="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-[10px] text-[#c8ced6] active:bg-white/25 transition-all"
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+          </div>
         </div>
 
         <form
@@ -211,6 +263,8 @@ export function AppFooter({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="回報進度或回答問題..."
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
               className="w-full min-w-0 bg-black/25 border border-white/15 rounded-2xl py-3 pl-4 pr-12 text-base sm:text-sm text-white caret-[#c3b8dc] focus:outline-none focus:border-[#c3b8dc] transition-all placeholder:text-[#8f95a8]"
               disabled={isAnalyzing}
             />

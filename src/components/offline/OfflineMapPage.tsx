@@ -67,12 +67,12 @@ export function OfflineMapPage({
   }, [map]);
 
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
       <header className="safe-area-top shrink-0 border-b border-line bg-bg px-3 py-2 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between gap-3">
           <button
             onClick={onBack}
-            className="w-11 h-11 shrink-0 rounded-xl border border-line bg-surface-2 text-ink hover:bg-surface-2"
+            className="tappable w-11 h-11 shrink-0 rounded-xl border border-line bg-surface-2 text-ink hover:bg-surface-2"
             aria-label="返回"
           >
             <i className="fas fa-arrow-left text-sm"></i>
@@ -92,7 +92,7 @@ export function OfflineMapPage({
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4 space-y-3 sm:space-y-4 safe-area-bottom">
+      <main className="pb-[var(--tabbar-clearance)] min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4 space-y-3 sm:space-y-4 safe-area-bottom">
         <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
           <div className="rounded-xl border border-line bg-surface-2 p-3">
             <div className="text-muted">中心座標</div>
@@ -115,7 +115,7 @@ export function OfflineMapPage({
               <button
                 key={level}
                 onClick={() => setZoom(level)}
-                className={`min-w-16 rounded-xl border px-3 py-2 text-[12px] font-semibold ${
+                className={`tappable min-w-16 rounded-xl border px-3 py-2 text-[12px] font-semibold ${
                   zoom === level
                     ? "border-accent bg-primary text-primary-ink"
                     : "border-line bg-surface-2 text-ink"

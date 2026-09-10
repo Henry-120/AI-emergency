@@ -57,19 +57,19 @@ const URGENCY_OPTIONS: Array<{
     value: 10,
     label: "危及生命",
     hint: "有立即生命危險，需要馬上救援",
-    activeClass: "bg-critical-soft border-critical text-critical-text",
+    activeClass: "bg-critical-soft text-critical-text",
   },
   {
     value: 6,
     label: "緊急",
     hint: "受傷或受困，撐得住但需要幫忙",
-    activeClass: "bg-high-soft border-high text-high-text",
+    activeClass: "bg-high-soft text-high-text",
   },
   {
     value: 3,
     label: "需要協助",
     hint: "目前安全，但無法自行脫困或離開",
-    activeClass: "bg-surface-2 border-accent text-ink",
+    activeClass: "bg-accent text-white",
   },
 ];
 
@@ -85,8 +85,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 /** 送出狀態的顏色：成功走 safe、失敗走 critical、其餘是進行中的 high */
 const STATUS_TONE: Record<string, string> = {
-  delivered: "bg-safe-soft border-safe text-safe-text",
-  failed: "bg-critical-soft border-critical text-critical-text",
+  delivered: "bg-safe-soft text-safe-text",
+  failed: "bg-critical-soft text-critical-text",
 };
 
 /** 區塊標題。表單很長，沒有標題層次會讀成一團 */
@@ -119,8 +119,8 @@ function ToggleRow({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`flex min-h-[56px] w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-base transition-colors ${
-        checked ? "border-accent bg-surface-2 text-ink" : "border-line bg-surface text-muted"
+      className={`tappable flex min-h-[56px] w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-base transition-colors ${
+        checked ? "bg-surface-2 text-ink" : "bg-surface text-muted"
       }`}
     >
       <span
@@ -191,13 +191,13 @@ export function SosPanel({ onBack, myLocation }: Props) {
     : undefined;
 
   return (
-    <div className="command-surface flex h-screen flex-col overflow-hidden bg-bg text-ink">
+    <div className="command-surface flex h-full flex-col overflow-hidden bg-bg text-ink">
       <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
         <div className="flex items-center gap-2">
           <button
             onClick={onBack}
             aria-label="返回附近的人"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
+            className="tappable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
           >
             ←
           </button>
@@ -206,7 +206,7 @@ export function SosPanel({ onBack, myLocation }: Props) {
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
-        <p className="rounded-xl border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-muted">
+        <p className="rounded-xl bg-surface px-4 py-3 text-sm leading-relaxed text-muted shadow-[var(--elev-soft)]">
           {"緊急程度、是否受困、位置、裝置電量會直接讓附近幫忙轉發的人看到，方便他們判斷要不要直接過來幫忙；傷勢細節、救援需求、真實姓名與醫療資料則加密，只有救援單位解得開。"}
         </p>
 
@@ -221,8 +221,8 @@ export function SosPanel({ onBack, myLocation }: Props) {
                   type="button"
                   aria-pressed={active}
                   onClick={() => setUrgencyLevel(opt.value)}
-                  className={`min-h-[64px] rounded-xl border px-4 py-3 text-left transition-colors ${
-                    active ? opt.activeClass : "border-line bg-surface text-muted"
+                  className={`tappable min-h-[64px] rounded-xl px-4 py-3 text-left transition-colors ${
+                    active ? opt.activeClass : "bg-surface text-muted"
                   }`}
                 >
                   <div className={`text-[1.0625rem] font-bold ${active ? "" : "text-ink"}`}>
@@ -250,10 +250,10 @@ export function SosPanel({ onBack, myLocation }: Props) {
                   type="button"
                   aria-pressed={active}
                   onClick={() => setMobilityStatus(opt.value)}
-                  className={`min-h-[56px] rounded-xl border px-3 text-base font-medium transition-colors ${
+                  className={`tappable min-h-[56px] rounded-xl px-3 text-base font-medium transition-colors ${
                     active
-                      ? "border-accent bg-surface-2 text-ink"
-                      : "border-line bg-surface text-muted"
+                      ? "bg-accent font-semibold text-white"
+                      : "bg-surface text-muted"
                   }`}
                 >
                   {opt.label}
@@ -270,7 +270,7 @@ export function SosPanel({ onBack, myLocation }: Props) {
             onChange={(e) => setInjurySummary(e.target.value)}
             placeholder="例如：右腳受傷無法行走，頭部有撞擊"
             aria-label="傷勢摘要"
-            className="h-24 w-full resize-none rounded-xl border border-line bg-surface px-3.5 py-3 text-base text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+            className="h-24 w-full resize-none rounded-xl bg-surface px-3.5 py-3 text-base text-ink placeholder:text-muted focus:outline-none focus:ring-2"
           />
           <p className="mt-1.5 text-sm text-muted">可以用手機鍵盤的語音輸入，不必打字。</p>
         </div>
@@ -286,10 +286,10 @@ export function SosPanel({ onBack, myLocation }: Props) {
                   type="button"
                   aria-pressed={active}
                   onClick={() => toggleRescueNeed(need)}
-                  className={`min-h-[48px] rounded-xl border px-4 text-base font-medium transition-colors ${
+                  className={`tappable min-h-[48px] rounded-xl px-4 text-base font-medium transition-colors ${
                     active
-                      ? "border-accent bg-surface-2 text-ink"
-                      : "border-line bg-surface text-muted"
+                      ? "bg-accent font-semibold text-white"
+                      : "bg-surface text-muted"
                   }`}
                 >
                   {need}
@@ -306,7 +306,7 @@ export function SosPanel({ onBack, myLocation }: Props) {
             onChange={(e) => setLocationDetails(e.target.value)}
             placeholder="例如：三樓，樓梯間旁"
             aria-label="位置描述"
-            className="min-h-[56px] w-full rounded-xl border border-line bg-surface px-3.5 text-base text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+            className="min-h-[56px] w-full rounded-xl bg-surface px-3.5 text-base text-ink placeholder:text-muted focus:outline-none focus:ring-2"
           />
           <p className="mt-1.5 text-sm text-muted">
             {myLocation
@@ -324,17 +324,17 @@ export function SosPanel({ onBack, myLocation }: Props) {
       </div>
 
       {/* 送出區釘在拇指熱區。狀態訊息放在按鍵正上方——按下去之後眼睛不用移開 */}
-      <div className="safe-area-bottom shrink-0 space-y-2.5 border-t border-line bg-surface px-4 pt-3">
+      <div className="shrink-0 space-y-2.5 border-t border-line bg-surface px-4 pt-3 pb-[var(--tabbar-clearance)]">
         {errorMsg && (
           <div
             role="alert"
-            className="flex items-start gap-3 rounded-xl border border-critical bg-critical-soft px-3.5 py-2.5"
+            className="flex items-start gap-3 rounded-xl bg-critical-soft px-3.5 py-2.5"
           >
             <p className="flex-1 text-sm font-medium text-critical-text">{errorMsg}</p>
             <button
               onClick={() => setErrorMsg("")}
               aria-label="關閉這則訊息"
-              className="-my-1.5 -mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg text-critical-text"
+              className="tappable -my-1.5 -mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg text-critical-text"
             >
               ✕
             </button>
@@ -344,8 +344,8 @@ export function SosPanel({ onBack, myLocation }: Props) {
         {activeRecord && (
           <div
             aria-live="polite"
-            className={`rounded-xl border px-3.5 py-2.5 text-sm font-medium ${
-              STATUS_TONE[activeRecord.status] ?? "bg-high-soft border-high text-high-text"
+            className={`rounded-xl px-3.5 py-2.5 text-sm font-medium ${
+              STATUS_TONE[activeRecord.status] ?? "bg-high-soft text-high-text"
             }`}
           >
             {STATUS_LABEL[activeRecord.status] ?? activeRecord.status}
@@ -356,7 +356,7 @@ export function SosPanel({ onBack, myLocation }: Props) {
         <button
           onClick={handleSend}
           disabled={sending}
-          className="min-h-[64px] w-full rounded-xl bg-critical text-[1.25rem] font-black text-white transition-colors active:opacity-80 disabled:bg-surface-2 disabled:text-muted"
+          className="tappable min-h-[64px] w-full rounded-xl bg-critical text-[1.25rem] font-black text-white transition-colors active:opacity-80 disabled:bg-surface-2 disabled:text-muted"
         >
           {sending ? "送出中…" : "送出求救"}
         </button>

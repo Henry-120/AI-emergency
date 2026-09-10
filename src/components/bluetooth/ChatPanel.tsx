@@ -69,7 +69,7 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
   };
 
   return (
-    <div className="command-surface flex h-screen flex-col bg-bg text-ink">
+    <div className="command-surface flex h-full flex-col bg-bg text-ink">
       <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
         <div className="flex items-center gap-2">
           <button
@@ -170,7 +170,7 @@ export function ChatPanel({ peer, records, hasLocation, onSend, onBack }: Props)
       {/* 打字與送出固定在畫面最下緣的拇指熱區——這是這個畫面唯一的目的 */}
       <form
         onSubmit={handleSubmit}
-        className="safe-area-bottom shrink-0 border-t border-line bg-surface px-3 pt-3"
+        className="shrink-0 border-t border-line bg-surface px-3 pt-3 pb-[var(--tabbar-clearance)]"
       >
         <div className="flex gap-2">
           <input

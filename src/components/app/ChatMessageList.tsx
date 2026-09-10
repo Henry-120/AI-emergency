@@ -5,27 +5,31 @@ import { ChatMessage } from "../../types";
  * 版面回到最初的結構（對話泡泡 + 卡片清單），配色改用
  * #MindfulPalettes No.150，使用者泡泡與主要動作帶漸層。
  */
-const getPriorityBorder = (priority: string) => {
+/**
+ * 危急程度只用底色區分，不畫框線——框線多了畫面很雜。
+ * 顏色不是唯一線索：每張卡仍有編號與標題，紅綠色盲也讀得出優先序。
+ */
+const getPriorityFill = (priority: string) => {
   switch (priority) {
     case "CRITICAL":
-      return "border-critical bg-critical-soft";
+      return "bg-critical-soft";
     case "HIGH":
-      return "border-high bg-high-soft";
+      return "bg-high-soft";
     default:
-      return "border-line bg-surface";
+      return "bg-surface";
   }
 };
 
-const getRoomRiskBorder = (risk: string) => {
-  if (risk === "high") return "border-critical bg-critical-soft";
-  if (risk === "medium") return "border-high bg-high-soft";
-  return "border-safe bg-safe-soft";
+const getRoomRiskFill = (risk: string) => {
+  if (risk === "high") return "bg-critical-soft";
+  if (risk === "medium") return "bg-high-soft";
+  return "bg-safe-soft";
 };
 
 const getZoneBadge = (type: string) => {
-  if (type === "danger") return "bg-critical text-white border-critical";
-  if (type === "caution") return "bg-high text-white border-high";
-  return "bg-safe text-white border-safe";
+  if (type === "danger") return "bg-critical text-white";
+  if (type === "caution") return "bg-high text-white";
+  return "bg-safe text-white";
 };
 
 export function ChatMessageList({
@@ -33,23 +37,49 @@ export function ChatMessageList({
   isOffline,
   messages,
   onOfflineOption,
+  onViewingHistoryChange,
   scrollRef,
 }: {
   isAnalyzing: boolean;
   isOffline: boolean;
   messages: ChatMessage[];
   onOfflineOption: (option: string) => void;
+  /** 往上翻舊訊息時為 true，回到最新時為 false。底部工具列據此收合。 */
+  onViewingHistoryChange?: (viewingHistory: boolean) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  React.useEffect(() => {
+    const element = scrollRef.current;
+    if (!element || !onViewingHistoryChange) return;
+
+    let lastTop = element.scrollTop;
+    const onScroll = () => {
+      const top = element.scrollTop;
+      const delta = top - lastTop;
+      // 小幅抖動不算方向：手指離開螢幕時的回彈會來回幾像素，
+      // 不擋掉的話工具列會閃。
+      if (Math.abs(delta) < 8) return;
+      lastTop = top;
+
+      // 已經在底部就一定展開——使用者要打字了，不該還得先滑一下。
+      const atBottom =
+        element.scrollHeight - top - element.clientHeight < 32;
+      onViewingHistoryChange(atBottom ? false : delta < 0);
+    };
+
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => element.removeEventListener("scroll", onScroll);
+  }, [onViewingHistoryChange, scrollRef]);
+
   return (
     <main
-      className="grad-canvas min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-6 space-y-4 sm:space-y-6"
+      className="grad-canvas min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-3 pb-[calc(var(--bottom-cluster-h,11rem)+0.75rem)] sm:px-4 sm:py-6 space-y-4 sm:space-y-6"
       ref={scrollRef}
     >
       {messages.map((m) => (
         <div
           key={m.id}
-          className={`flex msg-enter ${m.role === "user" ? "justify-end" : "justify-start"}`}
+          className={`mx-auto flex w-full max-w-3xl msg-enter ${m.role === "user" ? "justify-end" : "justify-start"}`}
         >
           <div
             className={`max-w-[94%] sm:max-w-[90%] min-w-0 break-words ${
@@ -65,7 +95,7 @@ export function ChatMessageList({
                 </p>
 
                 {m.analysis?.situationSummary && (
-                  <div className="p-4 bg-surface border border-line rounded-xl">
+                  <div className="p-4 bg-surface rounded-xl shadow-[var(--elev-soft)]">
                     <div className="flex items-center gap-2 text-muted mb-2">
                       <i className="fas fa-circle-info text-xs"></i>
                       <span className="text-[10px] font-bold uppercase tracking-wider">
@@ -80,7 +110,7 @@ export function ChatMessageList({
 
                 {m.analysis?.missingInfoRequests &&
                   m.analysis.missingInfoRequests.length > 0 && (
-                    <div className="p-4 bg-surface border border-line rounded-xl space-y-4">
+                    <div className="p-4 bg-surface rounded-xl shadow-[var(--elev-soft)] space-y-4">
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 text-accent">
                           <i className="fas fa-question-circle text-xs"></i>
@@ -100,7 +130,7 @@ export function ChatMessageList({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2 pt-2 border-t border-line">
+                      <div className="flex flex-wrap gap-2 pt-3">
                         {m.analysis.missingInfoRequests.map((option, i) => (
                           <button
                             key={`btn-${i}`}
@@ -115,7 +145,7 @@ export function ChatMessageList({
                       {!isOffline && (
                         <button
                           onClick={() => alert("相機介面啟動...")}
-                          className="w-full py-2 bg-surface-2 text-accent border border-line text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+                          className="w-full py-2 bg-surface-2 text-accent text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
                         >
                           <i className="fas fa-camera"></i>
                           提供視覺資料
@@ -129,7 +159,7 @@ export function ChatMessageList({
                     {m.analysis.immediateActions.map((step, idx) => (
                       <div
                         key={idx}
-                        className={`p-4 rounded-xl border border-l-4 ${getPriorityBorder(step.priority)}`}
+                        className={`p-4 rounded-xl shadow-[var(--elev-soft)] ${getPriorityFill(step.priority)}`}
                       >
                         <div className="flex items-start gap-3">
                           <span className="font-data text-xs font-black text-muted mt-1">
@@ -150,7 +180,7 @@ export function ChatMessageList({
                 )}
 
                 {m.roomRiskAnalysis && (
-                  <div className="space-y-3 rounded-xl border border-line bg-surface p-4">
+                  <div className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--elev-soft)]">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 text-high-text">
                         <i className="fas fa-couch text-xs"></i>
@@ -171,7 +201,7 @@ export function ChatMessageList({
                         {m.roomRiskAnalysis.objects.slice(0, 4).map((object, i) => (
                           <div
                             key={`${object.label}-${i}`}
-                            className={`rounded-lg border px-3 py-2 ${getRoomRiskBorder(object.risk)}`}
+                            className={`rounded-lg px-3 py-2 ${getRoomRiskFill(object.risk)}`}
                           >
                             <div className="mb-1 text-xs font-bold text-ink">
                               {object.label}
@@ -192,7 +222,7 @@ export function ChatMessageList({
                         {m.roomRiskAnalysis.zones.slice(0, 5).map((zone) => (
                           <span
                             key={zone.id}
-                            className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${getZoneBadge(zone.type)}`}
+                            className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${getZoneBadge(zone.type)}`}
                             title={zone.reason}
                           >
                             {zone.label}
@@ -211,7 +241,7 @@ export function ChatMessageList({
         </div>
       ))}
       {isAnalyzing && (
-        <div className="flex items-center gap-3 py-2">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 py-2">
           <div className="w-5 h-5 rounded-full border-2 border-line border-t-accent animate-spin"></div>
           <span className="text-[11px] text-muted font-bold uppercase tracking-widest">
             整合歷史資訊中...

@@ -150,7 +150,7 @@ export function LocationMapView({
   }, [mapReady, target?.lat, target?.lng, myLocation?.lat, myLocation?.lng, targetLabel]);
 
   return (
-    <div className="command-surface flex h-screen flex-col overflow-hidden bg-bg text-ink">
+    <div className="command-surface flex h-full flex-col overflow-hidden bg-bg text-ink">
       <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
         <div className="flex items-center gap-2">
           <button

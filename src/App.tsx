@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { Device } from "@capacitor/device";
 import {
   analyzeDisaster,
@@ -140,6 +140,34 @@ const App: React.FC = () => {
   const earthquakeAlertRef = useRef<EarthquakeAlert | null>(null);
   // 每 +1 一次就要求 AppFooter 自動開麥克風。
   const [autoListenSignal, setAutoListenSignal] = useState(0);
+
+  /**
+   * 手機版底部的輸入列與分頁列浮貼在聊天內容之上，訊息從它們下方捲過去。
+   * 這裡量出那一整組的實際高度，餵給訊息列表當下方留白——高度會變（快捷標籤
+   * 換行、離線地圖狀態列出現），寫死的話最後一則訊息就會被壓在輸入列底下。
+   */
+  /** 使用者往上翻舊訊息時收起底部工具列，把畫面讓給訊息。 */
+  const [viewingHistory, setViewingHistory] = useState(false);
+
+  const bottomClusterRef = useRef<HTMLDivElement | null>(null);
+  const [bottomClusterHeight, setBottomClusterHeight] = useState(176);
+  useLayoutEffect(() => {
+    const element = bottomClusterRef.current;
+    if (!element) return;
+    const measure = () => {
+      const next = element.offsetHeight;
+      if (next > 0) {
+        setBottomClusterHeight((current) =>
+          Math.abs(current - next) > 1 ? next : current,
+        );
+      }
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
   const notifiedEarthquakeRef = useRef<string | null>(null);
   const sosEarthquakeRef = useRef<string | null>(null);
   const isFetchingLbsRef = useRef(false);
@@ -1404,6 +1432,19 @@ ${notes}`,
     setSelectedMap(null);
   };
 
+  /**
+   * 子頁面靠底下那串優先序決定顯示哪一頁，所以切頁一定要先把其他旗標清掉。
+   * 只設自己那一個的話，從優先序高的頁面（例如醫療卡）切到低的（附近的人、
+   * 救援地圖）會完全沒反應——旗標是設進去了，但畫面仍被優先序高的那頁佔住。
+   */
+  const openSubPage = (page: "medical" | "rescue" | "nearby" | "shelter") => {
+    goHome();
+    if (page === "medical") setShowMedicalCard(true);
+    else if (page === "rescue") setShowRescueMap(true);
+    else if (page === "nearby") setShowNearbyPeople(true);
+    else setShowShelterNavigator(true);
+  };
+
   const subPage = showMedicalCard
     ? {
         key: "medical",
@@ -1467,11 +1508,10 @@ ${notes}`,
       nearbyUnreadCount={bleUnread}
       hasAuthUser={Boolean(authUser)}
       onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
-      onShowShelterNavigator={() => setShowShelterNavigator(true)}
-      onShowNearbyPeople={() => setShowNearbyPeople(true)}
-      onShowMedicalCard={() => setShowMedicalCard(true)}
-      onShowRescueMap={() => setShowRescueMap(true)}
-      onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
+      onShowShelterNavigator={() => openSubPage("shelter")}
+      onShowNearbyPeople={() => openSubPage("nearby")}
+      onShowMedicalCard={() => openSubPage("medical")}
+      onShowRescueMap={() => openSubPage("rescue")}
       onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
       onLogout={handleLogout}
     />
@@ -1479,7 +1519,7 @@ ${notes}`,
 
   if (subPage) {
     return (
-      <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-bg text-ink">
+      <div className="relative flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-bg text-ink">
         {/* 電腦版：子頁面上方的標題列，首頁鈕在右上。手機版由底部分頁列負責。 */}
         <div className="grad-chrome hidden shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2 safe-area-top sm:flex">
           <span className="truncate text-xs font-semibold text-white">
@@ -1497,14 +1537,22 @@ ${notes}`,
 
         <div className="min-h-0 flex-1 overflow-hidden">{subPage.node}</div>
 
-        {tabBar(subPage.key)}
+        {/* 手機版浮貼在子頁面內容上；捲動區靠 --tabbar-clearance 留白。 */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-sticky sm:static sm:z-auto">
+          <div className="pointer-events-auto">{tabBar(subPage.key)}</div>
+        </div>
       </div>
     );
   }
 
   // 渲染 UI
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
+    <div
+      className="relative h-[100dvh] min-h-0 flex flex-col bg-bg text-ink overflow-hidden"
+      style={
+        { "--bottom-cluster-h": `${bottomClusterHeight}px` } as React.CSSProperties
+      }
+    >
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}
@@ -1517,11 +1565,11 @@ ${notes}`,
         authUser={authUser}
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
         onRefreshCwa={handleRefreshCwa}
-        onShowShelterNavigator={() => setShowShelterNavigator(true)}
-        onShowNearbyPeople={() => setShowNearbyPeople(true)}
+        onShowShelterNavigator={() => openSubPage("shelter")}
+        onShowNearbyPeople={() => openSubPage("nearby")}
         nearbyUnreadCount={bleUnread}
-        onShowMedicalCard={() => setShowMedicalCard(true)}
-        onShowRescueMap={() => setShowRescueMap(true)}
+        onShowMedicalCard={() => openSubPage("medical")}
+        onShowRescueMap={() => openSubPage("rescue")}
         onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
         onLogout={handleLogout}
       />
@@ -1530,6 +1578,7 @@ ${notes}`,
         isOffline={isOffline}
         messages={messages}
         onOfflineOption={handleOfflineOption}
+        onViewingHistoryChange={setViewingHistory}
         scrollRef={scrollRef}
       />
       {showRoomRiskScanner && (
@@ -1543,19 +1592,28 @@ ${notes}`,
           onRetake={handleRetakeRoomRiskImage}
         />
       )}
-      <AppFooter
-        autoListenSignal={autoListenSignal}
-        downloadedMaps={downloadedMaps}
-        input={input}
-        isAnalyzing={isAnalyzing}
-        offlineMapStatus={offlineMapStatus}
-        onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
-        onDeleteMap={handleDeleteMap}
-        onSubmit={handleSubmit}
-        onViewMap={handleViewMap}
-        setInput={setInput}
-      />
-      {tabBar("guide")}
+      {/* 手機版浮貼在聊天內容上；sm 以上回到一般版面流。 */}
+      <div
+        ref={bottomClusterRef}
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-sticky shrink-0 sm:static sm:z-auto"
+      >
+        <div className="pointer-events-auto">
+          <AppFooter
+            autoListenSignal={autoListenSignal}
+            compact={viewingHistory}
+            downloadedMaps={downloadedMaps}
+            input={input}
+            isAnalyzing={isAnalyzing}
+            offlineMapStatus={offlineMapStatus}
+            onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
+            onDeleteMap={handleDeleteMap}
+            onSubmit={handleSubmit}
+            onViewMap={handleViewMap}
+            setInput={setInput}
+          />
+          {tabBar("guide")}
+        </div>
+      </div>
     </div>
   );
 };

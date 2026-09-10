@@ -112,12 +112,12 @@ function describeDirection(
  */
 function urgencyBadge(level: number): { label: string; className: string } {
   if (level >= 8) {
-    return { label: "危及生命", className: "bg-critical-soft text-critical-text border-critical" };
+    return { label: "危及生命", className: "bg-critical-soft text-critical-text" };
   }
   if (level >= 5) {
-    return { label: "緊急", className: "bg-high-soft text-high-text border-high" };
+    return { label: "緊急", className: "bg-high-soft text-high-text" };
   }
-  return { label: "需要協助", className: "bg-surface-2 text-ink border-line" };
+  return { label: "需要協助", className: "bg-surface-2 text-ink" };
 }
 
 export function NearbyPeoplePage({ onBack, myLocation }: Props) {
@@ -319,12 +319,12 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
           <>
             <div className="flex flex-wrap items-center gap-2">
               <span
-                className={`rounded-lg border px-2.5 py-1 text-sm font-bold ${badge.className}`}
+                className={`rounded-lg px-2.5 py-1 text-sm font-bold ${badge.className}`}
               >
                 {badge.label}
               </span>
               {viewingSos.isTrapped && (
-                <span className="rounded-lg border border-critical bg-critical-soft px-2.5 py-1 text-sm font-bold text-critical-text">
+                <span className="rounded-lg bg-critical-soft px-2.5 py-1 text-sm font-bold text-critical-text">
                   受困
                 </span>
               )}
@@ -403,13 +403,13 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
   // 舊版寫「僅能掃描」是錯的，會誤導使用者以為功能還有一半能用。
   if (status && !status.isNative) {
     return (
-      <div className="command-surface flex h-screen flex-col bg-bg text-ink">
+      <div className="command-surface flex h-full flex-col bg-bg text-ink">
         <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
           <div className="flex items-center gap-2">
             <button
               onClick={onBack}
               aria-label="返回"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
+              className="tappable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
             >
               ←
             </button>
@@ -437,13 +437,13 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
   const isVisible = status?.isAdvertising ?? false;
 
   return (
-    <div className="command-surface flex h-screen flex-col overflow-hidden bg-bg text-ink">
+    <div className="command-surface flex h-full flex-col overflow-hidden bg-bg text-ink">
       <header className="safe-area-top shrink-0 border-b border-line bg-surface px-3 py-2">
         <div className="flex items-center gap-2">
           <button
             onClick={onBack}
             aria-label="返回"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
+            className="tappable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-muted transition-colors active:bg-surface-2 active:text-ink"
           >
             ←
           </button>
@@ -471,7 +471,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
 
       {/* 身分與可見性：設定一次就不再碰的東西，壓在一列，不佔畫面主角位置 */}
       <div className="shrink-0 border-b border-line bg-surface px-3 pb-3">
-        <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+        <div className="flex items-center gap-3 rounded-xl bg-surface-2 px-3 py-2.5">
           <div className="min-w-0 flex-1">
             <div className="text-[0.6875rem] font-bold uppercase tracking-wider text-muted">
               我的識別碼
@@ -481,10 +481,10 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
           <button
             onClick={handleToggleVisibility}
             aria-pressed={isVisible}
-            className={`min-h-[48px] shrink-0 rounded-xl border px-4 text-sm font-bold transition-colors active:opacity-80 ${
+            className={`tappable min-h-[48px] shrink-0 rounded-xl px-4 text-sm font-bold transition-colors active:opacity-80 ${
               isVisible
-                ? "border-safe bg-safe-soft text-safe-text"
-                : "border-line bg-surface text-muted"
+                ? "bg-safe-soft text-safe-text"
+                : "bg-surface text-muted"
             }`}
           >
             {isVisible ? "別人看得到我" : "別人看不到我"}
@@ -501,13 +501,13 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
         {errorMsg && (
           <div
             role="alert"
-            className="flex items-start gap-3 rounded-xl border border-critical bg-critical-soft px-3.5 py-2.5"
+            className="flex items-start gap-3 rounded-xl bg-critical-soft px-3.5 py-2.5 shadow-[var(--elev-soft)]"
           >
             <p className="flex-1 text-sm font-medium text-critical-text">{errorMsg}</p>
             <button
               onClick={() => setErrorMsg("")}
               aria-label="關閉這則訊息"
-              className="-my-1.5 -mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg text-critical-text"
+              className="tappable -my-1.5 -mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg text-critical-text"
             >
               ✕
             </button>
@@ -531,16 +531,16 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
               return (
                 <div
                   key={s.msgId}
-                  className="rounded-2xl border border-critical bg-surface p-4"
+                  className="rounded-2xl bg-surface p-4 shadow-[var(--elev-soft)]"
                 >
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span
-                      className={`rounded-lg border px-2.5 py-1 text-sm font-bold ${badge.className}`}
+                      className={`rounded-lg px-2.5 py-1 text-sm font-bold ${badge.className}`}
                     >
                       {badge.label}
                     </span>
                     {s.isTrapped && (
-                      <span className="rounded-lg border border-critical bg-critical-soft px-2.5 py-1 text-sm font-bold text-critical-text">
+                      <span className="rounded-lg bg-critical-soft px-2.5 py-1 text-sm font-bold text-critical-text">
                         受困
                       </span>
                     )}
@@ -584,13 +584,13 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
                       <button
                         onClick={() => void handleQuickReply(peer)}
                         disabled={sending || replied}
-                        className="min-h-[56px] flex-1 rounded-xl bg-safe px-4 text-[1.0625rem] font-bold text-white transition-colors active:opacity-80 disabled:bg-surface-2 disabled:text-muted"
+                        className="tappable min-h-[56px] flex-1 rounded-xl bg-safe px-4 text-[1.0625rem] font-bold text-white transition-colors active:opacity-80 disabled:bg-surface-2 disabled:text-muted"
                       >
                         {sending ? "送出中…" : replied ? "✓ 對方知道你要過去了" : "我看到了，我過去"}
                       </button>
                       <button
                         onClick={() => setChatPeer(peer)}
-                        className="min-h-[56px] shrink-0 rounded-xl border border-line bg-surface-2 px-4 text-base font-bold text-ink transition-colors active:opacity-80"
+                        className="tappable min-h-[56px] shrink-0 rounded-xl bg-surface-2 px-4 text-base font-bold text-ink transition-colors active:opacity-80"
                       >
                         對話
                       </button>
@@ -600,7 +600,7 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
                   {s.location && (
                     <button
                       onClick={() => setViewingSos(s)}
-                      className="mt-2 min-h-[48px] w-full rounded-xl border border-line bg-surface-2 px-4 text-base font-bold text-ink transition-colors active:opacity-80"
+                      className="tappable mt-2 min-h-[48px] w-full rounded-xl bg-surface-2 px-4 text-base font-bold text-ink transition-colors active:opacity-80"
                     >
                       在地圖上看位置
                     </button>
@@ -628,10 +628,10 @@ export function NearbyPeoplePage({ onBack, myLocation }: Props) {
       </div>
 
       {/* 求救入口釘在拇指區。慌張的人不該先捲動列表才找得到它。 */}
-      <div className="safe-area-bottom shrink-0 border-t border-line bg-surface px-4 pt-3">
+      <div className="shrink-0 border-t border-line bg-surface px-4 pt-3 pb-[var(--tabbar-clearance)]">
         <button
           onClick={() => setShowSos(true)}
-          className="min-h-[64px] w-full rounded-xl bg-critical text-[1.25rem] font-black text-white transition-colors active:opacity-80"
+          className="tappable min-h-[64px] w-full rounded-xl bg-critical text-[1.25rem] font-black text-white transition-colors active:opacity-80"
         >
           我需要求救
         </button>

@@ -169,15 +169,15 @@ export function RescueMapPage({
   };
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-bg text-ink safe-area-top safe-area-bottom">
+    <div className="h-full flex flex-col bg-bg text-ink safe-area-top safe-area-bottom">
       <header className="shrink-0 flex items-center justify-between px-3 py-3 border-b border-line">
-        <button onClick={onBack} className="min-h-11 text-sm text-ink">← 返回</button>
+        <button onClick={onBack} className="tappable min-h-11 text-sm text-ink">← 返回</button>
         <div className="text-center"><div className="font-bold">救援任務地圖</div><div className="text-[10px] text-muted">50 公里內 · 每 10 秒更新</div></div>
-        <button onClick={refresh} disabled={loading} className="min-h-11 text-sm text-accent disabled:opacity-50">{loading ? "更新中" : "手動更新"}</button>
+        <button onClick={refresh} disabled={loading} className="tappable min-h-11 text-sm text-accent disabled:opacity-50">{loading ? "更新中" : "手動更新"}</button>
       </header>
       {error && <div className="shrink-0 px-3 py-2 text-xs text-critical-text bg-critical-soft">{error}</div>}
       <div ref={containerRef} className="min-h-[45vh] flex-1" />
-      <section className="max-h-[38vh] overflow-y-auto border-t border-line bg-bg p-3 space-y-2">
+      <section className="pb-[var(--tabbar-clearance)] max-h-[38vh] overflow-y-auto border-t border-line bg-bg p-3 space-y-2">
         <div className="text-xs text-muted">
           待救援 {cases.length} 人、藍牙求救 {sosCases.length} 筆 · 綠色是你的位置
         </div>
@@ -188,7 +188,7 @@ export function RescueMapPage({
           <button
             key={item.msgId}
             onClick={() => focusSosCase(item)}
-            className="w-full text-left rounded-xl border border-critical bg-critical-soft p-3"
+            className="tappable w-full text-left rounded-xl bg-critical-soft p-3 shadow-[var(--elev-soft)]"
           >
             <div className="flex justify-between gap-3">
               <span className="font-bold">藍牙求救 · {item.username}</span>
@@ -217,7 +217,7 @@ export function RescueMapPage({
           </button>
         ))}
         {cases.map((item) => (
-          <button key={item.userId} onClick={() => focusCase(item)} className="w-full text-left rounded-xl border border-line bg-surface-2 p-3">
+          <button key={item.userId} onClick={() => focusCase(item)} className="tappable w-full text-left rounded-xl bg-surface-2 p-3 shadow-[var(--elev-soft)]">
             <div className="flex justify-between gap-3"><span className="font-bold">{item.username}</span><span className="text-critical-text">緊急度 {item.urgencyLevel}</span></div>
             <div className="mt-1 text-xs text-ink">距離 {item.distanceKm.toFixed(1)} km{item.isTrapped ? " · 受困" : ""}</div>
             <div className="mt-1 text-xs text-muted">{item.injurySummary || item.rescueNeeds.join("、") || "需要救援"}</div>

@@ -22,12 +22,12 @@ export function ShelterNavigatorPage({
   const nearest = rankedShelters[0];
 
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
       <header className="safe-area-top shrink-0 border-b border-line bg-bg px-3 py-2 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between gap-3">
           <button
             onClick={onBack}
-            className="w-11 h-11 shrink-0 rounded-xl border border-line bg-surface-2 text-ink hover:bg-surface-2"
+            className="tappable w-11 h-11 shrink-0 rounded-xl bg-surface-2 text-ink"
             aria-label="返回"
           >
             <i className="fas fa-arrow-left text-sm"></i>
@@ -45,11 +45,11 @@ export function ShelterNavigatorPage({
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4 space-y-3 sm:space-y-4 safe-area-bottom">
+      <main className="pb-[var(--tabbar-clearance)] min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4 space-y-3 sm:space-y-4 safe-area-bottom">
         <MapLibreShelterMap shelters={rankedShelters} location={location} />
 
         {nearest ? (
-          <section className="rounded-2xl border border-accent bg-surface-2 p-4 sm:p-5">
+          <section className="rounded-2xl bg-surface-2 p-4 sm:p-5 shadow-[var(--elev-soft)]">
             <div className="text-[11px] uppercase tracking-[0.22em] text-accent">
               建議前往
             </div>
@@ -57,7 +57,7 @@ export function ShelterNavigatorPage({
               {nearest.name}
             </h2>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-line bg-surface p-3">
+              <div className="rounded-xl bg-surface p-3">
                 <div className="text-[11px] text-muted">距離</div>
                 <div className="mt-1 text-lg sm:text-2xl font-mono font-bold text-accent">
                   {nearest.distance_km !== undefined
@@ -65,7 +65,7 @@ export function ShelterNavigatorPage({
                     : "未知"}
                 </div>
               </div>
-              <div className="rounded-xl border border-line bg-surface p-3">
+              <div className="rounded-xl bg-surface p-3">
                 <div className="text-[11px] text-muted">方向</div>
                 <div className="mt-1 text-lg sm:text-2xl font-mono font-bold text-accent">
                   {nearest.bearing_deg !== undefined
@@ -89,7 +89,7 @@ export function ShelterNavigatorPage({
               {nearest.contact_phone ? (
                 <a
                   href={`tel:${nearest.contact_phone}`}
-                  className="inline-flex rounded-xl border border-line bg-surface-2 px-3 py-2 text-accent"
+                  className="tappable inline-flex rounded-xl bg-accent px-3 py-2 font-semibold text-white"
                 >
                   撥打 {nearest.contact_phone}
                 </a>
@@ -97,7 +97,7 @@ export function ShelterNavigatorPage({
             </div>
           </section>
         ) : (
-          <div className="rounded-2xl border border-accent bg-surface-2 p-5 text-accent">
+          <div className="rounded-2xl bg-surface-2 p-5 text-accent shadow-[var(--elev-soft)]">
             尚未下載附近避難所資料。請連線後回主畫面按「下載避難包」。
           </div>
         )}
@@ -109,7 +109,7 @@ export function ShelterNavigatorPage({
           {rankedShelters.slice(0, 12).map((shelter: Shelter) => (
             <div
               key={shelter.id}
-              className="rounded-xl border border-line bg-surface-2 p-3"
+              className="rounded-xl bg-surface p-3 shadow-[var(--elev-soft)]"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -131,7 +131,7 @@ export function ShelterNavigatorPage({
           ))}
         </section>
 
-        <div className="rounded-xl border border-line bg-surface-2 p-3 text-[12px] text-muted">
+        <div className="rounded-xl bg-surface-2 p-3 text-[12px] text-muted">
           離線導航使用直線距離與方位，實際路況、道路阻斷與災害現場請以救災人員指示為準。
         </div>
       </main>

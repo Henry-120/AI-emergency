@@ -390,7 +390,7 @@ export function RoomRiskScanner({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain safe-area-bottom">
+      <div className="pb-[var(--tabbar-clearance)] min-h-0 flex-1 overflow-y-auto overscroll-contain safe-area-bottom">
         <div className="mx-auto max-w-3xl px-3 py-3 sm:px-4">
           <div className="mb-3 flex items-center justify-center gap-2 text-[11px] font-bold">
             <span className="rounded-full bg-[#ff6770]/20 px-3 py-1.5 text-[#a01922]">

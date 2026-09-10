@@ -64,7 +64,7 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
     setDraft((prev) => ({ ...prev, [key]: value }));
 
   const inputClass =
-    "w-full min-w-0 px-3 py-2.5 rounded-lg bg-surface-2 border border-line text-ink text-base sm:text-sm focus:outline-none focus:border-accent";
+    "w-full min-w-0 px-3 py-2.5 rounded-lg bg-surface text-ink text-base sm:text-sm focus:outline-none focus:ring-2";
 
   // ---------- 檢視模式 ----------
   const Row = ({ label, value }: { label: string; value: string }) => (
@@ -77,12 +77,12 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
   );
 
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col bg-bg text-ink overflow-hidden">
       {/* Header */}
       <header className="safe-area-top flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3 bg-bg border-b border-line shrink-0">
         <button
           onClick={onBack}
-          className="min-h-11 shrink-0 text-muted hover:text-ink text-sm flex items-center gap-2"
+          className="tappable min-h-11 shrink-0 text-muted hover:text-ink text-sm flex items-center gap-2"
         >
           <i className="fas fa-arrow-left"></i> 返回
         </button>
@@ -93,35 +93,35 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-primary text-primary-ink text-xs font-bold hover:bg-primary"
+            className="tappable min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-primary text-primary-ink text-xs font-bold hover:bg-primary"
           >
             {saving ? "儲存中…" : "儲存"}
           </button>
         ) : (
           <button
             onClick={startEdit}
-            className="min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-surface-2 border border-line text-ink text-xs font-semibold hover:bg-surface-2"
+            className="tappable min-h-11 shrink-0 px-3 py-1.5 rounded-lg bg-surface-2 text-ink text-xs font-semibold"
           >
             <i className="fas fa-pen mr-1"></i> 編輯
           </button>
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-5 safe-area-bottom">
+      <div className="pb-[var(--tabbar-clearance)] min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-5 safe-area-bottom">
         <div className="max-w-md mx-auto">
           {saved && (
-            <div className="mb-4 text-xs text-safe-text bg-safe-soft border border-safe px-3 py-2 rounded-lg">
+            <div className="mb-4 text-xs text-safe-text bg-safe-soft px-3 py-2 rounded-lg">
               ✓ 醫療卡已儲存（離線可用）
             </div>
           )}
           {error && (
-            <div className="mb-4 text-xs text-critical-text bg-critical-soft border border-critical px-3 py-2 rounded-lg">
+            <div className="mb-4 text-xs text-critical-text bg-critical-soft px-3 py-2 rounded-lg">
               {error}
             </div>
           )}
 
           {/* 醫療卡頂部摘要 */}
-          <div className="mb-5 rounded-2xl border-2 border-critical bg-critical-soft p-5">
+          <div className="mb-5 rounded-2xl bg-critical-soft p-5 shadow-[var(--elev-soft)]">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold text-critical-text">
                 Emergency Medical Card
@@ -271,13 +271,13 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
               </Section>
 
               <button onClick={handleSave} disabled={saving}
-                className="w-full py-3 rounded-xl bg-primary text-primary-ink font-bold text-sm hover:bg-primary">
+                className="tappable w-full py-3 rounded-xl bg-primary text-primary-ink font-bold text-sm hover:bg-primary">
                 {saving ? "儲存中…" : "儲存醫療卡"}
               </button>
             </div>
           ) : (
             /* ---------- 檢視模式 ---------- */
-            <div className="rounded-2xl bg-surface-2 border border-line px-4 py-2">
+            <div className="rounded-2xl bg-surface px-4 py-2 shadow-[var(--elev-soft)]">
               <Row label="性別" value={card.gender} />
               <Row label="身高 / 體重"
                 value={[card.heightCm && `${card.heightCm} cm`, card.weightKg && `${card.weightKg} kg`].filter(Boolean).join(" / ")} />
@@ -305,7 +305,7 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl bg-surface-2 border border-line p-4">
+    <div className="rounded-2xl bg-surface p-4 shadow-[var(--elev-soft)]">
       <h3 className="text-xs font-bold text-accent uppercase tracking-wider mb-3">{title}</h3>
       <div className="space-y-3">{children}</div>
     </div>
