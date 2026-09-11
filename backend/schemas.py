@@ -169,6 +169,52 @@ class WeatherAlert(BaseModel):
     time: str
 
 
+# --- 地震在地應變 / 災情回報 ---
+class EarthquakeAssessmentRequest(BaseModel):
+    user_latitude: float = Field(ge=-90, le=90)
+    user_longitude: float = Field(ge=-180, le=180)
+    epicenter_latitude: float = Field(ge=-90, le=90)
+    epicenter_longitude: float = Field(ge=-180, le=180)
+    magnitude: float = Field(ge=0, le=10)
+    location: str = Field(default="未知震央", max_length=300)
+    origin_time: str = Field(default="", max_length=100)
+    depth: Optional[float] = Field(default=None, ge=0, le=1000)
+    battery_level: Optional[float] = Field(default=None, ge=0, le=100)
+    heart_rate: Optional[int] = Field(default=None, ge=0, le=300)
+    medical_summary: str = Field(default="", max_length=2000)
+
+
+class EarthquakeAssessmentResponse(BaseModel):
+    earthquake_key: str
+    distance_km: float
+    impact_zone: Literal["epicentral", "near", "affected", "distant"]
+    immediate_actions: List[str]
+    environmental_warnings: List[str]
+    safety_question: str
+    field_report_questions: List[str]
+
+
+class EarthquakeFieldReportCreate(BaseModel):
+    earthquake_key: str = Field(min_length=1, max_length=500)
+    user_latitude: float = Field(ge=-90, le=90)
+    user_longitude: float = Field(ge=-180, le=180)
+    epicenter_latitude: float = Field(ge=-90, le=90)
+    epicenter_longitude: float = Field(ge=-180, le=180)
+    magnitude: float = Field(ge=0, le=10)
+    location: str = Field(default="未知震央", max_length=300)
+    distance_km: float = Field(ge=0)
+    is_safe: bool
+    observation: str = Field(min_length=1, max_length=4000)
+    battery_level: Optional[float] = Field(default=None, ge=0, le=100)
+    heart_rate: Optional[int] = Field(default=None, ge=0, le=300)
+    observed_at: Optional[datetime] = None
+
+
+class EarthquakeFieldReportResponse(BaseModel):
+    id: str
+    status: str
+
+
 # --- 推播裝置註冊 ---
 class DeviceTokenRegister(BaseModel):
     token: str
@@ -305,3 +351,11 @@ class SosCaseResponse(BaseModel):
     drug_allergies: str = ""
     chronic_conditions: str = ""
     received_at: datetime
+
+
+class TTSRequest(BaseModel):
+    """語音合成請求。voice 留空時使用後端 GOOGLE_TTS_VOICE 設定值。"""
+
+    text: str
+    voice: Optional[str] = None
+    speakingRate: Optional[float] = None

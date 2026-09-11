@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { Device } from "@capacitor/device";
 import {
   analyzeDisaster,
   BackendAuthenticationError,
 } from "./services/geminiService";
-import { AuthUser, ChatMessage, DisasterAnalysis, UserStatus } from "./types";
+import { AuthUser, ChatMessage, DisasterAnalysis, EarthquakeAssessment, UserStatus } from "./types";
 import {
   fetchLatestAlert,
   EarthquakeAlert,
   isSevereNearbyEarthquake,
+  SEVERE_EARTHQUAKE_MAGNITUDE,
 } from "./services/cwaService";
 import { distanceKm } from "./services/offlineSafetyService";
 import {
@@ -20,12 +21,14 @@ import {
   onPushEarthquakeNotificationTapped,
 } from "./services/pushNotificationService";
 import { AppFooter } from "./components/app/AppFooter";
+import { playCloudSpeech, stopCloudSpeech } from "./services/VoiceTTS";
+import { toUrgentSpeech } from "./services/urgentSpeech";
+import { AppTabBar } from "./components/app/AppTabBar";
 import { AppHeader } from "./components/app/AppHeader";
 import { ChatMessageList } from "./components/app/ChatMessageList";
 import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
 import { RoomRiskScanner } from "./components/room-risk/RoomRiskScanner";
-import { playAudio } from "./services/VoiceTTS";
 import { getOfflineAnalysis } from "./services/offlineService";
 import { analyzeRoomRisk } from "./services/roomRiskService";
 import {
@@ -64,6 +67,10 @@ import { RescueMapPage } from "./components/rescue/RescueMapPage";
 import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 import { initHealthKit, getLatestHeartRate } from "./services/healthService";
+import {
+  assessEarthquakeForUser,
+  submitEarthquakeFieldReport,
+} from "./services/earthquakeResponseService";
 
 const OFFLINE_ANALYSIS_TIMEOUT_MS = 20_000;
 
@@ -114,7 +121,12 @@ const App: React.FC = () => {
   const [earthquakeAlert, setEarthquakeAlert] =
     useState<EarthquakeAlert | null>(null);
   const [cwaError, setCwaError] = useState<string>("");
-  const [hasInitializedLbs, setHasInitializedLbs] = useState(false);
+  const [initializedEarthquakeKey, setInitializedEarthquakeKey] = useState<string | null>(null);
+  const [earthquakeWorkflow, setEarthquakeWorkflow] = useState<{
+    phase: "awaiting_safety" | "collecting_report";
+    assessment: EarthquakeAssessment;
+    alert: EarthquakeAlert;
+  } | null>(null);
 
   // 新增：用戶狀態
   const [userStatus, setUserStatus] = useState<UserStatus>({
@@ -126,6 +138,36 @@ const App: React.FC = () => {
   });
   const userStatusRef = useRef(userStatus);
   const earthquakeAlertRef = useRef<EarthquakeAlert | null>(null);
+  // 每 +1 一次就要求 AppFooter 自動開麥克風。
+  const [autoListenSignal, setAutoListenSignal] = useState(0);
+
+  /**
+   * 手機版底部的輸入列與分頁列浮貼在聊天內容之上，訊息從它們下方捲過去。
+   * 這裡量出那一整組的實際高度，餵給訊息列表當下方留白——高度會變（快捷標籤
+   * 換行、離線地圖狀態列出現），寫死的話最後一則訊息就會被壓在輸入列底下。
+   */
+  /** 使用者往上翻舊訊息時收起底部工具列，把畫面讓給訊息。 */
+  const [viewingHistory, setViewingHistory] = useState(false);
+
+  const bottomClusterRef = useRef<HTMLDivElement | null>(null);
+  const [bottomClusterHeight, setBottomClusterHeight] = useState(176);
+  useLayoutEffect(() => {
+    const element = bottomClusterRef.current;
+    if (!element) return;
+    const measure = () => {
+      const next = element.offsetHeight;
+      if (next > 0) {
+        setBottomClusterHeight((current) =>
+          Math.abs(current - next) > 1 ? next : current,
+        );
+      }
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
   const notifiedEarthquakeRef = useRef<string | null>(null);
   const sosEarthquakeRef = useRef<string | null>(null);
   const isFetchingLbsRef = useRef(false);
@@ -212,7 +254,7 @@ const App: React.FC = () => {
   };
 
   const requestDevicePermissions = async () => {
-    setPermissionStatus("正在請求相機、麥克風與定位權限…");
+    setPermissionStatus("正在請求相機、麥克風、定位與通知權限…");
 
     try {
       if (navigator.geolocation) {
@@ -226,6 +268,16 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.warn("定位權限請求失敗：", error);
+    }
+
+    // 通知權限也要在這一步就要。留到地震真的發生才問，使用者往往正在慌亂中；
+    // 而且瀏覽器只會問一次，錯過或誤按拒絕之後就再也不會跳，警報等於永遠靜音。
+    try {
+      if ("Notification" in window && Notification.permission === "default") {
+        await Notification.requestPermission();
+      }
+    } catch (error) {
+      console.warn("通知權限請求失敗：", error);
     }
 
     // 相機與麥克風分開請求：合併成一次 getUserMedia 時，只要其中一項被拒絕，
@@ -244,15 +296,15 @@ const App: React.FC = () => {
   };
 
   const disclaimerModal = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 text-slate-100">
-      <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-slate-950/95 shadow-2xl shadow-black/50 overflow-hidden">
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-[var(--overlay)] px-4 py-6 text-ink">
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--elev-2)]">
         <div className="p-6 sm:p-8">
-          <h1 className="mb-4 text-2xl font-bold text-amber-300">
+          <h1 className="mb-4 text-balance text-2xl font-bold text-ink">
             地震救災協助 App 免責聲明
           </h1>
           {disclaimerStep === 1 ? (
             <div className="space-y-4">
-              <div className="max-h-[55vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+              <div className="max-h-[55vh] overflow-y-auto rounded-xl border border-line bg-surface-2 p-4 text-sm leading-relaxed text-ink">
                 <p>歡迎您使用本地震救災協助 App（以下簡稱「本 App」）。為保障您的權益，請於使用前詳細閱讀本免責聲明。當您使用本 App，即表示您已閱讀、理解並同意以下內容。</p>
                 <p className="mt-3 font-semibold">一、服務目的</p>
                 <p>本 App 旨在提供地震防災、災害應變及救災資訊服務，包括但不限於：</p>
@@ -336,7 +388,7 @@ const App: React.FC = () => {
                   type="checkbox"
                   checked={disclaimerChecked}
                   onChange={(e) => setDisclaimerChecked(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded-sm border-slate-600 bg-slate-900 text-amber-400 focus:ring-amber-300"
+                  className="mt-0.5 h-5 w-5 shrink-0 rounded border-line bg-surface text-primary focus:ring-accent"
                 />
                 <span>我已閱讀並理解上述免責聲明</span>
               </label>
@@ -345,7 +397,7 @@ const App: React.FC = () => {
                   type="button"
                   disabled={!disclaimerChecked}
                   onClick={handleProceedToPermissions}
-                  className="inline-flex items-center justify-center rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-[48px] items-center justify-center rounded-xl bg-primary px-5 text-sm font-bold text-primary-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   下一步：開啟權限
                 </button>
@@ -353,32 +405,32 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-5">
-              <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-sm leading-relaxed text-rose-100">
-                <p className="font-semibold text-rose-200">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
+              <div className="rounded-xl border border-line bg-surface-2 p-5 text-sm leading-relaxed text-ink">
+                <p className="font-bold text-ink">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
                 <p className="mt-3">所有權限皆依 iOS 系統規範，由使用者自行決定是否授權；若拒絕部分權限，可能導致部分功能無法正常使用。</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+              <div className="rounded-xl border border-line bg-surface-2 p-4 text-sm leading-relaxed text-ink">
                 <p>請按下方按鈕，同意後系統將請求相機、麥克風與定位權限。若您拒絕，仍可稍後於功能啟用時再次授權。</p>
-                <p className="mt-3 text-xs text-slate-400">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
+                <p className="mt-3 text-sm text-muted">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
               </div>
               <div className="space-y-3">
                 <button
                   type="button"
                   onClick={requestDevicePermissions}
-                  className="w-full rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-400"
+                  className="min-h-[48px] w-full rounded-xl bg-primary px-5 text-sm font-bold text-primary-ink transition-opacity hover:opacity-90"
                 >
                   同意並請求相機、麥克風與定位權限
                 </button>
                 <button
                   type="button"
                   onClick={acceptDisclaimer}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-800 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"
+                  className="min-h-[48px] w-full rounded-xl border border-line bg-surface-2 px-5 text-sm font-semibold text-ink transition-colors hover:bg-line"
                 >
                   已閱讀，稍後再授權
                 </button>
               </div>
               {permissionStatus && (
-                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                <div className="rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm text-ink">
                   {permissionStatus}
                 </div>
               )}
@@ -457,6 +509,7 @@ const App: React.FC = () => {
       time: new Date().toISOString(),
       epicenterLat: location.lat + 0.5,
       epicenterLng: location.lng,
+      simulated: true,
     });
   };
 
@@ -676,74 +729,187 @@ const App: React.FC = () => {
     }
   }, [authUser]);
 
-  const speak = (text: string) => {
+  /**
+   * 朗讀語速。1.0 是原速；災害提示講快一點才不會拖到後續動作，但太快會聽不清。
+   * Google 與瀏覽器兩條路徑共用同一個值，聽起來才一致。
+   */
+  const SPEECH_RATE = 1.2;
+
+  /**
+   * 挑最自然的中文語音。
+   * 舊寫法是 voices.find(zh-TW) 取第一個，但 Windows / Edge 清單裡排在前面的
+   * 通常是舊的本機合成語音（HanHan、Zhiwei），聽起來就是機器人；真正自然的
+   * 神經網路語音名稱會帶 Natural / Neural / Online，得靠評分挑出來。
+   */
+  const pickChineseVoice = () => {
+    let best: SpeechSynthesisVoice | null = null;
+    let bestScore = 0;
+
+    for (const voice of window.speechSynthesis.getVoices()) {
+      const lang = voice.lang.replace("_", "-").toLowerCase();
+      let score = 0;
+      if (lang.startsWith("zh-tw")) score = 100;
+      else if (lang.startsWith("zh")) score = 50;
+      else continue;
+
+      const name = voice.name.toLowerCase();
+      if (name.includes("natural") || name.includes("neural")) score += 30;
+      if (name.includes("online")) score += 15;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = voice;
+      }
+    }
+    return best;
+  };
+
+  /**
+   * 朗讀。優先用 Google Cloud 語音（自然許多），失敗才退回瀏覽器內建語音。
+   *
+   * 退回的情況包含：後端沒設定憑證、Cloud TTS API 未啟用、離線、或瀏覽器
+   * 擋下自動播放。無論走哪一條路，onEnd 都保證會被呼叫，因為地震流程要靠
+   * 它接著自動開麥克風。
+   */
+  const speak = (text: string, onEnd?: () => void) => {
     window.speechSynthesis.cancel();
+    stopCloudSpeech();
 
+    let handled = false;
+    const finishOnce = () => {
+      if (handled) return;
+      handled = true;
+      onEnd?.();
+    };
+
+    playCloudSpeech(text, SPEECH_RATE)
+      .then(finishOnce)
+      .catch((error) => {
+        console.warn("雲端語音失敗，改用瀏覽器內建語音：", error);
+        if (handled) return;
+        speakWithBrowser(text, finishOnce);
+      });
+  };
+
+  const speakWithBrowser = (text: string, onEnd?: () => void) => {
+    window.speechSynthesis.cancel();
+    let started = false;
+
+    const startSpeaking = () => {
+      if (started) return;
+      started = true;
+      speakNow(text, onEnd);
+    };
+
+    // getVoices() 在頁面剛載入時會回傳空陣列，要等 voiceschanged。
+    // 少了這一步，第一次朗讀（正好就是地震警報）會抓不到中文語音，
+    // 直接用預設的英文語音去念中文，聽起來格外不像人。
+    if (window.speechSynthesis.getVoices().length > 0) {
+      startSpeaking();
+    } else {
+      window.speechSynthesis.addEventListener("voiceschanged", startSpeaking, {
+        once: true,
+      });
+      // 有些瀏覽器不會派送 voiceschanged，補一個保底，不能讓警報啦掉。
+      window.setTimeout(startSpeaking, 1000);
+    }
+  };
+
+  const speakNow = (text: string, onEnd?: () => void) => {
     const utterance = new SpeechSynthesisUtterance(text);
-    // 1. 取得目前裝置支援的所有聲音
-    const voices = window.speechSynthesis.getVoices();
-
-    // 2. 優先尋找台灣中文 (zh-TW)，其次是 zh-HK 或 zh-CN
-    const chineseVoice =
-      voices.find((v) => v.lang.includes("zh-TW")) ||
-      voices.find((v) => v.lang.includes("zh-HK")) ||
-      voices.find((v) => v.lang.includes("zh-CN"));
+    const chineseVoice = pickChineseVoice();
 
     if (chineseVoice) {
-      utterance.voice = chineseVoice; // 強制指定中文聲音物件
+      utterance.voice = chineseVoice;
     }
 
-    utterance.lang = "zh-tw";
-    utterance.rate = 1.0;
-    utterance.pitch = 1.1;
+    utterance.lang = "zh-TW";
+    utterance.rate = SPEECH_RATE;
+    // 原本是 1.1。神經網路語音本身就有自然語調，硬把音高拉高反而更假。
+    utterance.pitch = 1.0;
+
+    if (onEnd) {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        onEnd();
+      };
+      utterance.onend = finish;
+      // 朗讀失敗（例如系統沒有中文語音）也要往下走，否則麥克風永遠不會開。
+      utterance.onerror = finish;
+      // 有些瀏覽器會靜靜地不播（例如還沒取得使用者互動授權），onend 與
+      // onerror 兩個都不會來。這裡自己判定「根本沒開始講」，避免整條流程卡死。
+      window.setTimeout(() => {
+        if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+          finish();
+        }
+      }, 1500);
+    }
 
     window.speechSynthesis.speak(utterance);
   };
 
+  // 注意事項只顯示、不朗讀：唸完一長串才開麥克風太慢，而且使用者
+  // 正在搖晃中，用聽的也記不住，不如留在畫面上隨時可以回頭看。
+  const EARTHQUAKE_SAFETY_NOTES = [
+    "立即趴下、掩護頭頸部，抓穩固定物",
+    "遠離窗戶及可能掉落的家具",
+    "搖晃停止後再確認逃生路線",
+    "切勿搭乘電梯",
+  ];
+
   const announceEarthquakeSafety = () => {
     const alert = earthquakeAlertRef.current;
-    
-    // 預設防災指令
-    const defaultInstruction = "請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。";
 
-    if (!alert) {
+    // 語音只問一句：人身安全 + 周遭狀況，講完立刻開麥克風讓使用者直接回答。
+    // 搖晃當下沒有人聽得完一整段防災指令，先確認人還好不好才是要緊的。
+    const spokenPrompt = alert
+      ? `偵測到規模 ${alert.magnitude} 強震。你還好嗎？請說出你現在的狀況，以及周遭有沒有危險。`
+      : "你還好嗎？請說出你現在的狀況，以及周遭有沒有危險。";
+
+    const notes = EARTHQUAKE_SAFETY_NOTES
+      .map((note, index) => `${index + 1}. ${note}`)
+      .join("\n");
+
+    // 震央、規模、距離只顯示不朗讀——唸出來會拖慢開麥克風的時機。
+    let header = `🚨 ${spokenPrompt}`;
+    if (alert) {
+      let distanceInfo = "計算中...";
+      const loc = userStatusRef.current.location;
+      if (loc && alert.epicenterLat != null && alert.epicenterLng != null) {
+        const dist = distanceKm(loc.lat, loc.lng, alert.epicenterLat, alert.epicenterLng);
+        distanceInfo = `約 ${dist.toFixed(1)} 公里`;
+      }
+      header =
+        `🚨 【系統警報：偵測到有感地震】\n` +
+        `📍 震央位置：${alert.location || "未知"}\n` +
+        `📊 地震規模：${alert.magnitude}\n` +
+        `📏 距離您的位置：${distanceInfo}\n\n` +
+        `${spokenPrompt}`;
+    }
+
+    setMessages((previous) => [...previous, {
+      id: `earthquake-${Date.now()}`,
+      role: "assistant",
+      content: `${header}
+
+【避難注意事項】
+${notes}`,
+      timestamp: new Date(),
+    }]);
+
+    // 畫面上保留正常標點好閱讀；唸出來的版本把標點拿掉，避免一句話中間
+    // 停頓一兩秒——災害當下那段沉默會讓人以為程式當掉了。
+    speak(toUrgentSpeech(spokenPrompt), () => {
       setMessages((previous) => [...previous, {
-        id: `earthquake-${Date.now()}`,
+        id: `mic-open-${Date.now()}`,
         role: "assistant",
-        content: `🚨 ${defaultInstruction}`,
+        content: "🎤 麥克風已開啟，請直接說話回報你的狀況。說完會自動停止，也可以改用鍵盤輸入。",
         timestamp: new Date(),
       }]);
-      speak(defaultInstruction);
-      return;
-    }
-
-    // 計算使用者與震央距離
-    let distanceInfo = "計算中...";
-    const loc = userStatusRef.current.location;
-    if (loc && alert.epicenterLat != null && alert.epicenterLng != null) {
-      const dist = distanceKm(loc.lat, loc.lng, alert.epicenterLat, alert.epicenterLng);
-      distanceInfo = `約 ${dist.toFixed(1)} 公里`;
-    }
-
-    // 將預警資訊與防災措施融合為單一訊息顯示
-    setMessages((previous) => [
-      ...previous,
-      {
-        id: `earthquake-info-${Date.now()}`,
-        role: "assistant",
-        content:
-          `🚨 【系統警報：偵測到有感地震】\n` +
-          `📍 震央位置：${alert.location || "未知"}\n` +
-          `📊 地震規模：${alert.magnitude}\n` +
-          `📏 距離您的位置：${distanceInfo}\n\n` +
-          `⚠️ **緊急應變指示**：\n` +
-          `${defaultInstruction}\n\n` +
-          `⏳ GUARDIA 正在為您評估周遭地理環境，生成專屬逃生避難報告中...`,
-        timestamp: new Date(),
-      },
-    ]);
-    // 語音播報
-    speak(`偵測到規模 ${alert.magnitude} 強震，${alert.location}。${defaultInstruction}`);
+      setAutoListenSignal((value) => value + 1);
+    });
   };
 
   useEffect(() => {
@@ -766,13 +932,28 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!earthquakeAlert) return;
     const location = userStatusRef.current.location;
-    if (!isSevereNearbyEarthquake(earthquakeAlert, location)) return;
+    // 模擬警報是測試用的，不能因為瀏覽器還沒拿到 GPS 定位就整個靜悄悄。
+    // isSevereNearbyEarthquake 在 location 為 null 時一律回 false。
+    if (!earthquakeAlert.simulated && !isSevereNearbyEarthquake(earthquakeAlert, location)) return;
     const key = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
 
     // 發送推播通知
     if (notifiedEarthquakeRef.current !== key) {
       notifiedEarthquakeRef.current = key;
-      void notifyEarthquakeAlert(earthquakeAlert);
+      void notifyEarthquakeAlert(earthquakeAlert).then((result) => {
+        if (result.shown) return;
+        // 通知被擋掉時要講出來。原本這裡靜靜吞掉失敗，使用者只會覺得「按了沒反應」。
+        // 先取出 reason：result 是參數，型別收窄不會延續進下面的 callback。
+        const blockedText = result.reason === "unsupported"
+          ? "（此瀏覽器不支援系統通知，警報僅顯示於畫面上。）"
+          : "（系統通知權限未開啟，警報僅顯示於畫面上。請點網址列左側的鎖頭圖示，將「通知」改為允許。）";
+        setMessages((previous) => [...previous, {
+          id: `notify-blocked-${Date.now()}`,
+          role: "assistant",
+          content: blockedText,
+          timestamp: new Date(),
+        }]);
+      });
     }
 
     // 觸發背景 BLE 存活訊號
@@ -920,10 +1101,15 @@ const App: React.FC = () => {
 
   // ✅ LBS 環境風險分析初始化（線上/離線雙軌）
   useEffect(() => {
-    // 條件 1：必須還沒初始化過，且已經成功拿到「定位」與「地震警報」
-    if (hasInitializedLbs || !userStatus.location || !earthquakeAlert) return;
-    // 判斷只有當地震是「強震且在附近」時才觸發
-    if (!isSevereNearbyEarthquake(earthquakeAlert, userStatus.location)) return;
+    // 每一場新地震各啟動一次；不能用單一 boolean，否則第二場地震永遠不會觸發。
+    if (!userStatus.location || !earthquakeAlert) return;
+    const currentEarthquakeKey = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
+    if (initializedEarthquakeKey === currentEarthquakeKey) return;
+    // 遠距使用者也需要得到「留在原地觀察」等不同建議，故此處不套用 100 公里門檻。
+    // 仍限制為近期強震，避免 App 啟動時為 CWA 的舊資料開啟回報流程。
+    if (earthquakeAlert.magnitude < SEVERE_EARTHQUAKE_MAGNITUDE) return;
+    const occurredAt = Date.parse(earthquakeAlert.time || earthquakeAlert.originTime || "");
+    if (Number.isFinite(occurredAt) && Date.now() - occurredAt > 30 * 60 * 1000) return;
     // 防止重複觸發
     if (isFetchingLbsRef.current) return;
     isFetchingLbsRef.current = true; // 上鎖
@@ -966,7 +1152,8 @@ const App: React.FC = () => {
           ]);
 
           setCurrentAnalysis(offlineAnalysis);
-          setHasInitializedLbs(true);
+          setInitializedEarthquakeKey(currentEarthquakeKey);
+          isFetchingLbsRef.current = false;
         } catch (error) {
           console.error("離線環境分析失敗:", error);
           isFetchingLbsRef.current = false;
@@ -974,31 +1161,25 @@ const App: React.FC = () => {
         return;
       }
 
-      // 情況 B：有網路，呼叫雲端 LBS API
+      // 情況 B：有網路，取得具座標的地震應變分析並啟動安全確認流程。
       try {
-        const epicenterCoords = (earthquakeAlert.epicenterLat && earthquakeAlert.epicenterLng)
-          ? `[震央座標: 緯度 ${earthquakeAlert.epicenterLat}, 經度 ${earthquakeAlert.epicenterLng}]`
-          : "";
-
-        const disasterInfo = `發生規模 ${earthquakeAlert.magnitude} 地震，震央位於 ${earthquakeAlert.location} ${epicenterCoords}`;
-
-        const riskRes = await fetch("http://127.0.0.1:8000/api/location-risk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: currentLocation,
-            disaster_info: disasterInfo
-          })
-        });
-
-        if (!riskRes.ok) throw new Error("LBS API 呼叫失敗");
-        const riskData = await riskRes.json();
-
-        const warningMessage = `🚨 【在地環境安全警告】\n` + 
-        riskData.environmentalWarnings.map((w: string) => `• ${w}`).join('\n');
+        const medicalSummary = summarizeMedicalCard(getMedicalCard());
+        const assessment = await assessEarthquakeForUser(
+          earthquakeAlert,
+          userStatus,
+          medicalSummary,
+        );
+        const warnings = [
+          ...assessment.immediate_actions,
+          ...assessment.environmental_warnings,
+        ];
+        const warningMessage =
+          `🚨 【依位置產生的地震應變】\n` +
+          `您距震央約 ${assessment.distance_km.toFixed(1)} 公里。\n` +
+          warnings.map((warning) => `• ${warning}`).join("\n");
 
         const lbsAnalysis = {
-          missingInfoRequests: riskData.questionsForUser,
+          missingInfoRequests: ["我目前安全", "我需要協助"],
           immediateActions: [], 
         } as unknown as DisasterAnalysis;
 
@@ -1013,13 +1194,19 @@ const App: React.FC = () => {
           { 
             id: `lbs-quest-${Date.now() + 1}`, 
             role: "assistant", 
-            content: "為了提供更精準的在地化逃生建議，請協助確認以下環境狀況：", 
+            content: assessment.safety_question,
             analysis: lbsAnalysis, 
             timestamp: new Date() 
           }
         ]);
 
-        setHasInitializedLbs(true); 
+        setEarthquakeWorkflow({
+          phase: "awaiting_safety",
+          assessment,
+          alert: earthquakeAlert,
+        });
+        setInitializedEarthquakeKey(currentEarthquakeKey);
+        isFetchingLbsRef.current = false;
 
       } catch (error) {
         console.error("初始化 LBS 聊天失敗:", error);
@@ -1028,7 +1215,7 @@ const App: React.FC = () => {
     };
 
     fetchLbsRisk();
-  }, [userStatus.location, earthquakeAlert, hasInitializedLbs]);
+  }, [userStatus.location, earthquakeAlert, initializedEarthquakeKey, isOffline]);
 
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1048,6 +1235,54 @@ const App: React.FC = () => {
     setMessages(updatedMessages);
     setInput("");
     setIsAnalyzing(true);
+
+    if (earthquakeWorkflow?.phase === "awaiting_safety") {
+      const confirmsSafe = /我目前安全|已安全|安全了|目前安全/.test(userMsg.content);
+      if (confirmsSafe) {
+        setEarthquakeWorkflow({ ...earthquakeWorkflow, phase: "collecting_report" });
+        setMessages((previous) => [...previous, {
+          id: `field-report-request-${Date.now()}`,
+          role: "assistant",
+          content:
+            "已確認您目前安全。若不需冒險移動，請用一段話回報您現在看得到的災情：\n" +
+            earthquakeWorkflow.assessment.field_report_questions
+              .map((question) => `• ${question}`)
+              .join("\n") +
+            "\n只回報親眼看到或確定的資訊；不確定可直接說不知道。",
+          timestamp: new Date(),
+        }]);
+        setIsAnalyzing(false);
+        return;
+      }
+      // 未確認安全時仍交給原本的災害 AI，優先提供求救與自救指示。
+    } else if (earthquakeWorkflow?.phase === "collecting_report") {
+      try {
+        const result = await submitEarthquakeFieldReport({
+          assessment: earthquakeWorkflow.assessment,
+          alert: earthquakeWorkflow.alert,
+          status: userStatus,
+          observation: userMsg.content,
+        });
+        setMessages((previous) => [...previous, {
+          id: `field-report-received-${Date.now()}`,
+          role: "assistant",
+          content: `✅ 感謝回報。已將您的位置、與震央距離及第一手觀察送至災情後端（回報編號：${result.id}）。請勿為了補充資訊進入危險區域。`,
+          timestamp: new Date(),
+        }]);
+        setEarthquakeWorkflow(null);
+      } catch (error) {
+        console.error("現場災情回報失敗", error);
+        setMessages((previous) => [...previous, {
+          id: `field-report-error-${Date.now()}`,
+          role: "assistant",
+          content: "目前無法送出災情回報，請先留在安全位置，稍後再試。",
+          timestamp: new Date(),
+        }]);
+      } finally {
+        setIsAnalyzing(false);
+      }
+      return;
+    }
 
     // 1. 即時判斷：檢測瀏覽器目前是否有網路
     //const isCurrentlyOffline = true;
@@ -1073,9 +1308,6 @@ const App: React.FC = () => {
           [...updatedMessages, assistantMsg],
           userStatus.location,
         );
-        if (offlineAnalysis.immediateActions.length) {
-          speak(offlineAnalysis.immediateActions[0].description);
-        }
       } catch (error) {
         console.error("離線應變模型失敗", error);
         setMessages((prev) => [...prev, {
@@ -1120,17 +1352,8 @@ const App: React.FC = () => {
         })
         .catch((error) => console.error("救援摘要本機儲存失敗", error));
 
-      if (analysis.immediateActions && analysis.immediateActions.length > 0) {
-        const text = `緊急指令${analysis.immediateActions[0].title}`;
-        // 優先嘗試 OpenAI，失敗則用原生降級
-        playAudio(text).catch(() => {
-          console.log("切換至原生語音降級模式");
-          speak(text);
-        });
-      } else if (analysis.missingInfoRequests?.length) {
-        // 如果是請求資訊
-        speak(`請提供更多資訊：${analysis.missingInfoRequests[0]}`);
-      }
+      // 後續回覆一律不自動朗讀：使用者已經進入打字對話，突然出聲會蓋掉
+      // 現場聲音，也可能在避難時暴露位置。要語音請自行按麥克風。
     } catch (error) {
       if (error instanceof BackendAuthenticationError) {
         // A local/offline session can outlive its Cloud Run token. Do not start
@@ -1160,9 +1383,6 @@ const App: React.FC = () => {
           [...updatedMessages, fallbackMsg],
           userStatus.location,
         );
-        if (offlineAnalysis.immediateActions.length) {
-          speak(offlineAnalysis.immediateActions[0].description);
-        }
       } catch (fallbackError) {
         console.error("離線模型降級也失敗", fallbackError);
         setMessages((prev) => [...prev, {
@@ -1189,7 +1409,7 @@ const App: React.FC = () => {
 
   if (isCheckingSession) {
     return (
-      <div className="h-[100dvh] flex items-center justify-center bg-[#020617] text-slate-400">
+      <div className="h-[100dvh] flex items-center justify-center bg-bg text-muted">
         正在確認線上帳號…
       </div>
     );
@@ -1199,49 +1419,140 @@ const App: React.FC = () => {
     return <AuthPage onAuthed={setAuthUser} />;
   }
 
-  if (showMedicalCard) {
-    return <MedicalCardPage onBack={() => setShowMedicalCard(false)} />;
-  }
+  /**
+   * 子頁面。原本每個都是 early return 直接吃掉整個畫面，
+   * 底部分頁列因此消失、使用者失去方向感。
+   * 改成統一包在同一個外殼裡，分頁列常駐，並標示目前所在位置。
+   */
+  const goHome = () => {
+    setShowMedicalCard(false);
+    setShowRescueMap(false);
+    setShowShelterNavigator(false);
+    setShowNearbyPeople(false);
+    setSelectedMap(null);
+  };
 
-  if (showRescueMap) {
-    return <RescueMapPage location={userStatus.location} onBack={() => setShowRescueMap(false)} />;
-  }
+  /**
+   * 子頁面靠底下那串優先序決定顯示哪一頁，所以切頁一定要先把其他旗標清掉。
+   * 只設自己那一個的話，從優先序高的頁面（例如醫療卡）切到低的（附近的人、
+   * 救援地圖）會完全沒反應——旗標是設進去了，但畫面仍被優先序高的那頁佔住。
+   */
+  const openSubPage = (page: "medical" | "rescue" | "nearby" | "shelter") => {
+    goHome();
+    if (page === "medical") setShowMedicalCard(true);
+    else if (page === "rescue") setShowRescueMap(true);
+    else if (page === "nearby") setShowNearbyPeople(true);
+    else setShowShelterNavigator(true);
+  };
 
-  if (selectedMap) {
+  const subPage = showMedicalCard
+    ? {
+        key: "medical",
+        title: "緊急醫療卡",
+        node: <MedicalCardPage onBack={goHome} />,
+      }
+    : showRescueMap
+      ? {
+          key: "rescue",
+          title: "救援任務地圖",
+          node: (
+            <RescueMapPage location={userStatus.location} onBack={goHome} />
+          ),
+        }
+      : selectedMap
+        ? {
+            key: "more",
+            title: "離線地圖",
+            node: (
+              <OfflineMapPage
+                map={selectedMap}
+                onBack={() => {
+                  setSelectedMap(null);
+                  loadDownloadedMaps();
+                }}
+              />
+            ),
+          }
+        : showShelterNavigator && offlineSafetyPack
+          ? {
+              key: "more",
+              title: "避難導航",
+              node: (
+                <ShelterNavigatorPage
+                  pack={offlineSafetyPack}
+                  location={userStatus.location}
+                  onBack={goHome}
+                />
+              ),
+            }
+          : // 藍牙模組：附近的人頁面
+            showNearbyPeople
+            ? {
+                key: "nearby",
+                title: "附近的人",
+                node: (
+                  <NearbyPeoplePage
+                    onBack={goHome}
+                    myLocation={userStatus.location}
+                  />
+                ),
+              }
+            : null;
+
+  const tabBar = (activeKey: string) => (
+    <AppTabBar
+      activeKey={activeKey}
+      onGoHome={goHome}
+      isDownloadingMap={isDownloadingMap}
+      offlineSafetyPackReady={Boolean(offlineSafetyPack)}
+      nearbyUnreadCount={bleUnread}
+      hasAuthUser={Boolean(authUser)}
+      onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
+      onShowShelterNavigator={() => openSubPage("shelter")}
+      onShowNearbyPeople={() => openSubPage("nearby")}
+      onShowMedicalCard={() => openSubPage("medical")}
+      onShowRescueMap={() => openSubPage("rescue")}
+      onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
+      onLogout={handleLogout}
+    />
+  );
+
+  if (subPage) {
     return (
-      <OfflineMapPage
-        map={selectedMap}
-        onBack={() => {
-          setSelectedMap(null);
-          loadDownloadedMaps();
-        }}
-      />
-    );
-  }
+      <div className="relative flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-bg text-ink">
+        {/* 電腦版：子頁面上方的標題列，首頁鈕在右上。手機版由底部分頁列負責。 */}
+        <div className="grad-chrome hidden shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2 safe-area-top sm:flex">
+          <span className="truncate text-xs font-semibold text-white">
+            {subPage.title}
+          </span>
+          <button
+            onClick={goHome}
+            aria-label="回到首頁"
+            className="has-tip relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[#c8ced6] transition-[background-color,color,transform] duration-100 hover:bg-white/15 hover:text-white active:scale-90 active:bg-white/25"
+          >
+            <i className="fas fa-house text-[15px]" aria-hidden="true"></i>
+            <span className="tip">首頁</span>
+          </button>
+        </div>
 
-  if (showShelterNavigator && offlineSafetyPack) {
-    return (
-      <ShelterNavigatorPage
-        pack={offlineSafetyPack}
-        location={userStatus.location}
-        onBack={() => setShowShelterNavigator(false)}
-      />
-    );
-  }
+        <div className="min-h-0 flex-1 overflow-hidden">{subPage.node}</div>
 
-  // 藍牙模組：附近的人頁面（獨立全螢幕）
-  if (showNearbyPeople) {
-    return (
-      <NearbyPeoplePage
-        onBack={() => setShowNearbyPeople(false)}
-        myLocation={userStatus.location}
-      />
+        {/* 手機版浮貼在子頁面內容上；捲動區靠 --tabbar-clearance 留白。 */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-sticky sm:static sm:z-auto">
+          <div className="pointer-events-auto">{tabBar(subPage.key)}</div>
+        </div>
+      </div>
     );
   }
 
   // 渲染 UI
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-[#020617] text-slate-100 overflow-hidden">
+    <div
+      className="relative h-[100dvh] min-h-0 flex flex-col bg-bg text-ink overflow-hidden"
+      style={
+        { "--bottom-cluster-h": `${bottomClusterHeight}px` } as React.CSSProperties
+      }
+    >
       <AppHeader
         currentAnalysis={currentAnalysis}
         cwaError={cwaError}
@@ -1254,11 +1565,11 @@ const App: React.FC = () => {
         authUser={authUser}
         onDownloadOfflineSafetyPack={handleDownloadOfflineSafetyPack}
         onRefreshCwa={handleRefreshCwa}
-        onShowShelterNavigator={() => setShowShelterNavigator(true)}
-        onShowNearbyPeople={() => setShowNearbyPeople(true)}
+        onShowShelterNavigator={() => openSubPage("shelter")}
+        onShowNearbyPeople={() => openSubPage("nearby")}
         nearbyUnreadCount={bleUnread}
-        onShowMedicalCard={() => setShowMedicalCard(true)}
-        onShowRescueMap={() => setShowRescueMap(true)}
+        onShowMedicalCard={() => openSubPage("medical")}
+        onShowRescueMap={() => openSubPage("rescue")}
         onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
         onLogout={handleLogout}
       />
@@ -1267,6 +1578,7 @@ const App: React.FC = () => {
         isOffline={isOffline}
         messages={messages}
         onOfflineOption={handleOfflineOption}
+        onViewingHistoryChange={setViewingHistory}
         scrollRef={scrollRef}
       />
       {showRoomRiskScanner && (
@@ -1280,17 +1592,28 @@ const App: React.FC = () => {
           onRetake={handleRetakeRoomRiskImage}
         />
       )}
-      <AppFooter
-        downloadedMaps={downloadedMaps}
-        input={input}
-        isAnalyzing={isAnalyzing}
-        offlineMapStatus={offlineMapStatus}
-        onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
-        onDeleteMap={handleDeleteMap}
-        onSubmit={handleSubmit}
-        onViewMap={handleViewMap}
-        setInput={setInput}
-      />
+      {/* 手機版浮貼在聊天內容上；sm 以上回到一般版面流。 */}
+      <div
+        ref={bottomClusterRef}
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-sticky shrink-0 sm:static sm:z-auto"
+      >
+        <div className="pointer-events-auto">
+          <AppFooter
+            autoListenSignal={autoListenSignal}
+            compact={viewingHistory}
+            downloadedMaps={downloadedMaps}
+            input={input}
+            isAnalyzing={isAnalyzing}
+            offlineMapStatus={offlineMapStatus}
+            onOpenRoomRiskScanner={handleOpenRoomRiskScanner}
+            onDeleteMap={handleDeleteMap}
+            onSubmit={handleSubmit}
+            onViewMap={handleViewMap}
+            setInput={setInput}
+          />
+          {tabBar("guide")}
+        </div>
+      </div>
     </div>
   );
 };

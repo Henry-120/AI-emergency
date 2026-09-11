@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 from firebase_admin import messaging
 
-from services.cwa_service import CWAService
-from services.firebase_service import firebase_service
+from .cwa_service import CWAService
+from .firebase_service import firebase_service
 
 logger = logging.getLogger(__name__)
 

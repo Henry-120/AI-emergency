@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="zh-TW" data-theme="light">
+<html lang="zh-TW">
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#eef1f6" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#13171d" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f2f2f4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#2e3145" media="(prefers-color-scheme: dark)" />
     <title>GuardiaAI · 災害應變求生助手</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link
@@ -18,7 +18,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <script>
@@ -50,10 +50,50 @@
               "command-ink": "var(--command-ink)",
               "command-muted": "var(--command-muted)",
               "command-line": "var(--command-line)",
+              "command-accent": "var(--command-accent)",
+              rule: "var(--rule)",
+              "critical-mark": "var(--critical-mark)",
             },
             fontFamily: {
-              sans: ['"Noto Sans TC"', "system-ui", "sans-serif"],
-              data: ['"JetBrains Mono"', "ui-monospace", "monospace"],
+              // iPhone 上是 SF Pro + 蘋方，不需下載；其餘平台退回 Noto Sans TC。
+              sans: [
+                "-apple-system",
+                "BlinkMacSystemFont",
+                '"SF Pro Text"',
+                '"PingFang TC"',
+                '"Noto Sans TC"',
+                "system-ui",
+                "sans-serif",
+              ],
+              command: [
+                "-apple-system",
+                "BlinkMacSystemFont",
+                '"SF Pro Display"',
+                '"PingFang TC"',
+                '"Noto Sans TC"',
+                "sans-serif",
+              ],
+              label: [
+                "-apple-system",
+                "BlinkMacSystemFont",
+                '"SF Pro Text"',
+                '"PingFang TC"',
+                '"Noto Sans TC"',
+                "sans-serif",
+              ],
+              data: ["ui-monospace", '"SF Mono"', "Menlo", "monospace"],
+            },
+            // iOS 的實際圓角：分組卡片 12、圖示方塊 7、控制項 12–14。
+            borderRadius: {
+              none: "0",
+              sm: "6px",
+              DEFAULT: "8px",
+              md: "10px",
+              lg: "12px",
+              xl: "14px",
+              "2xl": "18px",
+              "3xl": "22px",
+              full: "9999px",
             },
             borderColor: { DEFAULT: "var(--line)" },
             ringColor: { DEFAULT: "var(--accent)" },
@@ -70,48 +110,159 @@
     </script>
     <style>
       /* ── Design tokens ─────────────────────────────────────────────
-         Light is the default (best legibility in daylight). Dark applies
-         on system dark mode OR when forced (e.g. low battery in a disaster). */
+         配色來源：#MindfulPalettes No.150（Alex Cristache）
+           #F7F7F7 · #C8CED6 · #D4CAC5 · #736A86 · #272A3B
+
+         這套配色的價值在於「暖灰 + 冷灰」的並置，以及帶紫的深藍。
+         安靜、克制、有質感——正好讓唯一的紅色訊號更有力量。
+
+         三處為了 WCAG AA 而調整（原色不合格，這是急難 App 不能妥協的地方）：
+           #736A86 → #5F5673   白字按鈕 5.08 → 6.85:1
+           系統紅   → #9E2436   白字橫幅 3.55 → 7.61:1，也更貼合這套色調
+           #D4CAC5 → #EFE7E2   當底色用，小字才過得了 4.5:1
+
+         深色主題直接用配色裡的 #272A3B 當底，比純黑更貼近這套語彙。      */
       :root {
-        --bg: #eef1f6;
+        --bg: #dee1e9;
         --surface: #ffffff;
-        --surface-2: #e4e9f0;
-        --line: #d3dae3;
-        --ink: #1b2026;
-        --muted: #586271;
-        --primary: #1f5fd6;
+        --surface-2: #e6e9ef;
+        --line: #c8ced6;
+        --rule: #c8ced6;
+        --ink: #272a3b;
+        --muted: #63697a;
+        --primary: #5f5673;
         --primary-ink: #ffffff;
-        --accent: #1f5fd6;
-        --critical: #d11f2a;
-        --critical-soft: #fbeaeb;
-        --critical-text: #9c121b;
-        --high: #b45309;
-        --high-soft: #f8ecd9;
-        --high-text: #8a4308;
-        --safe: #157f43;
-        --safe-soft: #e3f3e9;
-        --safe-text: #0f6536;
-        /* Command chrome: a fixed deep "instrument" surface, identical in both
-           themes — the dark frame around the bright guidance canvas. */
-        --command: #10151e;
-        --command-2: #1d2532;
-        --command-ink: #f4f7fb;
-        --command-muted: #97a4b8;
-        --command-line: #2b3443;
-        --overlay: rgba(19, 23, 29, 0.55);
-        --elev-1: 0 1px 2px rgba(19, 23, 29, 0.06), 0 1px 1px rgba(19, 23, 29, 0.04);
-        --elev-2: 0 4px 14px rgba(19, 23, 29, 0.1);
+        --accent: #5f5673;
+
+        --critical: #9e2436;
+        --critical-soft: #faedef;
+        --critical-text: #9e2436;
+        --critical-mark: #9e2436;
+
+        --high: #8a6234;
+        --high-soft: #efe7e2;
+        --high-text: #7a5326;
+
+        --safe: #3f6b52;
+        --safe-soft: #e8efea;
+        --safe-text: #35604a;
+
+        /* 導覽列與工具列材質 */
+        --command: #f2f2f4;
+        --command-2: #ffffff;
+        --command-ink: #272a3b;
+        --command-muted: #63697a;
+        --command-line: #c8ced6;
+        --command-accent: #9e2436;
+
+        --overlay: rgba(39, 42, 59, 0.45);
+        --elev-1: 0 1px 2px rgba(39, 42, 59, 0.06);
+        /* 卡片用：不靠框線分界，改用一層糊開的陰影把卡片從畫布上抬起來。 */
+        --elev-soft: 0 4px 18px rgba(39, 42, 59, 0.10);
+        --elev-2: 0 10px 40px rgba(39, 42, 59, 0.18);
         color-scheme: light;
       }
 
       :root.theme-dark,
       :root[data-theme="dark"] {
-        --bg: #13171d;
-        --surface: #1c222b;
-        --surface-2: #262e39;
-        --line: #333c49;
-        --ink: #eef2f7;
-        --muted: #9aa6b4;
+        --bg: #272a3b;
+        --surface: #333752;
+        --surface-2: #3e4260;
+        --line: #474c6b;
+        --rule: #474c6b;
+        --ink: #f7f7f7;
+        --muted: #a8aec0;
+        --primary: #b3a6cc;
+        --primary-ink: #272a3b;
+        --accent: #b3a6cc;
+
+        --critical: #b3364b;
+        --critical-soft: #3e2233;
+        --critical-text: #f09aa6;
+        --critical-mark: #f09aa6;
+
+        --high: #b08a5a;
+        --high-soft: #3a3128;
+        --high-text: #e0be95;
+
+        --safe: #5a9b78;
+        --safe-soft: #24352c;
+        --safe-text: #8fcfaa;
+
+        --command: #2e3145;
+        --command-2: #383c58;
+        --command-ink: #f7f7f7;
+        --command-muted: #a8aec0;
+        --command-line: #474c6b;
+        --command-accent: #f09aa6;
+
+        --overlay: rgba(15, 16, 24, 0.62);
+        --elev-1: none;
+        --elev-soft: 0 4px 18px rgba(0, 0, 0, 0.38);
+        --elev-2: 0 10px 40px rgba(0, 0, 0, 0.55);
+        color-scheme: dark;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #272a3b;
+          --surface: #333752;
+          --surface-2: #3e4260;
+          --line: #474c6b;
+          --rule: #474c6b;
+          --ink: #f7f7f7;
+          --muted: #a8aec0;
+          --primary: #b3a6cc;
+          --primary-ink: #272a3b;
+          --accent: #b3a6cc;
+
+          --critical: #b3364b;
+          --critical-soft: #3e2233;
+          --critical-text: #f09aa6;
+          --critical-mark: #f09aa6;
+
+          --high: #b08a5a;
+          --high-soft: #3a3128;
+          --high-text: #e0be95;
+
+          --safe: #5a9b78;
+          --safe-soft: #24352c;
+          --safe-text: #8fcfaa;
+
+          --command: #2e3145;
+          --command-2: #383c58;
+          --command-ink: #f7f7f7;
+          --command-muted: #a8aec0;
+          --command-line: #474c6b;
+          --command-accent: #f09aa6;
+
+          --overlay: rgba(15, 16, 24, 0.62);
+          --elev-1: none;
+          --elev-soft: 0 4px 18px rgba(0, 0, 0, 0.38);
+          --elev-2: 0 10px 40px rgba(0, 0, 0, 0.55);
+          color-scheme: dark;
+        }
+      }
+
+      /* ── Command surface (藍牙 / 求救畫面) ─────────────────────────
+         These screens are the app's "instrument" context: they must read the
+         same whether the phone is in light mode, dark mode, or forced dark by
+         low battery — a rescuer glancing at a survivor's screen should never
+         get a different interface. Scoping the semantic tokens to their dark
+         values lets components stay theme-agnostic (bg-surface / text-ink /
+         text-critical-text) instead of hardcoding hex.
+
+         TODO: --surface / --muted here drift slightly from the --command-2 /
+         --command-muted tokens already defined above, and the priority colours
+         duplicate the dark block. Worth folding into those definitions later;
+         left alone for now so the rendered colours stay put. */
+      .command-surface {
+        --bg: #10151e;
+        --surface: #1a212c;
+        --surface-2: #242d3a;
+        --line: #2b3443;
+        --ink: #f4f7fb;
+        --muted: #9aa8bc;
         --primary: #2f6fe0;
         --primary-ink: #ffffff;
         --accent: #6ba5ff;
@@ -126,35 +277,9 @@
         --safe-text: #79d39a;
         --overlay: rgba(0, 0, 0, 0.6);
         --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --elev-soft: 0 4px 18px rgba(0, 0, 0, 0.38);
         --elev-2: 0 6px 20px rgba(0, 0, 0, 0.5);
         color-scheme: dark;
-      }
-
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme="light"]) {
-          --bg: #13171d;
-          --surface: #1c222b;
-          --surface-2: #262e39;
-          --line: #333c49;
-          --ink: #eef2f7;
-          --muted: #9aa6b4;
-          --primary: #2f6fe0;
-          --primary-ink: #ffffff;
-          --accent: #6ba5ff;
-          --critical: #e0454e;
-          --critical-soft: #3a1d20;
-          --critical-text: #ff8f97;
-          --high: #c9781f;
-          --high-soft: #2e2417;
-          --high-text: #f0b676;
-          --safe: #2f9d5b;
-          --safe-soft: #16271d;
-          --safe-text: #79d39a;
-          --overlay: rgba(0, 0, 0, 0.6);
-          --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-          --elev-2: 0 6px 20px rgba(0, 0, 0, 0.5);
-          color-scheme: dark;
-        }
       }
 
       html,
@@ -172,6 +297,125 @@
         -webkit-font-smoothing: antialiased;
       }
 
+      /* ── 圖示按鈕的滑鼠提示 ────────────────────────────────────────
+         只在有滑鼠的裝置顯示。觸控裝置沒有 hover，靠 aria-label 與
+         長按的系統提示，一般點按直接進入功能，不會變成要按兩次。   */
+      .has-tip {
+        position: relative;
+      }
+      .has-tip .tip {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%) translateY(-3px);
+        background: #15161f;
+        color: #fff;
+        font-size: 12.5px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        line-height: 1.4;
+        padding: 5px 10px;
+        border-radius: 7px;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        z-index: 60;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.34);
+        transition: opacity 0.13s ease, transform 0.13s ease;
+      }
+      .has-tip .tip::before {
+        content: "";
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 5px solid transparent;
+        border-bottom-color: #15161f;
+      }
+      @media (hover: hover) {
+        .has-tip:hover .tip {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+      .has-tip:focus-visible .tip {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+      /* 往上展開的變體。底部輸入列的按鈕不能用預設的向下，
+         提示會掉出畫面外。箭頭也要跟著翻到下緣。 */
+      .has-tip .tip.tip-up {
+        top: auto;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%) translateY(3px);
+      }
+      .has-tip .tip.tip-up::before {
+        bottom: auto;
+        top: 100%;
+        border-bottom-color: transparent;
+        border-top-color: #15161f;
+      }
+      @media (hover: hover) {
+        .has-tip:hover .tip.tip-up {
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+      .has-tip:focus-visible .tip.tip-up {
+        transform: translateX(-50%) translateY(0);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .has-tip .tip {
+          transition: none;
+        }
+      }
+
+      /* ── 漸層 ──────────────────────────────────────────────────────
+         來自 #MindfulPalettes No.150 的五組漸層。
+         深色的兩組（03/05）用在外框與主要動作，淺色的（01/02）用在畫布。 */
+      .grad-01 { background-image: linear-gradient(160deg, #f7f7f7 0%, #c8ced6 100%); }
+      .grad-02 { background-image: linear-gradient(160deg, #c8ced6 0%, #d4cac5 100%); }
+      .grad-03 { background-image: linear-gradient(160deg, #c8ced6 0%, #736a86 100%); }
+      .grad-04 {
+        background-image: linear-gradient(
+          160deg, #c8ced6 0%, #d4cac5 34%, #736a86 72%, #272a3b 100%);
+      }
+      .grad-05 { background-image: linear-gradient(160deg, #736a86 0%, #272a3b 100%); }
+
+      /* 外框（報頭／工具列）：紫到深藍，兩種主題共用 */
+      .grad-chrome {
+        background-image: linear-gradient(180deg, #3b3653 0%, #272a3b 100%);
+      }
+      /* 主要動作鈕與訊息泡泡 */
+      .grad-action {
+        background-image: linear-gradient(135deg, #7a6f90 0%, #574d6b 100%);
+      }
+      /* 危急：深紅漸層 */
+      .grad-critical {
+        background-image: linear-gradient(135deg, #b02a3e 0%, #7d1b2a 100%);
+      }
+      /* 畫布底：極淡的冷灰漸層，讓大片空白不死板 */
+      .grad-canvas {
+        background-image: linear-gradient(180deg, #dee1e9 0%, #ced3de 100%);
+      }
+      :root.theme-dark .grad-canvas,
+      :root[data-theme="dark"] .grad-canvas {
+        background-image: linear-gradient(180deg, #2f3348 0%, #222534 100%);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) .grad-canvas {
+          background-image: linear-gradient(180deg, #2f3348 0%, #222534 100%);
+        }
+      }
+
+      ::selection {
+        background: color-mix(in srgb, var(--accent) 25%, transparent);
+      }
+      input,
+      textarea {
+        caret-color: var(--accent);
+      }
+
       .font-data {
         font-family: "JetBrains Mono", ui-monospace, monospace;
         font-feature-settings: "tnum" 1;
@@ -180,6 +424,128 @@
       .safe-area-bottom {
         padding-bottom: max(1rem, env(safe-area-inset-bottom));
       }
+      /* 手機底部改由分頁列負責安全區，輸入列只留一般內距，
+         否則兩者相加會讓畫面下半部過高。 */
+      .footer-safe {
+        padding-bottom: 0.5rem;
+      }
+      @media (min-width: 640px) {
+        .footer-safe {
+          padding-bottom: max(1rem, env(safe-area-inset-bottom));
+        }
+      }
+      /* 手機版：輸入列浮貼在聊天內容之上——圓角、半透明、背景模糊，
+         訊息從它下面捲過去。這是 iOS 工具列的系統材質語彙，不是裝飾用的
+         玻璃擬態：模糊的是真的會動的內容，不是一塊靜止的花紋。
+         sm 以上回到貼齊全寬的實心列。 */
+      .footer-shell {
+        margin-left: 0.75rem;
+        margin-right: 0.75rem;
+        border-radius: 1.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background-color: rgba(39, 42, 59, 0.82);
+        -webkit-backdrop-filter: blur(18px) saturate(150%);
+        backdrop-filter: blur(18px) saturate(150%);
+        box-shadow: var(--elev-2);
+      }
+      /* 分頁列膠囊：淺色半透明 + 背景模糊，內容會從它下面透出來。
+         透明度必須寫在這裡而不是用 Tailwind 的 bg-surface/75——那種寫法
+         沒辦法把 alpha 套進 CSS 變數，整條規則不會生成，膠囊會變全透明。 */
+      .tabbar-shell {
+        border-radius: 26px;
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        background-color: rgba(255, 255, 255, 0.32);
+        -webkit-backdrop-filter: blur(34px) saturate(190%);
+        backdrop-filter: blur(34px) saturate(190%);
+        box-shadow: var(--elev-2);
+      }
+      :root.theme-dark .tabbar-shell,
+      :root[data-theme="dark"] .tabbar-shell {
+        border-color: rgba(255, 255, 255, 0.14);
+        background-color: rgba(40, 44, 58, 0.32);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) .tabbar-shell {
+          border-color: rgba(255, 255, 255, 0.14);
+          background-color: rgba(40, 44, 58, 0.32);
+        }
+      }
+      /* 可點擊的區塊：滑鼠移上去整塊變深。拿掉框線之後，這是「這裡可以點」
+         的主要線索，不能只靠游標形狀——手機上根本沒有游標。
+         用 brightness 而不是各寫一組 hover 底色：不管底下是白的、淡彩的
+         還是實心品牌色，變深的幅度都一致。 */
+      .tappable {
+        transition: filter 0.12s ease-out;
+      }
+      @media (hover: hover) {
+        .tappable:hover {
+          filter: brightness(0.94);
+        }
+      }
+      .tappable:active {
+        filter: brightness(0.89);
+      }
+
+      /* 膠囊是浮起來的，上下各留了空隙（下方還要讓開 iPhone 的home 指示區）。
+         那段空隙看起來仍像「底部那一列」的一部分，拇指很容易落在上面，點了
+         卻沒反應。所以把每個分頁的可點範圍延伸到空隙上——看得到的還是浮貼
+         的膠囊，但點到邊緣一樣有效。 */
+      .tabbar-shell > button::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -0.5rem;
+        bottom: calc(-1 * (env(safe-area-inset-bottom) + 0.5rem));
+      }
+      /* 兩端再補到畫面邊緣，膠囊左右的內縮同樣是容易誤觸的空隙。 */
+      .tabbar-shell > button:first-child::after {
+        left: -0.75rem;
+      }
+      .tabbar-shell > button:last-child::after {
+        right: -0.75rem;
+      }
+
+      /* 作用中分頁的底色刻意做成近乎不透明。膠囊本身很透，底下捲過什麼顏色
+         都會影響對比；選取狀態是最需要一眼認出來的，不能讓它跟著飄。 */
+      .tabbar-active {
+        background-color: rgba(255, 255, 255, 0.86);
+      }
+      :root.theme-dark .tabbar-active,
+      :root[data-theme="dark"] .tabbar-active {
+        background-color: rgba(71, 76, 107, 0.9);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) .tabbar-active {
+          background-color: rgba(71, 76, 107, 0.9);
+        }
+      }
+
+      /* 膠囊浮在內容上，捲動區要留出等高的下方留白，最後一筆才不會被壓住。 */
+      :root {
+        --tabbar-clearance: calc(env(safe-area-inset-bottom) + 4.75rem);
+      }
+      @media (min-width: 640px) {
+        :root {
+          --tabbar-clearance: 0px;
+        }
+      }
+
+      @media (min-width: 640px) {
+        .footer-shell {
+          margin-left: 0;
+          margin-right: 0;
+          border-radius: 0;
+          border-width: 1px 0 0 0;
+          border-color: rgba(255, 255, 255, 0.1);
+          background-color: transparent;
+          background-image: linear-gradient(180deg, #3b3653 0%, #272a3b 100%);
+          -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+          box-shadow: none;
+        }
+      }
+
       .safe-area-top {
         padding-top: env(safe-area-inset-top);
       }
@@ -195,7 +561,7 @@
       :focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
-        border-radius: 6px;
+        border-radius: 8px;
       }
 
       /* Scrollbars: quiet, neutral, theme-aware (no gold). */
@@ -220,16 +586,37 @@
 
 
 
-      .glass-panel {
-        background: rgba(15, 23, 42, 0.8);
-        backdrop-filter: blur(16px);
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
+      /* Command chrome: the deep instrument frame around the bright guidance
+         canvas. A solid surface, not glass — decoration-blur is banned. */
+      /* iOS 的導覽列與工具列是半透明材質層——這是系統原生行為，
+         不是裝飾性毛玻璃。細分隔線是 hairline，不是粗框。 */
+      .chrome-panel {
+        background: color-mix(in srgb, var(--command) 82%, transparent);
+        backdrop-filter: saturate(180%) blur(20px);
+        -webkit-backdrop-filter: saturate(180%) blur(20px);
+        border-top: 0.5px solid var(--command-line);
       }
-      .message-gradient-user {
-        background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+      .chrome-panel-top {
+        background: color-mix(in srgb, var(--command) 82%, transparent);
+        backdrop-filter: saturate(180%) blur(20px);
+        -webkit-backdrop-filter: saturate(180%) blur(20px);
+        border-bottom: 0.5px solid var(--command-line);
       }
-      .gold-glow {
-        box-shadow: 0 0 15px rgba(251, 191, 36, 0.2);
+      /* 分組清單的分隔線：從文字起點開始，不整條橫跨。 */
+      .rule-heavy {
+        border-bottom: 0.5px solid var(--line);
+      }
+      .ios-sep {
+        position: relative;
+      }
+      .ios-sep + .ios-sep::before {
+        content: "";
+        position: absolute;
+        left: 56px;
+        right: 0;
+        top: 0;
+        height: 0.5px;
+        background: var(--line);
       }
 
       /* ── Motion: state-only, 150–250ms, reduced-motion first-class ── */
@@ -255,6 +642,25 @@
         to {
           opacity: 1;
           transform: translateY(0);
+        }
+      }
+      .skeleton-line {
+        background: linear-gradient(
+          90deg,
+          var(--surface-2) 0%,
+          var(--line) 50%,
+          var(--surface-2) 100%
+        );
+        background-size: 200% 100%;
+        animation: skeletonSweep 1.4s ease-in-out infinite;
+        border-radius: 4px;
+      }
+      @keyframes skeletonSweep {
+        from {
+          background-position: 200% 0;
+        }
+        to {
+          background-position: -200% 0;
         }
       }
       @keyframes pulseRing {
@@ -283,6 +689,10 @@
         .msg-enter {
           animation: fadeIn 0.001ms both;
           transform: none !important;
+        }
+        .skeleton-line {
+          animation: none;
+          background: var(--surface-2);
         }
       }
     </style>

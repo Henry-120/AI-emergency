@@ -9,6 +9,9 @@ from typing import Optional
 # configuration reads from os.environ. Cloud Run injects these values before
 # process startup, while this fallback keeps direct local runs consistent.
 for env_file in [
+    # 專案根目錄優先（.env.example 放在這裡），再回退到 backend/ 底下。
+    Path(__file__).resolve().parent.parent / ".env.local",
+    Path(__file__).resolve().parent.parent / ".env",
     Path(__file__).resolve().parent / ".env.local",
     Path(__file__).resolve().parent / ".env",
 ]:
@@ -25,20 +28,22 @@ for env_file in [
                     os.environ[key] = value
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-import auth, schemas
-from services.cwa_service import CWAService
-from services.offline_maps_service import offline_maps_service
-from services.room_risk_service import room_risk_service
-from services.disaster_ai_service import DisasterAIError, disaster_ai_service
-from services.shelter_service import shelter_service
-from services.firebase_service import firebase_service
-from services import push_service
-from services import sos_service
-from services.sos_store_service import sos_store_service
+from . import auth, schemas
+from .services.cwa_service import CWAService
+from .services.offline_maps_service import offline_maps_service
+from .services.room_risk_service import room_risk_service
+from .services.disaster_ai_service import DisasterAIError, disaster_ai_service
+from .services.shelter_service import shelter_service
+from .services.firebase_service import firebase_service
+from .services import push_service
+from .services import sos_service
+from .services.sos_store_service import sos_store_service
+from .services.tts_service import TTSError, tts_service
 from pydantic import BaseModel
-from services.location_ai_service import location_ai_service
+from .services.location_ai_service import location_ai_service
+from .services.earthquake_response_service import earthquake_response_service
 
 cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
@@ -266,7 +271,68 @@ async def get_location_risk(request: LocationRiskRequest):
     return result
 
 
+@app.post("/api/earthquake/assess", response_model=schemas.EarthquakeAssessmentResponse)
+async def assess_earthquake(
+    data: schemas.EarthquakeAssessmentRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """依使用者與震央的實際座標，提供第一時間應變與震後回報問題。"""
+    assessment = earthquake_response_service.assess(data)
+    try:
+        location_info = (
+            f"GPS座標（緯度 {data.user_latitude:.5f}，經度 {data.user_longitude:.5f}），"
+            f"距震央 {assessment['distance_km']:.1f} 公里"
+        )
+        disaster_info = (
+            f"規模 {data.magnitude:.1f} 地震，震央 {data.location}，"
+            f"座標 {data.epicenter_latitude:.5f}, {data.epicenter_longitude:.5f}"
+        )
+        ai_result = await location_ai_service.analyze_risk(location_info, disaster_info)
+        warnings = ai_result.get("environmentalWarnings") or []
+        assessment["environmental_warnings"] = [str(item) for item in warnings[:4]]
+    except Exception:
+        # 距離規則仍可獨立運作；AI 在地補充失敗不應阻斷救命指示。
+        pass
+    return assessment
+
+
+@app.post("/api/earthquake/field-report", response_model=schemas.EarthquakeFieldReportResponse)
+def create_earthquake_field_report(
+    data: schemas.EarthquakeFieldReportCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """接收已確認安全之使用者提供的具座標第一手災情。"""
+    if not data.is_safe:
+        raise HTTPException(status_code=409, detail="尚未確認安全，請先依指示避難或求救")
+    report_id = firebase_service.save_earthquake_field_report(current_user["id"], data)
+    return {"id": report_id, "status": "received"}
+
+
 # ==================== 推播裝置註冊 API ====================
+
+@app.post("/api/tts")
+async def synthesize_speech(payload: schemas.TTSRequest):
+    """把文字轉成語音回傳 MP3。
+
+    金鑰留在後端，前端只拿得到音訊。合成失敗時回 503，前端會自動退回
+    瀏覽器內建語音，警報不會因此啦掉。
+    """
+    try:
+        audio = await tts_service.synthesize(
+            payload.text,
+            voice=payload.voice,
+            speaking_rate=payload.speakingRate or 1.0,
+        )
+    except TTSError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        # 同一句警報可能重播，讓瀏覽器也能快取。
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
 
 @app.post("/api/push/register", response_model=schemas.DeviceTokenResponse)
 def register_device_token(

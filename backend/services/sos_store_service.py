@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.firebase_service import firebase_service
+from .firebase_service import firebase_service
 
 
 class SosStoreService:

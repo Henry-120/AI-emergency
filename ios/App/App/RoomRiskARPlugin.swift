@@ -3,6 +3,28 @@ import Capacitor
 import SceneKit
 import UIKit
 
+private struct RoomScanCapture {
+    let imageData: Data
+    let camera: ARCamera
+    let viewportSize: CGSize
+    let floorTransform: simd_float4x4
+    let sector: Int
+}
+
+private struct RoomWorldZone {
+    let payload: [String: Any]
+    let points: [SCNVector3]
+
+    var center: SCNVector3 {
+        let count = Float(points.count)
+        return SCNVector3(
+            points.map(\.x).reduce(0, +) / count,
+            points.map(\.y).reduce(0, +) / count,
+            points.map(\.z).reduce(0, +) / count
+        )
+    }
+}
+
 @objc(RoomRiskARPlugin)
 public class RoomRiskARPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "RoomRiskARPlugin"
@@ -46,6 +68,14 @@ public class RoomRiskARPlugin: CAPPlugin, CAPBridgedPlugin {
 }
 
 final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
+    private enum ScanPhase {
+        case idle
+        case collecting
+        case analyzing
+        case complete
+    }
+
+    private let targetCaptureCount = 6
     private let endpoint: URL
     private let sceneView = ARSCNView(frame: .zero)
     private let coachingOverlay = ARCoachingOverlayView()
@@ -64,6 +94,15 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
     private var detectedHorizontalPlanes = 0
     private var horizontalPlaneAnchors: [UUID: ARPlaneAnchor] = [:]
     private var lastGuidanceUpdate: TimeInterval = 0
+    private var scanPhase: ScanPhase = .idle
+    private var scanCaptures: [RoomScanCapture] = []
+    private var capturedSectors = Set<Int>()
+    private var initialYaw: Float?
+    private var lastCaptureTime: TimeInterval = 0
+    private var scanAnalyses: [[String: Any]] = []
+    private var worldZones: [RoomWorldZone] = []
+    private var resultAnchors: [ARAnchor] = []
+    private var hasConfirmedScanPosition = false
 
     var onFinish: (([String: Any]?) -> Void)?
 
@@ -178,7 +217,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
         readinessProgress.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(readinessProgress)
 
-        scanButton.setTitle("分析地面風險", for: .normal)
+        scanButton.setTitle("開始全房掃描", for: .normal)
         scanButton.setImage(UIImage(systemName: "viewfinder"), for: .normal)
         scanButton.tintColor = UIColor(red: 0.02, green: 0.20, blue: 0.16, alpha: 1)
         scanButton.backgroundColor = .mintGreen
@@ -321,6 +360,16 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
 
     @objc private func clearTapped() {
         zoneRoot.childNodes.forEach { $0.removeFromParentNode() }
+        resultAnchors.forEach { sceneView.session.remove(anchor: $0) }
+        resultAnchors.removeAll()
+        scanCaptures.removeAll()
+        capturedSectors.removeAll()
+        scanAnalyses.removeAll()
+        worldZones.removeAll()
+        initialYaw = nil
+        lastCaptureTime = 0
+        hasConfirmedScanPosition = false
+        scanPhase = .idle
         latestAnalysis = nil
         statusLabel.text = "已清除標記，請重新掃描地板"
         captureGuide.isHidden = false
@@ -331,7 +380,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
     }
 
     @objc private func scanTapped() {
-        guard !isAnalyzing else { return }
+        guard scanPhase != .collecting, !isAnalyzing else { return }
         guard hasFloorEstimate() else {
             showMessage("尚未找到地板", detail: "請慢慢左右移動手機，讓白色平面網格覆蓋地板後再分析。")
             return
@@ -340,45 +389,146 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
             showMessage("相機尚未準備完成", detail: "請稍後再試。")
             return
         }
-
-        isAnalyzing = true
-        captureGuide.isHidden = true
-        readinessLabel.isHidden = true
-        readinessProgress.isHidden = true
-        scanButton.isEnabled = false
-        scanButton.setTitle("分析中...", for: .normal)
-        statusLabel.text = depthStatus(frame: frame)
-
-        guard let imageData = sceneView.snapshot().jpegData(compressionQuality: 0.94) else {
-            finishAnalysisWithError("無法擷取 AR 相機畫面。")
+        guard hasConfirmedScanPosition else {
+            showScanPreparationPrompt()
             return
         }
 
-        analyze(imageData: imageData) { [weak self] result in
+        clearScanResultsOnly()
+        scanPhase = .collecting
+        initialYaw = cameraYaw(frame.camera.transform)
+        lastCaptureTime = 0
+        captureGuide.isHidden = false
+        readinessLabel.isHidden = false
+        readinessProgress.isHidden = false
+        scanButton.isEnabled = false
+        scanButton.setTitle("掃描房間中…", for: .normal)
+        captureCurrentView(frame: frame, time: CACurrentMediaTime())
+    }
+
+    private func showScanPreparationPrompt() {
+        let message = "請盡量站在房間中央或視野開闊的位置，讓家具底部與地板保持在畫面中，接著慢慢原地轉一圈。\n\n不必勉強移動到房間中央；請先避開雜物、濕滑地面及其他危險區域。"
+        let alert = UIAlertController(title: "準備掃描整個房間", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "開始掃描", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.hasConfirmedScanPosition = true
+            self.scanTapped()
+        })
+        present(alert, animated: true)
+    }
+
+    private func clearScanResultsOnly() {
+        zoneRoot.childNodes.forEach { $0.removeFromParentNode() }
+        resultAnchors.forEach { sceneView.session.remove(anchor: $0) }
+        resultAnchors.removeAll()
+        scanCaptures.removeAll()
+        capturedSectors.removeAll()
+        scanAnalyses.removeAll()
+        worldZones.removeAll()
+        latestAnalysis = nil
+    }
+
+    private func captureCurrentView(frame: ARFrame, time: TimeInterval) {
+        guard scanPhase == .collecting,
+              case .normal = frame.camera.trackingState,
+              time - lastCaptureTime >= 0.7,
+              hasFloorEstimate(),
+              let initialYaw,
+              let imageData = sceneView.snapshot().jpegData(compressionQuality: 0.82),
+              let floorTransform = bestFloorTransform() else { return }
+
+        let relativeYaw = normalizedAngle(cameraYaw(frame.camera.transform) - initialYaw)
+        let sectorWidth = (2 * Float.pi) / Float(targetCaptureCount)
+        let sector = (Int(round(relativeYaw / sectorWidth)) % targetCaptureCount + targetCaptureCount) % targetCaptureCount
+        guard !capturedSectors.contains(sector) else { return }
+
+        scanCaptures.append(RoomScanCapture(
+            imageData: imageData,
+            camera: frame.camera,
+            viewportSize: sceneView.bounds.size,
+            floorTransform: floorTransform,
+            sector: sector
+        ))
+        capturedSectors.insert(sector)
+        lastCaptureTime = time
+        updateRoomScanProgress()
+
+        if scanCaptures.count >= targetCaptureCount {
+            beginSequentialAnalysis()
+        }
+    }
+
+    private func updateRoomScanProgress() {
+        let count = scanCaptures.count
+        readinessProgress.progressTintColor = .mintGreen
+        readinessProgress.setProgress(Float(count) / Float(targetCaptureCount), animated: true)
+        statusLabel.text = "已自動取景 \(count)/\(targetCaptureCount)，請慢慢轉一圈"
+        readinessLabel.text = remainingDirectionText()
+        captureGuideLabel.text = "保持家具底部與地板在畫面內"
+    }
+
+    private func remainingDirectionText() -> String {
+        let leftDone = capturedSectors.contains(4) || capturedSectors.contains(5)
+        let frontDone = capturedSectors.contains(0)
+        let rightDone = capturedSectors.contains(1) || capturedSectors.contains(2)
+        let backDone = capturedSectors.contains(3)
+        let labels = [
+            leftDone ? nil : "左側",
+            frontDone ? nil : "正面",
+            rightDone ? nil : "右側",
+            backDone ? nil : "後方"
+        ].compactMap { $0 }
+        return labels.isEmpty ? "取景完成，準備逐張分析" : "尚未掃描：\(labels.joined(separator: "、"))"
+    }
+
+    private func beginSequentialAnalysis() {
+        guard scanPhase == .collecting else { return }
+        scanPhase = .analyzing
+        isAnalyzing = true
+        captureGuide.isHidden = true
+        scanButton.setTitle("分析 1/\(targetCaptureCount)", for: .normal)
+        analyzeCapture(at: 0)
+    }
+
+    private func analyzeCapture(at index: Int) {
+        guard index < scanCaptures.count else {
+            finishRoomScan()
+            return
+        }
+        statusLabel.text = "AI 正在分析第 \(index + 1)/\(scanCaptures.count) 個視角"
+        readinessLabel.text = "照片會分別上傳，完成後一次顯示"
+        scanButton.setTitle("分析 \(index + 1)/\(scanCaptures.count)", for: .normal)
+        let capture = scanCaptures[index]
+        analyze(imageData: capture.imageData) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
-                switch result {
-                case .success(let analysis):
-                    self.latestAnalysis = analysis
-                    let renderedCount = self.renderZones(from: analysis)
-                    if renderedCount > 0 {
-                        self.statusLabel.text = "分析完成，已在地板標示 \(renderedCount) 個區域"
-                    } else {
-                        self.statusLabel.text = "分析完成，但目前無法把區域投影到地板"
-                        self.showMessage(
-                            "找不到可顯示的位置",
-                            detail: "請將鏡頭稍微朝向已掃描的地板，再按一次重新分析。"
-                        )
-                    }
-                case .failure(let error):
-                    self.showMessage("分析失敗", detail: error.localizedDescription)
+                if case .success(let analysis) = result {
+                    self.scanAnalyses.append(analysis)
+                    self.collectWorldZones(from: analysis, capture: capture)
                 }
-                self.isAnalyzing = false
-                self.scanButton.isEnabled = true
-                self.scanButton.alpha = 1
-                self.scanButton.setTitle("重新分析", for: .normal)
+                self.analyzeCapture(at: index + 1)
             }
         }
+    }
+
+    private func finishRoomScan() {
+        guard !scanAnalyses.isEmpty else {
+            finishAnalysisWithError("所有視角都分析失敗，請確認網路後重試。")
+            return
+        }
+        worldZones = mergeNearbyWorldZones(worldZones)
+        latestAnalysis = mergeAnalyses(scanAnalyses)
+        let renderedCount = renderWorldZones(worldZones)
+        scanPhase = .complete
+        isAnalyzing = false
+        hasConfirmedScanPosition = false
+        readinessLabel.isHidden = true
+        readinessProgress.isHidden = true
+        statusLabel.text = "全房掃描完成：\(scanAnalyses.count) 個視角、\(renderedCount) 個區域"
+        scanButton.isEnabled = true
+        scanButton.alpha = 1
+        scanButton.setTitle("重新掃描房間", for: .normal)
     }
 
     private func depthStatus(frame: ARFrame) -> String {
@@ -435,6 +585,161 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
                 completion(.failure(error))
             }
         }.resume()
+    }
+
+    private func bestFloorTransform() -> simd_float4x4? {
+        if let anchor = horizontalPlaneAnchors.values.max(by: {
+            $0.extent.x * $0.extent.z < $1.extent.x * $1.extent.z
+        }) {
+            var transform = anchor.transform
+            transform.columns.3.x += anchor.center.x
+            transform.columns.3.y += anchor.center.y
+            transform.columns.3.z += anchor.center.z
+            return transform
+        }
+
+        guard let query = sceneView.raycastQuery(
+            from: CGPoint(x: sceneView.bounds.midX, y: sceneView.bounds.height * 0.78),
+            allowing: .estimatedPlane,
+            alignment: .horizontal
+        ), let result = sceneView.session.raycast(query).first else { return nil }
+        return result.worldTransform
+    }
+
+    private func collectWorldZones(from analysis: [String: Any], capture: RoomScanCapture) {
+        guard let zones = analysis["zones"] as? [[String: Any]] else { return }
+        let orientation = view.window?.windowScene?.interfaceOrientation ?? .portrait
+
+        for zone in selectClearZones(zones) {
+            guard let polygon = zone["polygon"] as? [[String: Any]], polygon.count >= 3 else { continue }
+            let points = polygon.compactMap { point -> SCNVector3? in
+                guard let x = point["x"] as? NSNumber,
+                      let y = point["y"] as? NSNumber else { return nil }
+                let screenPoint = CGPoint(
+                    x: CGFloat(truncating: x) * capture.viewportSize.width,
+                    y: CGFloat(truncating: y) * capture.viewportSize.height
+                )
+                guard let world = capture.camera.unprojectPoint(
+                    screenPoint,
+                    ontoPlane: capture.floorTransform,
+                    orientation: orientation,
+                    viewportSize: capture.viewportSize
+                ) else { return nil }
+                return SCNVector3(world.x, world.y, world.z)
+            }
+            guard points.count == polygon.count, isReasonableFloorZone(points) else { continue }
+            worldZones.append(RoomWorldZone(payload: zone, points: points))
+        }
+    }
+
+    private func mergeNearbyWorldZones(_ zones: [RoomWorldZone]) -> [RoomWorldZone] {
+        var merged: [RoomWorldZone] = []
+        for zone in zones.sorted(by: { worldArea($0.points) > worldArea($1.points) }) {
+            let type = zone.payload["type"] as? String ?? "caution"
+            let impact = zone.payload["impactType"] as? String ?? ""
+            let duplicate = merged.contains { existing in
+                let existingType = existing.payload["type"] as? String ?? "caution"
+                let existingImpact = existing.payload["impactType"] as? String ?? ""
+                return type == existingType && impact == existingImpact &&
+                    horizontalDistance(zone.center, existing.center) < 0.55
+            }
+            if !duplicate { merged.append(zone) }
+        }
+        return merged
+    }
+
+    private func horizontalDistance(_ first: SCNVector3, _ second: SCNVector3) -> Float {
+        let dx = first.x - second.x
+        let dz = first.z - second.z
+        return sqrt(dx * dx + dz * dz)
+    }
+
+    private func worldArea(_ points: [SCNVector3]) -> Float {
+        guard points.count >= 3 else { return 0 }
+        var area: Float = 0
+        for index in points.indices {
+            let next = points[(index + 1) % points.count]
+            area += points[index].x * next.z - next.x * points[index].z
+        }
+        return abs(area) * 0.5
+    }
+
+    private func renderWorldZones(_ zones: [RoomWorldZone]) -> Int {
+        zoneRoot.childNodes.forEach { $0.removeFromParentNode() }
+        var count = 0
+        for zone in zones {
+            let type = zone.payload["type"] as? String ?? "caution"
+            let color: UIColor = type == "danger" ? .coralRed : type == "safe" ? .mintGreen : .honeyYellow
+            let floorY = zone.points.map(\.y).reduce(0, +) / Float(zone.points.count) + 0.008
+            let points = zone.points.map { SCNVector3($0.x, floorY, $0.z) }
+            if let mesh = makePolygonNode(points: points, color: color) {
+                zoneRoot.addChildNode(mesh)
+            }
+            zoneRoot.addChildNode(makeLabelNode(
+                text: shortLabel(for: zone.payload, type: type),
+                color: color,
+                points: points
+            ))
+
+            var transform = matrix_identity_float4x4
+            let center = zone.center
+            transform.columns.3 = SIMD4<Float>(center.x, center.y, center.z, 1)
+            let anchor = ARAnchor(name: "room-risk-result", transform: transform)
+            resultAnchors.append(anchor)
+            sceneView.session.add(anchor: anchor)
+            count += 1
+        }
+        return count
+    }
+
+    private func mergeAnalyses(_ analyses: [[String: Any]]) -> [String: Any] {
+        var objectsByLabel: [String: [String: Any]] = [:]
+        var summaries: [String] = []
+        var maxRisk = 1
+
+        for analysis in analyses {
+            if let risk = analysis["overallRiskLevel"] as? NSNumber {
+                maxRisk = max(maxRisk, risk.intValue)
+            }
+            if let summary = analysis["summary"] as? String,
+               !summary.isEmpty, !summaries.contains(summary) {
+                summaries.append(summary)
+            }
+            for object in analysis["objects"] as? [[String: Any]] ?? [] {
+                guard let label = object["label"] as? String else { continue }
+                let key = label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let existingRisk = riskRank(objectsByLabel[key]?["risk"] as? String)
+                if objectsByLabel[key] == nil || riskRank(object["risk"] as? String) > existingRisk {
+                    objectsByLabel[key] = object
+                }
+            }
+        }
+
+        return [
+            "summary": summaries.prefix(3).joined(separator: " "),
+            "overallRiskLevel": maxRisk,
+            "objects": Array(objectsByLabel.values),
+            "zones": worldZones.map(\.payload)
+        ]
+    }
+
+    private func riskRank(_ risk: String?) -> Int {
+        switch risk {
+        case "high": return 3
+        case "medium": return 2
+        default: return 1
+        }
+    }
+
+    private func cameraYaw(_ transform: simd_float4x4) -> Float {
+        atan2(-transform.columns.2.x, -transform.columns.2.z)
+    }
+
+    private func normalizedAngle(_ angle: Float) -> Float {
+        var value = angle
+        while value > .pi { value -= 2 * .pi }
+        while value < -.pi { value += 2 * .pi }
+        return value
     }
 
     @discardableResult
@@ -726,17 +1031,25 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
 
     private func finishAnalysisWithError(_ message: String) {
         isAnalyzing = false
+        scanPhase = .idle
+        hasConfirmedScanPosition = false
         captureGuide.isHidden = false
         readinessLabel.isHidden = false
         readinessProgress.isHidden = false
         updateGuidance()
-        scanButton.setTitle("分析地面風險", for: .normal)
+        scanButton.setTitle("開始全房掃描", for: .normal)
         showMessage("分析失敗", detail: message)
     }
 
     private func updateGuidance() {
         guard !isAnalyzing, latestAnalysis == nil,
               let frame = sceneView.session.currentFrame else { return }
+
+        if scanPhase == .collecting {
+            captureCurrentView(frame: frame, time: CACurrentMediaTime())
+            if scanPhase == .collecting { updateRoomScanProgress() }
+            return
+        }
 
         let trackingIsNormal: Bool
         switch frame.camera.trackingState {
@@ -807,7 +1120,7 @@ final class RoomRiskARViewController: UIViewController, ARSCNViewDelegate {
     private func updateScanAvailability(isReady: Bool) {
         scanButton.isEnabled = isReady
         scanButton.alpha = isReady ? 1 : 0.5
-        scanButton.setTitle(isReady ? "開始分析" : "尚未完成取景", for: .normal)
+        scanButton.setTitle(isReady ? "開始全房掃描" : "尚未完成取景", for: .normal)
     }
 
     private func showMessage(_ title: String, detail: String) {
