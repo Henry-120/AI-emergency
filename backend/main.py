@@ -356,14 +356,28 @@ def unregister_device_token(data: schemas.DeviceTokenRegister):
 
 
 @app.post("/api/sync/status")
-async def sync_status(status: schemas.UserStatusCreate):
-    document_id = firebase_service.save_user_status(status)
+async def sync_status(
+    status: schemas.UserStatusCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    # 使用 token 的帳號覆寫 client 欄位，避免任意 ID（例如舊版 local_user）寫入。
+    document_id = firebase_service.save_user_status(
+        status.model_copy(update={"user_id": current_user["id"]})
+    )
     return {"status": "saved", "id": document_id}
 
 
 @app.post("/api/sync/bulk_status")
-def sync_bulk_status(data: schemas.UserStatusBulk):
-    firebase_service.save_user_status_bulk(data.records)
+def sync_bulk_status(
+    data: schemas.UserStatusBulk,
+    current_user: dict = Depends(get_current_user),
+):
+    # user_id 必須由已驗證的登入身分決定，不能信任前端送來的值。
+    records = [
+        record.model_copy(update={"user_id": current_user["id"]})
+        for record in data.records
+    ]
+    firebase_service.save_user_status_bulk(records)
     return {"message": f"Successfully synced {len(data.records)} records"}
 
 

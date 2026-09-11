@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
 import { Device } from "@capacitor/device";
 import {
   analyzeDisaster,
@@ -198,15 +199,17 @@ const App: React.FC = () => {
     earthquakeAlertRef.current = earthquakeAlert;
   }, [earthquakeAlert]);
 
-  // 每 30 秒線上直接寫後端；只有離線時才存進本機 SQLite。
+  // 每 30 秒同步已登入使用者的狀態；未登入時絕不能產生匿名／占位使用者紀錄。
   useEffect(() => {
+    if (!authUser) return;
+
     const syncInterval = setInterval(() => {
-      saveUserStatusSnapshot(userStatus).catch((error) =>
+      saveUserStatusSnapshot(userStatusRef.current, authUser.id).catch((error) =>
         console.error("狀態儲存失敗", error),
       );
     }, 30000);
     return () => clearInterval(syncInterval);
-  }, [userStatus]);
+  }, [authUser]);
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [offlineMapStatus, setOfflineMapStatus] = useState<string>("");
@@ -698,7 +701,9 @@ const App: React.FC = () => {
 
         // 2. 🚨 救命第一優先：無論 Token 是否有效，網路一通就立刻把 SOS 推出去！
         await syncPendingEmergencyReports();
-        await syncPendingUserStatusRecords();
+        if (user) {
+          await syncPendingUserStatusRecords(user.id);
+        }
 
         // 3. 資料都順利推播後，才來處理 UI 與登出邏輯
         if (user) {
@@ -726,6 +731,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (authUser && navigator.onLine) {
       syncPendingEmergencyReports();
+      syncPendingUserStatusRecords(authUser.id);
     }
   }, [authUser]);
 
@@ -1020,9 +1026,6 @@ ${notes}`,
 
   // ✅ 電量與心率狀態即時更新
   useEffect(() => {
-    // 1. App 開啟時，嘗試初始化 iOS HealthKit 權限 (如果在 iOS 手機上會跳出授權視窗)
-    initHealthKit();
-
     const updateDeviceStatus = async () => {
       try {
         // 抓取真實電量
@@ -1049,7 +1052,22 @@ ${notes}`,
       }
     };
 
-    updateDeviceStatus();
+    const initializeHealthAndStatus = async () => {
+      // 先清楚說明用途，再由 iOS 顯示不可由 App 偽造的 HealthKit 授權視窗。
+      if (Capacitor.getPlatform() === "ios") {
+        const shouldRequestAccess = window.confirm(
+          "是否允許 Guardia 讀取「健康」App 中的心率資料？\n\n我們只會讀取心率，用於顯示目前生命徵象與緊急應變建議；不會寫入您的健康資料。",
+        );
+        if (shouldRequestAccess) {
+          await initHealthKit();
+        }
+      } else {
+        await initHealthKit();
+      }
+      await updateDeviceStatus();
+    };
+
+    void initializeHealthAndStatus();
     const interval = setInterval(updateDeviceStatus, 10000);
     return () => clearInterval(interval);
   }, []);

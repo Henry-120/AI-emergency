@@ -13,11 +13,11 @@ export const initHealthKit = async (): Promise<boolean> => {
   try {
     const isAvailable = await Health.isAvailable();
     if (isAvailable) {
-      // 請求讀取心率 (heart_rate) 權限
+      // HealthKit 的讀取資料授權會由 iOS 系統顯示同意視窗；本 App 不會寫入健康資料。
       await Health.requestAuthorization([
         { read: ['heart_rate'] }
       ]);
-      console.log('HealthKit 授權成功');
+      console.log('已送出 HealthKit 心率讀取授權請求');
       return true;
     }
   } catch (error) {

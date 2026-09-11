@@ -21,6 +21,8 @@ export interface UserStatusSyncRecord {
 const DB_NAME = "guardia_ai_local";
 const FALLBACK_KEY = "pending_user_status_records";
 const EMERGENCY_FALLBACK_KEY = "emergency_report_sync_queue";
+// 舊版會把這個佔位字串送到 Firebase；絕不可再將它視為帳號 ID。
+const LEGACY_STATUS_USER_IDS = new Set(["local-user", "local_user"]);
 
 export interface EmergencyReportSyncRecord {
   id: string;
@@ -46,10 +48,14 @@ let initPromise: Promise<SQLiteDBConnection | null> | null = null;
 
 const isNativeSQLite = () => Capacitor.getPlatform() !== "web";
 
-export async function saveUserStatusSnapshot(status: UserStatus) {
+export async function saveUserStatusSnapshot(status: UserStatus, userId: string) {
+  if (!isValidStatusUserId(userId)) {
+    throw new Error("無有效登入使用者，略過狀態同步");
+  }
+
   const record: UserStatusSyncRecord = {
     id: createRecordId(),
-    user_id: "local-user",
+    user_id: userId,
     heart_rate: status.heartRate,
     battery_level: status.batteryLevel,
     latitude: status.location?.lat ?? null,
@@ -58,9 +64,14 @@ export async function saveUserStatusSnapshot(status: UserStatus) {
   };
 
   if (navigator.onLine) {
+    const token = getBackendToken();
+    if (!token) throw new Error("缺少登入憑證，略過狀態同步");
     const response = await fetch(`${BACKEND}/api/sync/bulk_status`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ records: [record] }),
     });
     if (!response.ok) throw new Error(`線上狀態儲存失敗（HTTP ${response.status}）`);
@@ -135,18 +146,38 @@ export async function getPendingUserStatusRecords(): Promise<UserStatusSyncRecor
   }));
 }
 
-export async function syncPendingUserStatusRecords() {
+export async function syncPendingUserStatusRecords(userId: string) {
   const pending = await getPendingUserStatusRecords();
   if (pending.length === 0) {
     return { success: true, synced: 0 };
   }
 
+  // 清除由舊版 local-user/local_user 產生的佇列，避免升級後補送污染資料。
+  const legacyIds = pending
+    .filter((record) => !isValidStatusUserId(record.user_id))
+    .map((record) => record.id);
+  await markUserStatusRecordsSynced(legacyIds);
+
+  // 同一裝置可能曾登入其他帳號；只能同步目前登入者自己的資料。
+  const recordsForCurrentUser = pending.filter((record) => record.user_id === userId);
+  if (recordsForCurrentUser.length === 0) {
+    return { success: true, synced: 0 };
+  }
+
+  const token = getBackendToken();
+  if (!token) {
+    return { success: false, synced: 0, error: "缺少登入憑證" };
+  }
+
   try {
     const response = await fetch(`${BACKEND}/api/sync/bulk_status`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
-        records: pending.map((record) => ({
+        records: recordsForCurrentUser.map((record) => ({
           user_id: record.user_id,
           heart_rate: record.heart_rate,
           battery_level: record.battery_level,
@@ -161,11 +192,11 @@ export async function syncPendingUserStatusRecords() {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    await markUserStatusRecordsSynced(pending.map((record) => record.id));
-    return { success: true, synced: pending.length };
+    await markUserStatusRecordsSynced(recordsForCurrentUser.map((record) => record.id));
+    return { success: true, synced: recordsForCurrentUser.length };
   } catch (error) {
     await markUserStatusRecordsFailed(
-      pending.map((record) => record.id),
+      recordsForCurrentUser.map((record) => record.id),
       error instanceof Error ? error.message : "同步失敗",
     );
     return {
@@ -174,6 +205,10 @@ export async function syncPendingUserStatusRecords() {
       error: error instanceof Error ? error.message : "同步失敗",
     };
   }
+}
+
+function isValidStatusUserId(userId: string | null | undefined): userId is string {
+  return Boolean(userId && !LEGACY_STATUS_USER_IDS.has(userId));
 }
 
 /** 先寫入裝置端；不依賴網路或後端 token。 */
