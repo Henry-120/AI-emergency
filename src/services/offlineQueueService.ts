@@ -295,8 +295,12 @@ export async function getPendingEmergencyReports(): Promise<EmergencyReportSyncR
 
 /** 依序同步快照，最後一筆會成為後端的當前救援摘要。 */
 export async function syncPendingEmergencyReports() {
-  const token = getBackendToken() || ""; // 容許空值
-  const EMERGENCY_API_KEY = "sos-emergency-override-key-999";
+  const token = getBackendToken();
+
+  // 沒有有效登入憑證時，資料保留在裝置端，不嘗試對後端送出。
+  if (!token) {
+    return { success: false, synced: 0, error: "missing_authentication" };
+  }
 
   const pending = await getPendingEmergencyReports();
   if (pending.length === 0) {
@@ -321,8 +325,6 @@ export async function syncPendingEmergencyReports() {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
-          "X-Emergency-Key": EMERGENCY_API_KEY,      // 🚨 緊急金鑰
-          "X-Emergency-User-Id": userId,            // 🚨 災民的 ID
         },
         body: JSON.stringify({
           summary: latestRecord.summary,

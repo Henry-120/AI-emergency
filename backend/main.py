@@ -96,32 +96,6 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="使用者不存在")
     return user
-# 系統預設的緊急通關金鑰 (可寫死在環境變數或固定字串)
-EMERGENCY_API_KEY = os.getenv("EMERGENCY_API_KEY", "sos-emergency-override-key-999")
-
-def get_user_for_emergency(
-    authorization: Optional[str] = Header(default=None),
-    x_emergency_key: Optional[str] = Header(default=None),
-    x_emergency_user_id: Optional[str] = Header(default=None),
-) -> dict:
-    """專為緊急求救設計：優先使用 JWT，失效時改認緊急金鑰與 User ID 強制放行。"""
-    # 1. 嘗試常規 JWT 驗證
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization.split(" ", 1)[1].strip()
-        payload = auth.decode_token(token)
-        if payload:
-            user = firebase_service.get_user(str(payload["uid"]))
-            if user:
-                return user
-
-    # 2. Token 無效/遺失，檢查是否帶有緊急救援金鑰
-    if x_emergency_key == EMERGENCY_API_KEY and x_emergency_user_id:
-        # 嘗試抓取使用者。就算 Firebase 查無此人，依然回傳 dict 確保能強行寫入救援資料
-        user = firebase_service.get_user(x_emergency_user_id)
-        return user if user else {"id": x_emergency_user_id, "username": "emergency_override"}
-
-    raise HTTPException(status_code=401, detail="憑證失效且無緊急救援金鑰，無法通報")
-
 @app.post("/api/auth/register", response_model=schemas.AuthResponse)
 def register(data: schemas.RegisterRequest):
     username = data.username.strip()
@@ -180,7 +154,7 @@ def update_medical_card(
 @app.post("/api/ai/analyze", response_model=schemas.AIAnalysisResponse)
 async def analyze_disaster(
     data: schemas.AIChatRequest,
-    current_user: dict = Depends(get_user_for_emergency), # 使用緊急放行驗證
+    current_user: dict = Depends(get_current_user),
 ):
     """Use the server-side Gemini key; analyze chat, auto-save emergency report, and trigger push if urgent."""
     try:
@@ -239,7 +213,7 @@ async def analyze_disaster(
 @app.put("/api/emergency-report", response_model=schemas.EmergencyReportResponse)
 def upsert_emergency_report(
     data: schemas.EmergencyReportUpsert,
-    current_user: dict = Depends(get_user_for_emergency),
+    current_user: dict = Depends(get_current_user),
 ):
     """保存 AI 從完整對話彙整的「當前」傷勢與救援需求。"""
     return firebase_service.upsert_emergency_report(current_user["id"], data)
