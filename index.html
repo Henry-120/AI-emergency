@@ -708,6 +708,17 @@
       }
     </script>
     <script>
+      // User pin from the 外觀 setting (src/services/themeService.ts writes the
+      // same key). Applied here, before first paint, so a reload never flashes
+      // the system theme first.
+      (function () {
+        try {
+          var saved = localStorage.getItem("guardia_theme");
+          if (saved === "light" || saved === "dark")
+            document.documentElement.setAttribute("data-theme", saved);
+        } catch (e) {}
+      })();
+
       // Low-power fallback: in a disaster, battery is survival. Below 20% and
       // not charging, force the darker, lower-glare theme. Respects an explicit
       // user pin via data-theme; progressive, fails silent where unsupported.
@@ -725,6 +736,9 @@
             apply();
             b.addEventListener("levelchange", apply);
             b.addEventListener("chargingchange", apply);
+            // themeService calls this when the user switches back to 自動, so
+            // the rule applies immediately instead of at the next battery event.
+            window.__guardiaApplyBatteryTheme = apply;
           })
           .catch(function () {});
       })();

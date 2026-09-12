@@ -57,7 +57,13 @@ export async function notifyEarthquakeAlert(
     ? await Notification.requestPermission()
     : Notification.permission;
   if (permission !== "granted") return { shown: false, reason: "denied" };
-  const notification = new Notification(title, { body, tag: "guardia-earthquake" });
+  // 每則警報用自己的 tag。共用同一個 tag 時，新通知會走「取代」流程：不加 renotify 就安靜換掉、
+  // 不跳橫幅；加了 renotify 則在 macOS 上會先關再開同一個 ID，偶爾把剛跳出的新通知一起關掉。
+  // 不同地震本來就是不同通知；同一個地震不會重複通知（App.tsx 依警報 key 去重）。
+  const notification = new Notification(title, {
+    body,
+    tag: `guardia-earthquake-${alert.time || alert.originTime || Date.now()}`,
+  });
   notification.onclick = () => {
     window.focus();
     tapHandler?.();

@@ -4,7 +4,7 @@ import os
 import re
 from typing import Any, Dict
 
-import httpx
+from .gemini_client import generate_content
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +28,12 @@ class LocationAIService:
             },
         }
         
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        
         try:
-            async with httpx.AsyncClient(timeout=25) as client:
-                response = await client.post(endpoint, params={"key": api_key}, json=payload)
-                response.raise_for_status()
-                
-                data = response.json()
-                text = data.get("candidates", [])[0].get("content", {}).get("parts", [])[0].get("text", "")
-                return self._parse_json(text)
-                
+            response = await generate_content(api_key, model, payload, timeout=25)
+            data = response.json()
+            text = data.get("candidates", [])[0].get("content", {}).get("parts", [])[0].get("text", "")
+            return self._parse_json(text)
+
         except Exception as e:
             logger.error("LBS AI 分析失敗: %s", e)
             # 發生錯誤時的預設防呆回傳

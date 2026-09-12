@@ -29,6 +29,8 @@ class AuthResponse(BaseModel):
 # --- 緊急醫療卡 (ICE) ---
 class MedicalCardBase(BaseModel):
     full_name: str = ""
+    last_name: str = ""   # 姓（full_name 由前端以姓＋名組成）
+    first_name: str = ""  # 名
     birthday: str = ""
     gender: str = ""
     blood_type: str = ""

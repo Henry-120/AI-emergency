@@ -297,6 +297,11 @@ async def get_location_risk(request: LocationRiskRequest):
     return result
 
 
+# 地震應變的 AI 在地補充最多等幾秒。Gemini 忙線時可能卡到 25 秒，
+# 但「趴下、掩護」等距離規則的救命指示不能跟著等，逾時就只回規則部分。
+EARTHQUAKE_AI_TIMEOUT_SECONDS = 6
+
+
 @app.post("/api/earthquake/assess", response_model=schemas.EarthquakeAssessmentResponse)
 async def assess_earthquake(
     data: schemas.EarthquakeAssessmentRequest,
@@ -313,7 +318,10 @@ async def assess_earthquake(
             f"規模 {data.magnitude:.1f} 地震，震央 {data.location}，"
             f"座標 {data.epicenter_latitude:.5f}, {data.epicenter_longitude:.5f}"
         )
-        ai_result = await location_ai_service.analyze_risk(location_info, disaster_info)
+        ai_result = await asyncio.wait_for(
+            location_ai_service.analyze_risk(location_info, disaster_info),
+            timeout=EARTHQUAKE_AI_TIMEOUT_SECONDS,
+        )
         warnings = ai_result.get("environmentalWarnings") or []
         assessment["environmental_warnings"] = [str(item) for item in warnings[:4]]
     except Exception:

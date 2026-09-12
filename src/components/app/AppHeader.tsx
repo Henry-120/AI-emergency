@@ -1,17 +1,17 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { EarthquakeAlert } from "../../services/cwaService";
 import { AuthUser, DisasterAnalysis, UserStatus } from "../../types";
 import EmergencyStatus from "../EmergencyStatus";
 import SurvivalGauge from "../SurvivalGauge";
+import { ThemePicker } from "./ThemePicker";
 
 /**
- * 報頭。功能入口改為純圖示，滑鼠移上去才顯示名稱（Facebook 頂部的做法）。
+ * 報頭。電腦版的功能入口全部收進右上角的 ☰ 選單，報頭只留問候、選單與 119。
  *
- * 這麼改的理由：原本七顆文字鈕擠成一條橫向捲軸，右邊永遠被切掉，
- * 使用者不捲就不知道還有什麼功能。改成圖示後全部一次看得到。
+ * 119 刻意留在選單外：急難時要一按就撥，不能多藏一層。
+ * 「附近的人」的未讀數掛在 ☰ 上——收進選單後，使用者仍必須知道有人傳訊息來。
  *
- * 無障礙：每顆都有 aria-label，讀螢幕軟體唸出來仍然是「附近的人」。
- * 觸控裝置沒有 hover，提示不會出現，但點按直接進功能，不會變成要按兩次。
+ * 無障礙：☰ 帶 aria-expanded；選單可按 Esc 或點選單外關閉。
  */
 const ICON_BTN =
   "has-tip relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[#c8ced6] transition-[background-color,color,transform] duration-100 hover:bg-white/15 hover:text-white focus-visible:bg-white/15 active:scale-90 active:bg-white/25 disabled:opacity-40 disabled:cursor-not-allowed";
@@ -23,6 +23,7 @@ function IconButton({
   disabled,
   tone,
   badge,
+  expanded,
 }: {
   label: string;
   icon: string;
@@ -30,12 +31,16 @@ function IconButton({
   disabled?: boolean;
   tone?: string;
   badge?: number;
+  /** 有給值代表這顆鈕開關選單；選單開著時收起提示，免得擋住選單。 */
+  expanded?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       aria-label={badge ? `${label}，${badge} 則未讀訊息` : label}
+      aria-haspopup={expanded === undefined ? undefined : "dialog"}
+      aria-expanded={expanded}
       className={`${ICON_BTN} ${tone || ""}`}
     >
       <i className={`fas ${icon} text-[17px]`} aria-hidden="true"></i>
@@ -44,7 +49,41 @@ function IconButton({
           {badge > 99 ? "99+" : badge}
         </span>
       ) : null}
-      <span className="tip">{label}</span>
+      {!expanded && <span className="tip">{label}</span>}
+    </button>
+  );
+}
+
+/** ☰ 選單裡的一列，樣式與手機版「更多」一致。 */
+function MenuItem({
+  label,
+  icon,
+  onClick,
+  disabled,
+  iconTone = "text-accent",
+  badge,
+}: {
+  label: string;
+  icon: string;
+  onClick: () => void;
+  disabled?: boolean;
+  iconTone?: string;
+  badge?: number;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={badge ? `${label}，${badge} 則未讀訊息` : undefined}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 active:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <i className={`fas ${icon} w-5 text-center ${iconTone}`} aria-hidden="true"></i>
+      <span className="text-sm font-semibold text-ink">{label}</span>
+      {badge ? (
+        <span className="font-data ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-critical px-1.5 text-[11px] font-bold tabular-nums text-white">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -90,6 +129,31 @@ export function AppHeader({
   onSimulateSevereEarthquake: () => void;
   onLogout: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // 選單開著時：按 Esc、或點選單以外的地方就關閉
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [menuOpen]);
+
+  const close = (fn: () => void) => () => {
+    setMenuOpen(false);
+    fn();
+  };
+
   const statusPill = locationError ? (
     <div className="min-w-0 truncate rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] text-[#f0b9a8]">
       {locationError}
@@ -148,64 +212,81 @@ export function AppHeader({
             </div>
           )}
 
-          {/* 電腦版：功能圖示與品牌名、119 同一行靠右。
-              手機版隱藏，改由底部分頁列負責。 */}
-          <div className="hidden items-center gap-2 sm:flex">
-            <IconButton
-              label="下載避難包"
-              icon={isDownloadingMap ? "fa-circle-notch fa-spin" : "fa-download"}
-              onClick={onDownloadOfflineSafetyPack}
-              disabled={isDownloadingMap}
-            />
-            {offlineSafetyPackReady && (
-              <IconButton
-                label="避難導航"
-                icon="fa-diamond-turn-right"
-                onClick={onShowShelterNavigator}
-              />
-            )}
-            {/* main 新增：救援地圖（走後端 API，與藍牙無關） */}
-            <IconButton
-              label="救援地圖"
-              icon="fa-map-location-dot"
-              onClick={onShowRescueMap}
-            />
-            {/* 藍牙模組：附近的人入口。未讀訊息以紅點提示——使用者不在該頁面時，
-                仍必須知道有人傳訊息給他。 */}
-            <IconButton
-              label="附近的人"
-              icon="fa-user-group"
-              onClick={onShowNearbyPeople}
-              badge={nearbyUnreadCount}
-            />
-            <IconButton
-              label="醫療卡"
-              icon="fa-heart-pulse"
-              onClick={onShowMedicalCard}
-            />
-            <IconButton
-              label="模擬強震"
-              icon="fa-tower-broadcast"
-              onClick={onSimulateSevereEarthquake}
-              tone="text-[#f2b4bd] hover:bg-[rgba(178,54,75,0.35)]"
-            />
-            {authUser && (
-              <IconButton
-                label="登出"
-                icon="fa-right-from-bracket"
-                onClick={onLogout}
-              />
-            )}
-          </div>
-
           {authUser && (
             <span
-              className="hidden max-w-[70px] truncate text-[11px] text-[#c8ced6] sm:inline"
+              className="hidden max-w-[160px] truncate text-[13px] font-medium text-[#e9eaef] sm:inline"
               title={authUser.username}
             >
-              {authUser.username}
+              Hi, {authUser.username}
             </span>
           )}
+
+          {/* 電腦版：功能全收在 ☰ 選單。手機版隱藏，改由底部分頁列負責。 */}
+          <div ref={menuRef} className="relative hidden sm:block">
+            <IconButton
+              label="選單"
+              icon="fa-bars"
+              onClick={() => setMenuOpen((open) => !open)}
+              badge={nearbyUnreadCount}
+              expanded={menuOpen}
+            />
+            {menuOpen && (
+              <div
+                role="dialog"
+                aria-label="選單"
+                className="absolute right-0 top-[calc(100%+8px)] z-modal w-72 rounded-2xl border border-line bg-surface p-2 shadow-[var(--elev-2)]"
+              >
+                <MenuItem
+                  label={isDownloadingMap ? "下載中..." : "下載避難包"}
+                  icon={isDownloadingMap ? "fa-circle-notch fa-spin" : "fa-download"}
+                  onClick={close(onDownloadOfflineSafetyPack)}
+                  disabled={isDownloadingMap}
+                />
+                {offlineSafetyPackReady && (
+                  <MenuItem
+                    label="避難導航"
+                    icon="fa-diamond-turn-right"
+                    onClick={close(onShowShelterNavigator)}
+                  />
+                )}
+                <MenuItem
+                  label="救援地圖"
+                  icon="fa-map-location-dot"
+                  onClick={close(onShowRescueMap)}
+                />
+                <MenuItem
+                  label="附近的人"
+                  icon="fa-user-group"
+                  onClick={close(onShowNearbyPeople)}
+                  badge={nearbyUnreadCount}
+                />
+                <MenuItem
+                  label="醫療卡"
+                  icon="fa-heart-pulse"
+                  onClick={close(onShowMedicalCard)}
+                />
+                <MenuItem
+                  label="模擬強震"
+                  icon="fa-tower-broadcast"
+                  onClick={close(onSimulateSevereEarthquake)}
+                  iconTone="text-critical"
+                />
+                <div className="my-1 border-t border-line" />
+                <ThemePicker />
+                {authUser && (
+                  <>
+                    <div className="my-1 border-t border-line" />
+                    <MenuItem
+                      label="登出"
+                      icon="fa-right-from-bracket"
+                      onClick={close(onLogout)}
+                      iconTone="text-muted"
+                    />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           <a
             href="tel:119"

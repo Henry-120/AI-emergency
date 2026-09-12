@@ -10,5 +10,7 @@ import os
 
 
 KEY_VERSION = int(os.getenv("SOS_KEY_VERSION", "1"))
-ENCRYPTION_PRIVATE_KEY_PEM = os.getenv("SOS_ENCRYPTION_PRIVATE_KEY_PEM", "")
-ACK_SIGNING_PRIVATE_KEY_PEM = os.getenv("SOS_ACK_SIGNING_PRIVATE_KEY_PEM", "")
+# .env 檔一行只能放一個值，本機開發時可把 PEM 的換行寫成 \n；
+# Secret Manager 注入的多行值本來就是真的換行，不受影響。
+ENCRYPTION_PRIVATE_KEY_PEM = os.getenv("SOS_ENCRYPTION_PRIVATE_KEY_PEM", "").replace("\\n", "\n")
+ACK_SIGNING_PRIVATE_KEY_PEM = os.getenv("SOS_ACK_SIGNING_PRIVATE_KEY_PEM", "").replace("\\n", "\n")

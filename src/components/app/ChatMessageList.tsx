@@ -6,19 +6,32 @@ import { ChatMessage } from "../../types";
  * #MindfulPalettes No.150，使用者泡泡與主要動作帶漸層。
  */
 /**
- * 危急程度只用底色區分，不畫框線——框線多了畫面很雜。
- * 顏色不是唯一線索：每張卡仍有編號與標題，紅綠色盲也讀得出優先序。
+ * 危急程度：底色 + 徽章（圖示＋文字）。原本只用底色，使用者看不出輕重——編號只代表順序，
+ * 不代表緊急度。徽章讓紅綠色盲也讀得出來（DESIGN.md 的 Priority mapping）。
+ * 刻意不畫框線：框線讓畫面顯得雜亂，緊急度交給徽章表達。
  */
-const getPriorityFill = (priority: string) => {
-  switch (priority) {
-    case "CRITICAL":
-      return "bg-critical-soft";
-    case "HIGH":
-      return "bg-high-soft";
-    default:
-      return "bg-surface";
-  }
+const PRIORITY_STYLES: Record<string, { label: string; icon: string; card: string; badge: string }> = {
+  CRITICAL: {
+    label: "緊急",
+    icon: "fa-triangle-exclamation",
+    card: "bg-critical-soft",
+    badge: "bg-critical text-white",
+  },
+  HIGH: {
+    label: "重要",
+    icon: "fa-circle-exclamation",
+    card: "bg-high-soft",
+    badge: "bg-high text-primary-ink",
+  },
+  MEDIUM: {
+    label: "留意",
+    icon: "fa-circle-info",
+    card: "bg-surface",
+    badge: "bg-accent text-primary-ink",
+  },
 };
+
+const getPriorityStyle = (priority: string) => PRIORITY_STYLES[priority] ?? PRIORITY_STYLES.MEDIUM;
 
 const getRoomRiskFill = (risk: string) => {
   if (risk === "high") return "bg-critical-soft";
@@ -37,6 +50,7 @@ export function ChatMessageList({
   isOffline,
   messages,
   onOfflineOption,
+  onRequestPhoto,
   onViewingHistoryChange,
   scrollRef,
 }: {
@@ -44,6 +58,8 @@ export function ChatMessageList({
   isOffline: boolean;
   messages: ChatMessage[];
   onOfflineOption: (option: string) => void;
+  /** 「提供視覺資料」：開相機（電腦上是選檔案），拍好的照片交給 App 送去 AI 分析。 */
+  onRequestPhoto?: () => void;
   /** 往上翻舊訊息時為 true，回到最新時為 false。底部工具列據此收合。 */
   onViewingHistoryChange?: (viewingHistory: boolean) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -144,7 +160,7 @@ export function ChatMessageList({
 
                       {!isOffline && (
                         <button
-                          onClick={() => alert("相機介面啟動...")}
+                          onClick={onRequestPhoto}
                           className="w-full py-2 bg-surface-2 text-accent text-[11px] font-bold rounded-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
                         >
                           <i className="fas fa-camera"></i>
@@ -156,26 +172,37 @@ export function ChatMessageList({
 
                 {m.analysis && (
                   <div className="space-y-3">
-                    {m.analysis.immediateActions.map((step, idx) => (
-                      <div
-                        key={idx}
-                        className={`p-4 rounded-xl shadow-[var(--elev-soft)] ${getPriorityFill(step.priority)}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="font-data text-xs font-black text-muted mt-1">
-                            {String(idx + 1).padStart(2, "0")}
-                          </span>
-                          <div>
-                            <h4 className="font-bold text-sm mb-1 text-ink">
-                              {step.title}
-                            </h4>
-                            <p className="text-xs text-muted leading-normal">
-                              {step.description}
-                            </p>
+                    {m.analysis.immediateActions.map((step, idx) => {
+                      const priority = getPriorityStyle(step.priority);
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-4 rounded-xl shadow-[var(--elev-soft)] ${priority.card}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="font-data text-xs font-black text-muted mt-1">
+                              {String(idx + 1).padStart(2, "0")}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="mb-1 flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${priority.badge}`}
+                                >
+                                  <i className={`fas ${priority.icon} text-[10px]`} aria-hidden="true"></i>
+                                  {priority.label}
+                                </span>
+                                <h4 className="font-bold text-sm text-ink">
+                                  {step.title}
+                                </h4>
+                              </div>
+                              <p className="text-xs text-muted leading-normal">
+                                {step.description}
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
@@ -235,7 +262,16 @@ export function ChatMessageList({
               </div>
             )}
             {m.role === "user" && (
-              <p className="text-sm font-bold tracking-tight">{m.content}</p>
+              <>
+                {m.imageBase64 && (
+                  <img
+                    src={m.imageBase64}
+                    alt="現場照片"
+                    className="mb-2 max-h-56 w-auto rounded-lg"
+                  />
+                )}
+                <p className="text-sm font-bold tracking-tight">{m.content}</p>
+              </>
             )}
           </div>
         </div>

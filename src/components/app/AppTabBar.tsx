@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { ThemePicker } from "./ThemePicker";
 
 /**
  * 手機底部分頁列（sm 以下顯示；sm 以上功能入口在報頭右上）。
@@ -204,6 +205,8 @@ export function AppTabBar({
               ></i>
               <span className="text-sm font-semibold text-ink">模擬強震</span>
             </button>
+
+            <ThemePicker />
 
             {hasAuthUser && (
               <button

@@ -30,6 +30,7 @@ import { OfflineMapPage } from "./components/offline/OfflineMapPage";
 import { ShelterNavigatorPage } from "./components/offline/ShelterNavigatorPage";
 import { RoomRiskScanner } from "./components/room-risk/RoomRiskScanner";
 import { getOfflineAnalysis } from "./services/offlineService";
+import { compressImageToDataUrl } from "./services/imageUtils";
 import { analyzeRoomRisk } from "./services/roomRiskService";
 import {
   canUseNativeRoomRiskAR,
@@ -115,6 +116,7 @@ const App: React.FC = () => {
   }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentAnalysis, setCurrentAnalysis] =
     useState<DisasterAnalysis | null>(null);
@@ -1220,13 +1222,20 @@ ${notes}`,
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!authUser || !input.trim() || isAnalyzing) return;
+    if (!input.trim()) return;
+    await sendUserMessage(input);
+  };
+
+  /** 送出一則使用者訊息（可附照片）並跑完整的分析流程；文字輸入與「提供視覺資料」共用。 */
+  const sendUserMessage = async (content: string, imageBase64?: string) => {
+    if (!authUser || isAnalyzing) return;
 
     // 立即在 UI 顯示使用者訊息，並保留本次圖片。
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: input,
+      content,
+      imageBase64: imageBase64 ?? null,
       timestamp: new Date(),
     };
 
@@ -1326,7 +1335,7 @@ ${notes}`,
       const sensorContext = getSensorContext();
 
       // 呼叫雲端分析服務，AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊
-      const analysis = await analyzeDisaster(updatedMessages, sensorContext);
+      const analysis = await analyzeDisaster(updatedMessages, sensorContext, imageBase64);
 
       // AI 回應中包含缺少資訊的請求時，優先提示使用者提供這些資訊`
       const assistantMsg: ChatMessage = {
@@ -1397,6 +1406,25 @@ ${notes}`,
     }
   };
   // --- 在這裡加入 handleOfflineOption ---
+  const handlePhotoSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // 同一張照片再選一次也要能觸發 onChange
+    if (!file) return;
+    try {
+      const imageBase64 = await compressImageToDataUrl(file);
+      // 輸入框有字就當成照片說明一起送出。
+      await sendUserMessage(input.trim() || "（附上現場照片，請協助判斷現場狀況）", imageBase64);
+    } catch (error) {
+      console.error("照片處理失敗", error);
+      setMessages((previous) => [...previous, {
+        id: `photo-error-${Date.now()}`,
+        role: "assistant",
+        content: "照片讀取失敗，請再拍一次，或改用文字描述現場狀況。",
+        timestamp: new Date(),
+      }]);
+    }
+  };
+
   const handleOfflineOption = (option: string) => {
     setInput(option);
     // 這裡可以選擇是否要點擊後自動送出，如果要自動送出可以加一行：
@@ -1578,8 +1606,21 @@ ${notes}`,
         isOffline={isOffline}
         messages={messages}
         onOfflineOption={handleOfflineOption}
+        onRequestPhoto={() => photoInputRef.current?.click()}
         onViewingHistoryChange={setViewingHistory}
         scrollRef={scrollRef}
+      />
+      {/* 「提供視覺資料」用：手機上 capture 會直接開後鏡頭，電腦上則是選檔案。
+          用 sr-only 而不是 display:none，iOS 才肯讓程式觸發它。 */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={handlePhotoSelected}
       />
       {showRoomRiskScanner && (
         <RoomRiskScanner

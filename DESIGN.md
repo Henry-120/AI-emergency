@@ -5,7 +5,7 @@ A calm, instrument-grade visual system for emergency response. The mood: an offi
 ## Theme
 
 - **Register:** product (the UI serves the task).
-- **Mode:** automatic light/dark. Default is a **high-contrast light** theme (most legible in daylight / outdoors). It follows `prefers-color-scheme`, and force-switches to dark on low battery (≤20%, not charging) to save power in a disaster. Users can be force-pinned via `data-theme="light|dark"` on `<html>`.
+- **Mode:** automatic light/dark. Default is a **high-contrast light** theme (most legible in daylight / outdoors). It follows `prefers-color-scheme`, and force-switches to dark on low battery (≤20%, not charging) to save power in a disaster. Users pick 自動／日間／夜間 in the 外觀 control (☰ menu on desktop, 更多 sheet on mobile): a pin sets `data-theme="light|dark"` on `<html>`, is remembered in localStorage (`guardia_theme`), and also overrides the low-battery switch; 自動 removes it.
 - **Color strategy:** Restrained. Neutral surfaces carry the page; one brand color (safety blue) carries chrome + primary actions; a disciplined red/amber/green scale carries priority. Red is reserved for CRITICAL only.
 
 ## Colors (OKLCH intent → shipped hex)

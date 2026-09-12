@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { MedicalCard } from "../../types";
 import { getMedicalCard, loadMedicalCard, saveMedicalCard } from "../../services/medicalCardService";
+import { joinFullName } from "../../services/personName";
 
 const BLOOD_TYPES = ["A", "B", "O", "AB", "不確定"];
 
@@ -63,8 +64,16 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
   const set = (key: keyof MedicalCard, value: string | boolean) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
+  // 姓、名分開填；上方卡片顯示的全名跟著即時重組。
+  const setNamePart = (key: "lastName" | "firstName", value: string) =>
+    setDraft((prev) => {
+      const next = { ...prev, [key]: value };
+      return { ...next, fullName: joinFullName(next.lastName, next.firstName) };
+    });
+
+  // 欄位若與卡片同為 surface 底色會整個隱形；照 DESIGN.md 的輸入框規格用 surface-2 底加細框線。
   const inputClass =
-    "w-full min-w-0 px-3 py-2.5 rounded-lg bg-surface text-ink text-base sm:text-sm focus:outline-none focus:ring-2";
+    "w-full min-w-0 px-3 py-2.5 rounded-lg border border-line bg-surface-2 text-ink text-base sm:text-sm focus:outline-none focus:ring-2";
 
   // ---------- 檢視模式 ----------
   const Row = ({ label, value }: { label: string; value: string }) => (
@@ -157,10 +166,16 @@ export function MedicalCardPage({ onBack }: { onBack: () => void }) {
             /* ---------- 編輯模式 ---------- */
             <div className="space-y-4">
               <Section title="基本資料">
-                <Field label="姓名">
-                  <input className={inputClass} value={draft.fullName}
-                    onChange={(e) => set("fullName", e.target.value)} placeholder="王小明" />
-                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="姓">
+                    <input className={inputClass} value={draft.lastName} autoComplete="family-name"
+                      onChange={(e) => setNamePart("lastName", e.target.value)} placeholder="王" />
+                  </Field>
+                  <Field label="名">
+                    <input className={inputClass} value={draft.firstName} autoComplete="given-name"
+                      onChange={(e) => setNamePart("firstName", e.target.value)} placeholder="小明" />
+                  </Field>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="生日">
                     <input type="date" className={inputClass} value={draft.birthday}

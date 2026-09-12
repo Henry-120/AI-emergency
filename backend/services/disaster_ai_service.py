@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .gemini_client import generate_content
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +53,6 @@ class DisasterAIService:
                 {"inlineData": {"mimeType": mime_type, "data": encoded}}
             )
 
-        endpoint = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent"
-        )
         payload = {
             # 👈 將 battery_level 與 heart_rate 帶入系統提示詞生成器
             "systemInstruction": {"parts": [{"text": self._system_instruction(battery_level, heart_rate, medical_card)}]},
@@ -66,13 +64,7 @@ class DisasterAIService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=35) as client:
-                response = await client.post(
-                    endpoint,
-                    params={"key": api_key},
-                    json=payload,
-                )
-                response.raise_for_status()
+            response = await generate_content(api_key, model, payload, timeout=35)
         except httpx.TimeoutException as exc:
             raise DisasterAIError("Gemini 回應逾時，請稍後再試") from exc
         except httpx.HTTPStatusError as exc:
