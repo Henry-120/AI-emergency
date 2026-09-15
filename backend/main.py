@@ -1,3 +1,4 @@
+from .services.ai_error import ai_error_info, log_ai_error
 import asyncio
 import base64
 import os
@@ -72,6 +73,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-AI-Error-Code", "X-AI-HTTP-Status"],
 )
 
 
@@ -193,7 +195,7 @@ async def analyze_disaster(
             heart_rate=data.heart_rate,
         )
     except DisasterAIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=str(exc), headers={"X-AI-Error-Code": ai_error_info(exc.__cause__ or exc)["code"], "X-AI-HTTP-Status": str(ai_error_info(exc.__cause__ or exc)["http_status"] or "")}) from exc
 
     # 自動解析 AI 產生的救援摘要，存入 Firebase 並發送緊急推播
     summary_data = ai_result.get("emergencySummary") or {}
@@ -302,17 +304,22 @@ async def assess_earthquake(
     assessment = earthquake_response_service.assess(data)
     try:
         location_info = (
-            f"GPS座標（緯度 {data.user_latitude:.5f}，經度 {data.user_longitude:.5f}），"
-            f"距震央 {assessment['distance_km']:.1f} 公里"
+            f"使用者座標：{data.user_latitude}, {data.user_longitude}；"
+            f"距震央公里數：{assessment['distance_km']}；"
+            f"電量：{data.battery_level}%；心率：{data.heart_rate}；"
+            f"醫療摘要：{data.medical_summary or '未提供'}；"
+            f"其他已知資訊：{data.available_context or '未提供'}。None 表示未知，不可推測。"
         )
         disaster_info = (
-            f"規模 {data.magnitude:.1f} 地震，震央 {data.location}，"
-            f"座標 {data.epicenter_latitude:.5f}, {data.epicenter_longitude:.5f}"
+            f"地震規模：{data.magnitude}，震央：{data.location}，"
+            f"座標：{data.epicenter_latitude}, {data.epicenter_longitude}；深度：{data.depth}"
         )
         ai_result = await location_ai_service.analyze_risk(location_info, disaster_info)
+        assessment["ai_error"] = ai_result.get("ai_error")
         warnings = ai_result.get("environmentalWarnings") or []
         assessment["environmental_warnings"] = [str(item) for item in warnings[:4]]
-    except Exception:
+    except Exception as exc:
+        assessment["ai_error"] = log_ai_error("earthquake_assessment", exc)
         # 距離規則仍可獨立運作；AI 在地補充失敗不應阻斷救命指示。
         pass
     return assessment
@@ -328,6 +335,39 @@ def create_earthquake_field_report(
         raise HTTPException(status_code=409, detail="尚未確認安全，請先依指示避難或求救")
     report_id = firebase_service.save_earthquake_field_report(current_user["id"], data)
     return {"id": report_id, "status": "received"}
+
+
+def require_drill_operator(current_user: dict = Depends(get_current_user)) -> dict:
+    if auth.SECRET in {"guardia-ai-dev-secret-change-me", "replace-with-a-long-random-secret", ""}:
+        raise HTTPException(status_code=503, detail="請先設定後端 AUTH_SECRET，才能啟用全體演練")
+    operator = firebase_service.get_user_by_username("郭碩宏")
+    if not operator or current_user["id"] != operator["id"]:
+        raise HTTPException(status_code=403, detail="只有郭碩宏可以發送全體演練通知")
+    return current_user
+
+
+@app.get("/api/earthquake/drill/permission")
+def earthquake_drill_permission(current_user: dict = Depends(require_drill_operator)):
+    return {"allowed": True}
+
+
+@app.post("/api/earthquake/drill")
+def broadcast_earthquake_drill(current_user: dict = Depends(require_drill_operator)):
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    drill = {
+        "type": "earthquake_drill",
+        "id": str(uuid4()),
+        "time": datetime.now(timezone.utc).isoformat(),
+        "title": "🧪 強震演練｜非真實地震",
+        "body": "模擬規模 6.5 地震。這是演練通知，非真實地震；請練習趴下、掩護、穩住。",
+    }
+    try:
+        result = push_service._send_push(drill["title"], drill["body"], drill)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="推播未完成，部分裝置可能已收到，請勿立即重送") from exc
+    return {"drill": drill, **result}
 
 
 # ==================== 推播裝置註冊 API ====================
@@ -354,13 +394,16 @@ def unregister_device_token(data: schemas.DeviceTokenRegister):
 
 
 @app.post("/api/sync/status")
-async def sync_status(status: schemas.UserStatusCreate):
+async def sync_status(status: schemas.UserStatusCreate, current_user: dict = Depends(get_current_user)):
+    status = status.model_copy(update={"user_id": current_user["id"]})
     document_id = firebase_service.save_user_status(status)
     return {"status": "saved", "id": document_id}
 
 
 @app.post("/api/sync/bulk_status")
-def sync_bulk_status(data: schemas.UserStatusBulk):
+def sync_bulk_status(data: schemas.UserStatusBulk, current_user: dict = Depends(get_current_user)):
+    if any(record.user_id != current_user["id"] for record in data.records):
+        raise HTTPException(status_code=403, detail="只能更新自己的使用者狀態")
     firebase_service.save_user_status_bulk(data.records)
     return {"message": f"Successfully synced {len(data.records)} records"}
 

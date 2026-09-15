@@ -110,6 +110,7 @@ export async function initInbox(): Promise<void> {
     // 只在進頁面時查一次的話，UI 會一直顯示過期的「廣播中」。
     await refreshStatus();
     if (!statusTimer) {
+      document.addEventListener("visibilitychange", refreshStatusNow);
       statusTimer = setInterval(() => void refreshStatus(), STATUS_POLL_INTERVAL_MS);
     }
   })();
@@ -121,7 +122,11 @@ export async function initInbox(): Promise<void> {
   }
 }
 
+let refreshingStatus = false;
+
 async function refreshStatus(): Promise<void> {
+  if (refreshingStatus || (typeof document !== "undefined" && document.hidden)) return;
+  refreshingStatus = true;
   try {
     const next = await getStatus();
     const changed =
@@ -135,6 +140,8 @@ async function refreshStatus(): Promise<void> {
     if (changed) emit();
   } catch {
     // 查不到狀態就沿用上一次的值
+  } finally {
+    refreshingStatus = false;
   }
 }
 

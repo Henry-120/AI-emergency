@@ -602,7 +602,7 @@ export async function getOfflineAnalysis(messages: ChatMessage[]): Promise<Disas
 
     return parsedData as DisasterAnalysis;
   } catch (error) {
-    console.error("⚠️ LLM 解析失敗，啟動強化版靜態降級方案", error);
+    console.error("[AI]", { feature: "offline", code: "LOCAL_MODEL_FAILURE", error_type: error instanceof Error ? error.name : "UNKNOWN" });
     // 如果是【離線定位觸發】，執行座標與距離的離線評估 logic
     if (isInitialLocationAlert) {
       const geo = evaluateOfflineGeoLocation(lastUserMessage);

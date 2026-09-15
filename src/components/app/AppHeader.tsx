@@ -21,7 +21,10 @@ export function AppHeader({
   nearbyUnreadCount,
   onShowMedicalCard,
   onShowRescueMap,
+  canBroadcastEarthquakeDrill,
+  isSendingDrill,
   onSimulateSevereEarthquake,
+  onBroadcastEarthquakeDrill,
   onLogout,
 }: {
   currentAnalysis: DisasterAnalysis | null;
@@ -42,7 +45,10 @@ export function AppHeader({
   nearbyUnreadCount: number;
   onShowMedicalCard: () => void;
   onShowRescueMap: () => void;
+  canBroadcastEarthquakeDrill: boolean;
+  isSendingDrill: boolean;
   onSimulateSevereEarthquake: () => void;
+  onBroadcastEarthquakeDrill: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -153,11 +159,19 @@ export function AppHeader({
           </button>
           <button
             onClick={onSimulateSevereEarthquake}
-            title="測試強震通知、避難語音與 BLE 存活訊號"
+            title="測試本機強震通知、避難流程與附近 BLE 存活訊號"
             className="shrink-0 px-3 py-2 rounded-2xl bg-red-600 text-white text-xs font-black hover:bg-red-500 transition-all"
           >
             🚨 模擬強震
           </button>
+          {canBroadcastEarthquakeDrill && <button
+            disabled={isSendingDrill || isOffline}
+            onClick={onBroadcastEarthquakeDrill}
+            title="向所有已註冊推播裝置發送演練通知（非真實地震）"
+            className="shrink-0 px-3 py-2 rounded-2xl bg-red-600 text-white text-xs font-black hover:bg-red-500 transition-all"
+          >
+            {isSendingDrill ? "發送中…" : "🧪 全體強震演練"}
+          </button>}
           {authUser && (
             <div className="flex shrink-0 items-center gap-2">
               <span

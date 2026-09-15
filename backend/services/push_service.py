@@ -50,37 +50,40 @@ def _is_recent(alert: dict) -> bool:
     return (datetime.now(timezone.utc) - occurred).total_seconds() <= MAX_ALERT_AGE_SECONDS
 
 
-def _send_push(title: str, body: str, data: dict) -> None:
+def _send_push(title: str, body: str, data: dict) -> dict:
     tokens = firebase_service.list_device_tokens()
     if not tokens:
-        return
+        return {"success": 0, "failure": 0}
 
-    message = messaging.MulticastMessage(
-        notification=messaging.Notification(title=title, body=body),
-        data=data,
-        apns=messaging.APNSConfig(
-            payload=messaging.APNSPayload(
+    success = failure = 0
+    errors = {}
+    for offset in range(0, len(tokens), 500):
+        batch = tokens[offset:offset + 500]
+        message = messaging.MulticastMessage(
+            notification=messaging.Notification(title=title, body=body),
+            data=data,
+            apns=messaging.APNSConfig(payload=messaging.APNSPayload(
                 aps=messaging.Aps(sound="default", content_available=True)
-            )
-        ),
-        tokens=tokens,
-    )
-
-    response = messaging.send_each_for_multicast(message)
-    invalid_tokens = [
-        tokens[i]
-        for i, result in enumerate(response.responses)
-        if not result.success and isinstance(result.exception, messaging.UnregisteredError)
-    ]
-    if invalid_tokens:
-        firebase_service.remove_device_tokens(invalid_tokens)
-
-    logger.info(
-        "FCM push sent (%s): %d success, %d failure",
-        data.get("type"),
-        response.success_count,
-        response.failure_count,
-    )
+            )),
+            tokens=batch,
+        )
+        response = messaging.send_each_for_multicast(message)
+        for result in response.responses:
+            if not result.success:
+                code = getattr(result.exception, "code", None) or type(result.exception).__name__
+                errors[code] = errors.get(code, 0) + 1
+        invalid_tokens = [
+            batch[i] for i, result in enumerate(response.responses)
+            if not result.success and isinstance(result.exception, messaging.UnregisteredError)
+        ]
+        if invalid_tokens:
+            firebase_service.remove_device_tokens(invalid_tokens)
+        success += response.success_count
+        failure += response.failure_count
+    logger.info("FCM push sent (%s): %d success, %d failure", data.get("type"), success, failure)
+    if errors:
+        logger.warning("FCM failure codes (%s): %s", data.get("type"), errors)
+    return {"success": success, "failure": failure, **({"errors": errors} if errors else {})}
 
 
 def send_earthquake_push(alert: dict) -> None:

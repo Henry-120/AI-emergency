@@ -1,10 +1,17 @@
+import { useAccountMessages } from "./hooks/useAccountMessages";
 import React, { useState, useEffect, useRef } from "react";
 import { Device } from "@capacitor/device";
 import {
   analyzeDisaster,
   BackendAuthenticationError,
 } from "./services/geminiService";
-import { AuthUser, ChatMessage, DisasterAnalysis, EarthquakeAssessment, UserStatus } from "./types";
+import {
+  AuthUser,
+  ChatMessage,
+  DisasterAnalysis,
+  EarthquakeAssessment,
+  UserStatus,
+} from "./types";
 import {
   fetchLatestAlert,
   EarthquakeAlert,
@@ -17,6 +24,9 @@ import {
   onEarthquakeNotificationTapped,
 } from "./services/notificationService";
 import {
+  broadcastDrill,
+  canBroadcastDrill,
+  onEarthquakeDrill,
   initPushNotifications,
   onPushEarthquakeNotificationTapped,
 } from "./services/pushNotificationService";
@@ -62,8 +72,15 @@ import { RoomRiskAnalysis } from "./types";
 import { AuthPage } from "./components/auth/AuthPage";
 import { MedicalCardPage } from "./components/medical/MedicalCardPage";
 import { RescueMapPage } from "./components/rescue/RescueMapPage";
-import { getCurrentUser, logout, validateSession } from "./services/authService";
-import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
+import {
+  getCurrentUser,
+  logout,
+  validateSession,
+} from "./services/authService";
+import {
+  getMedicalCard,
+  summarizeMedicalCard,
+} from "./services/medicalCardService";
 import { initHealthKit, getLatestHeartRate } from "./services/healthService";
 import {
   assessEarthquakeForUser,
@@ -111,7 +128,7 @@ const App: React.FC = () => {
       })
       .finally(() => setIsCheckingSession(false));
   }, []);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useAccountMessages(authUser?.id ?? null);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentAnalysis, setCurrentAnalysis] =
@@ -119,7 +136,9 @@ const App: React.FC = () => {
   const [earthquakeAlert, setEarthquakeAlert] =
     useState<EarthquakeAlert | null>(null);
   const [cwaError, setCwaError] = useState<string>("");
-  const [initializedEarthquakeKey, setInitializedEarthquakeKey] = useState<string | null>(null);
+  const [initializedEarthquakeKey, setInitializedEarthquakeKey] = useState<
+    string | null
+  >(null);
   const [earthquakeWorkflow, setEarthquakeWorkflow] = useState<{
     phase: "awaiting_safety" | "collecting_report";
     assessment: EarthquakeAssessment;
@@ -169,12 +188,12 @@ const App: React.FC = () => {
   // 每 30 秒線上直接寫後端；只有離線時才存進本機 SQLite。
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      saveUserStatusSnapshot(userStatus).catch((error) =>
+      saveUserStatusSnapshot(userStatusRef.current).catch((error) =>
         console.error("狀態儲存失敗", error),
       );
     }, 30000);
     return () => clearInterval(syncInterval);
-  }, [userStatus]);
+  }, [authUser?.id]);
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [offlineMapStatus, setOfflineMapStatus] = useState<string>("");
@@ -263,9 +282,16 @@ const App: React.FC = () => {
           {disclaimerStep === 1 ? (
             <div className="space-y-4">
               <div className="max-h-[55vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
-                <p>歡迎您使用本地震救災協助 App（以下簡稱「本 App」）。為保障您的權益，請於使用前詳細閱讀本免責聲明。當您使用本 App，即表示您已閱讀、理解並同意以下內容。</p>
+                <p>
+                  歡迎您使用本地震救災協助 App（以下簡稱「本
+                  App」）。為保障您的權益，請於使用前詳細閱讀本免責聲明。當您使用本
+                  App，即表示您已閱讀、理解並同意以下內容。
+                </p>
                 <p className="mt-3 font-semibold">一、服務目的</p>
-                <p>本 App 旨在提供地震防災、災害應變及救災資訊服務，包括但不限於：</p>
+                <p>
+                  本 App
+                  旨在提供地震防災、災害應變及救災資訊服務，包括但不限於：
+                </p>
                 <ul className="ml-5 list-disc space-y-1 py-2">
                   <li>日常居家家具安全健檢（透過相機拍攝環境進行 AI 分析）</li>
                   <li>接收中央氣象署地震警報及相關通知</li>
@@ -273,19 +299,34 @@ const App: React.FC = () => {
                   <li>提供語音輸入災情與位置資訊</li>
                   <li>協助使用者快速獲取防災與避難資訊</li>
                 </ul>
-                <p>本 App 所提供之內容僅供參考與輔助決策使用，不得視為官方指揮、醫療、消防、警政或其他專業救援意見。</p>
+                <p>
+                  本 App
+                  所提供之內容僅供參考與輔助決策使用，不得視為官方指揮、醫療、消防、警政或其他專業救援意見。
+                </p>
                 <p className="mt-3 font-semibold">二、AI 回覆免責聲明</p>
-                <p>本 App 使用人工智慧（Gemini AI）分析使用者提供之文字、語音、影像及位置資訊，並生成可能的應變建議。</p>
-                <p>惟 AI 回覆係依據當下可取得之資訊自動生成，可能因下列因素而產生誤差：</p>
+                <p>
+                  本 App 使用人工智慧（Gemini
+                  AI）分析使用者提供之文字、語音、影像及位置資訊，並生成可能的應變建議。
+                </p>
+                <p>
+                  惟 AI
+                  回覆係依據當下可取得之資訊自動生成，可能因下列因素而產生誤差：
+                </p>
                 <ul className="ml-5 list-disc space-y-1 py-2">
                   <li>使用者提供資訊不完整或不正確</li>
                   <li>通訊中斷或網路異常</li>
                   <li>AI 判斷限制</li>
                   <li>災害現場環境快速變化</li>
                 </ul>
-                <p>因此，本 App 無法保證所有建議之完整性、正確性、即時性或適用性，使用者仍應依現場實際情況及政府單位公告採取行動。</p>
+                <p>
+                  因此，本 App
+                  無法保證所有建議之完整性、正確性、即時性或適用性，使用者仍應依現場實際情況及政府單位公告採取行動。
+                </p>
                 <p className="mt-3 font-semibold">三、地震警報服務</p>
-                <p>本 App 之地震通知主要引用中央氣象署（或其他合法公開 API）提供之資料。</p>
+                <p>
+                  本 App 之地震通知主要引用中央氣象署（或其他合法公開
+                  API）提供之資料。
+                </p>
                 <p>若因下列因素導致通知延遲、遺漏或錯誤，包括但不限於：</p>
                 <ul className="ml-5 list-disc space-y-1 py-2">
                   <li>API 服務異常</li>
@@ -296,9 +337,16 @@ const App: React.FC = () => {
                 </ul>
                 <p>本 App 不承擔因此所造成之任何直接或間接損害。</p>
                 <p className="mt-3 font-semibold">四、相機與 AI 居家健檢</p>
-                <p>本 App 會於取得您的同意後使用裝置相機，以分析家具擺放及居家環境可能存在之地震風險。</p>
-                <p>分析結果僅供風險評估與改善建議，不代表建築結構安全鑑定、耐震認證或任何專業工程檢測結果。</p>
-                <p>使用者仍應依照專業建築師、結構技師或政府相關單位建議進行安全改善。</p>
+                <p>
+                  本 App
+                  會於取得您的同意後使用裝置相機，以分析家具擺放及居家環境可能存在之地震風險。
+                </p>
+                <p>
+                  分析結果僅供風險評估與改善建議，不代表建築結構安全鑑定、耐震認證或任何專業工程檢測結果。
+                </p>
+                <p>
+                  使用者仍應依照專業建築師、結構技師或政府相關單位建議進行安全改善。
+                </p>
                 <p className="mt-3 font-semibold">五、位置資訊</p>
                 <p>本 App 可能取得您的位置資訊，以：</p>
                 <ul className="ml-5 list-disc space-y-1 py-2">
@@ -307,7 +355,10 @@ const App: React.FC = () => {
                   <li>協助 AI 判斷災害情境</li>
                   <li>提升救災建議之準確性</li>
                 </ul>
-                <p>位置資訊可能因 GPS、基地台、網路環境等因素產生誤差，本 App 不保證定位資訊百分之百準確。</p>
+                <p>
+                  位置資訊可能因 GPS、基地台、網路環境等因素產生誤差，本 App
+                  不保證定位資訊百分之百準確。
+                </p>
                 <p className="mt-3 font-semibold">六、緊急情況</p>
                 <p>若您遇到下列情況：</p>
                 <ul className="ml-5 list-disc space-y-1 py-2">
@@ -317,10 +368,16 @@ const App: React.FC = () => {
                   <li>嚴重受傷</li>
                   <li>生命危急</li>
                 </ul>
-                <p>請立即撥打當地緊急救援電話（如臺灣 119、110），並依政府救災單位指示行動。</p>
+                <p>
+                  請立即撥打當地緊急救援電話（如臺灣
+                  119、110），並依政府救災單位指示行動。
+                </p>
                 <p>本 App 並非緊急救援平台，亦不保證能即時聯繫救援單位。</p>
                 <p className="mt-3 font-semibold">七、責任限制</p>
-                <p>在法律允許範圍內，本 App 開發團隊對於因使用或無法使用本 App 所造成之任何直接、間接、附帶、特殊或衍生性損害，不負任何賠償責任，包括但不限於：</p>
+                <p>
+                  在法律允許範圍內，本 App 開發團隊對於因使用或無法使用本 App
+                  所造成之任何直接、間接、附帶、特殊或衍生性損害，不負任何賠償責任，包括但不限於：
+                </p>
                 <ul className="ml-5 list-disc space-y-1 py-2">
                   <li>人身傷害</li>
                   <li>財產損失</li>
@@ -337,9 +394,15 @@ const App: React.FC = () => {
                   <li>於緊急狀況優先遵循政府機關及救援單位指示。</li>
                 </ol>
                 <p className="mt-3 font-semibold">九、服務調整</p>
-                <p>本 App 保留隨時修改、更新、暫停或終止部分或全部服務之權利，而無須另行通知。</p>
+                <p>
+                  本 App
+                  保留隨時修改、更新、暫停或終止部分或全部服務之權利，而無須另行通知。
+                </p>
                 <p className="mt-3 font-semibold">十、聲明同意</p>
-                <p>使用本 App 即表示您已閱讀並同意本免責聲明，理解本 App 為防災與救災輔助工具，並非官方救援系統、專業醫療、消防、建築安全或法律服務。</p>
+                <p>
+                  使用本 App 即表示您已閱讀並同意本免責聲明，理解本 App
+                  為防災與救災輔助工具，並非官方救援系統、專業醫療、消防、建築安全或法律服務。
+                </p>
               </div>
               <label className="flex items-start gap-3 text-sm leading-relaxed">
                 <input
@@ -364,12 +427,22 @@ const App: React.FC = () => {
           ) : (
             <div className="space-y-5">
               <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-sm leading-relaxed text-rose-100">
-                <p className="font-semibold text-rose-200">本 App 不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。</p>
-                <p className="mt-3">所有權限皆依 iOS 系統規範，由使用者自行決定是否授權；若拒絕部分權限，可能導致部分功能無法正常使用。</p>
+                <p className="font-semibold text-rose-200">
+                  本 App
+                  不會於未經使用者同意之情況下啟用相機、麥克風或定位功能。
+                </p>
+                <p className="mt-3">
+                  所有權限皆依 iOS
+                  系統規範，由使用者自行決定是否授權；若拒絕部分權限，可能導致部分功能無法正常使用。
+                </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
-                <p>請按下方按鈕，同意後系統將請求相機、麥克風與定位權限。若您拒絕，仍可稍後於功能啟用時再次授權。</p>
-                <p className="mt-3 text-xs text-slate-400">若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。</p>
+                <p>
+                  請按下方按鈕，同意後系統將請求相機、麥克風與定位權限。若您拒絕，仍可稍後於功能啟用時再次授權。
+                </p>
+                <p className="mt-3 text-xs text-slate-400">
+                  若您的裝置不支援部分權限，系統會以瀏覽器/系統對話方塊提示。
+                </p>
               </div>
               <div className="space-y-3">
                 <button
@@ -470,6 +543,69 @@ const App: React.FC = () => {
     });
   };
 
+  const [canBroadcastEarthquakeDrill, setCanBroadcastEarthquakeDrill] =
+    useState(false);
+  const [isSendingDrill, setIsSendingDrill] = useState(false);
+  const sendingDrillRef = useRef(false);
+  useEffect(() => {
+    let active = true;
+    setCanBroadcastEarthquakeDrill(false);
+    if (authUser)
+      void canBroadcastDrill().then((allowed) => {
+        if (active) setCanBroadcastEarthquakeDrill(allowed);
+      });
+    return () => {
+      active = false;
+    };
+  }, [authUser]);
+
+  useEffect(
+    () =>
+      onEarthquakeDrill((drill) => {
+        setMessages((previous) =>
+          previous.some((message) => message.id === drill.id)
+            ? previous
+            : [
+                ...previous,
+                {
+                  id: drill.id,
+                  role: "assistant",
+                  content: `${drill.title}\n${drill.body}`,
+                  timestamp: new Date(),
+                },
+              ],
+        );
+      }),
+    [setMessages],
+  );
+
+  const handleBroadcastEarthquakeDrill = async () => {
+    if (!canBroadcastEarthquakeDrill || sendingDrillRef.current) return;
+    sendingDrillRef.current = true;
+    setIsSendingDrill(true);
+    try {
+      const result = await broadcastDrill();
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: `drill-result-${Date.now()}`,
+          role: "assistant",
+          content: `🧪 ${result.success === 0 ? "全體演練推播未送達任何裝置" : "全體演練推播已提交"}：成功 ${result.success} 筆、失敗 ${result.failure} 筆。成功表示推播服務接受，不代表裝置已讀。\n${result.drill.body}${result.errors ? "\n失敗原因：" + Object.entries(result.errors).map(([code, count]) => `${code}（${count} 筆）`).join("、") : ""}`,
+          timestamp: new Date(),
+        },
+      ]);
+    } catch (error) {
+      setCwaError(
+        error instanceof Error
+          ? error.message
+          : "演練推播未完成，請確認連線；部分裝置可能已收到。",
+      );
+    } finally {
+      sendingDrillRef.current = false;
+      setIsSendingDrill(false);
+    }
+  };
+
   const getSensorContext = () => {
     const medicalSummary = summarizeMedicalCard(getMedicalCard());
     const medicalInfo = medicalSummary ? `, 醫療卡: ${medicalSummary}` : "";
@@ -494,7 +630,9 @@ const App: React.FC = () => {
       parts.push(`${safeZones.join("、")}是相對安全區`);
     }
 
-    return parts.length ? `${analysis.summary} ${parts.join("；")}。` : analysis.summary;
+    return parts.length
+      ? `${analysis.summary} ${parts.join("；")}。`
+      : analysis.summary;
   };
 
   const handleCaptureRoomImage = async (file: File) => {
@@ -616,6 +754,14 @@ const App: React.FC = () => {
     setIsRoomRiskAnalyzing(false);
   };
 
+  useEffect(() => {
+    setInput("");
+    setCurrentAnalysis(null);
+    setEarthquakeWorkflow(null);
+    setInitializedEarthquakeKey(null);
+    setIsAnalyzing(false);
+  }, [authUser?.id]);
+
   const handleRetakeRoomRiskImage = () => {
     setRoomRiskImageUrl((current) => {
       if (current) {
@@ -630,12 +776,17 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const loadCwaAlert = async () => {
+      // 演練期間保留模擬事件；使用者仍可手動重新整理真實地震。
+      const current = earthquakeAlertRef.current;
+      if (current?.location === "模擬強震（測試資料）"
+        && Date.now() - Date.parse(current.time || "") < 30 * 60 * 1000) return;
       setCwaError("");
       const alert = await fetchLatestAlert();
       if (alert) {
-        setEarthquakeAlert(alert);
+        setEarthquakeAlert((previous) => previous?.location === "模擬強震（測試資料）"
+          && Date.now() - Date.parse(previous.time || "") < 30 * 60 * 1000 ? previous : alert);
       } else {
-        setEarthquakeAlert(null);
+        // 載入失敗時保留目前事件，避免中斷報告。
         setCwaError("CWA 即時地震警報載入失敗。請稍後重新整理。");
       }
     };
@@ -646,7 +797,8 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const handleOnline = async () => { // 加上 async
+    const handleOnline = async () => {
+      // 加上 async
       setIsOffline(false);
 
       try {
@@ -712,17 +864,21 @@ const App: React.FC = () => {
 
   const announceEarthquakeSafety = () => {
     const alert = earthquakeAlertRef.current;
-    
+
     // 預設防災指令
-    const defaultInstruction = "請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。";
+    const defaultInstruction =
+      "請立即趴下，掩護頭頸部，抓穩固定物。遠離窗戶及可能掉落的家具。搖晃停止後再確認逃生路線，切勿搭乘電梯。";
 
     if (!alert) {
-      setMessages((previous) => [...previous, {
-        id: `earthquake-${Date.now()}`,
-        role: "assistant",
-        content: `🚨 ${defaultInstruction}`,
-        timestamp: new Date(),
-      }]);
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: `earthquake-${Date.now()}`,
+          role: "assistant",
+          content: ` ${defaultInstruction}`,
+          timestamp: new Date(),
+        },
+      ]);
       speak(defaultInstruction);
       return;
     }
@@ -731,7 +887,12 @@ const App: React.FC = () => {
     let distanceInfo = "計算中...";
     const loc = userStatusRef.current.location;
     if (loc && alert.epicenterLat != null && alert.epicenterLng != null) {
-      const dist = distanceKm(loc.lat, loc.lng, alert.epicenterLat, alert.epicenterLng);
+      const dist = distanceKm(
+        loc.lat,
+        loc.lng,
+        alert.epicenterLat,
+        alert.epicenterLng,
+      );
       distanceInfo = `約 ${dist.toFixed(1)} 公里`;
     }
 
@@ -742,28 +903,32 @@ const App: React.FC = () => {
         id: `earthquake-info-${Date.now()}`,
         role: "assistant",
         content:
-          `🚨 【系統警報：偵測到有感地震】\n` +
-          `📍 震央位置：${alert.location || "未知"}\n` +
-          `📊 地震規模：${alert.magnitude}\n` +
-          `📏 距離您的位置：${distanceInfo}\n\n` +
-          `⚠️ **緊急應變指示**：\n` +
+          `【系統警報：偵測到有感地震】\n` +
+          `震央位置：${alert.location || "未知"}\n` +
+          `地震規模：${alert.magnitude}\n` +
+          `距離您的位置：${distanceInfo}\n\n` +
+          `**緊急應變指示**：\n` +
           `${defaultInstruction}\n\n` +
-          `⏳ GUARDIA 正在為您評估周遭地理環境，生成專屬逃生避難報告中...`,
+          `請先依上方指示避難。環境評估的進度與結果會另列於對話中；已產生的報告請往上查看。`,
         timestamp: new Date(),
       },
     ]);
     // 語音播報
-    speak(`偵測到規模 ${alert.magnitude} 強震，${alert.location}。${defaultInstruction}`);
+    speak(
+      `偵測到規模 ${alert.magnitude} 強震，${alert.location}。${defaultInstruction}`,
+    );
   };
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     onEarthquakeNotificationTapped(() => {
-      void handleRefreshCwa();
+      // 本機通知屬於目前事件（包含模擬），不可換成 CWA 的另一場地震。
       announceEarthquakeSafety();
-    }).then((remove) => { cleanup = remove; });
+    }).then((remove) => {
+      cleanup = remove;
+    });
     return () => cleanup?.();
-  }, []);
+  }, [setMessages]);
 
   useEffect(() => {
     void initPushNotifications();
@@ -771,7 +936,7 @@ const App: React.FC = () => {
       void handleRefreshCwa();
       announceEarthquakeSafety();
     });
-  }, []);
+  }, [setMessages]);
 
   useEffect(() => {
     if (!earthquakeAlert) return;
@@ -791,24 +956,33 @@ const App: React.FC = () => {
 
       void sendAutomaticSurvivalSignal(
         userStatusRef.current.location ?? undefined,
-      ).then(({ sent }) => {
-        setMessages((previous) => [...previous, {
-          id: `sos-result-${Date.now()}`,
-          role: "assistant",
-          content: sent > 0
-            ? `✅ 強震影響範圍內，已透過 BLE 向 ${sent} 個附近 Guardia 裝置傳送匿名存活訊號。`
-            : "⚠️ 強震影響範圍內，目前沒有找到可接收訊號的 Guardia BLE 裝置；請保持藍牙開啟。",
-          timestamp: new Date(),
-        }]);
-      }).catch((error) => {
-        console.error("BLE 自動存活訊號失敗", error);
-        setMessages((previous) => [...previous, {
-          id: `sos-error-${Date.now()}`,
-          role: "assistant",
-          content: "BLE 自動存活訊號傳送失敗，請開啟 BLE 頁面手動傳送。",
-          timestamp: new Date(),
-        }]);
-      });
+      )
+        .then(({ sent }) => {
+          setMessages((previous) => [
+            ...previous,
+            {
+              id: `sos-result-${Date.now()}`,
+              role: "assistant",
+              content:
+                sent > 0
+                  ? `✅ 強震影響範圍內，已透過 BLE 向 ${sent} 個附近 Guardia 裝置傳送匿名存活訊號。`
+                  : "⚠️ 強震影響範圍內，目前沒有找到可接收訊號的 Guardia BLE 裝置；請保持藍牙開啟。",
+              timestamp: new Date(),
+            },
+          ]);
+        })
+        .catch((error) => {
+          console.error("BLE 自動存活訊號失敗", error);
+          setMessages((previous) => [
+            ...previous,
+            {
+              id: `sos-error-${Date.now()}`,
+              role: "assistant",
+              content: "BLE 自動存活訊號傳送失敗，請開啟 BLE 頁面手動傳送。",
+              timestamp: new Date(),
+            },
+          ]);
+        });
     }
   }, [earthquakeAlert]);
 
@@ -850,52 +1024,55 @@ const App: React.FC = () => {
   // ✅ 電量與心率狀態即時更新
   useEffect(() => {
     // 1. App 開啟時，嘗試初始化 iOS HealthKit 權限 (如果在 iOS 手機上會跳出授權視窗)
-    initHealthKit();
+    const healthReady = initHealthKit();
+    let updating = false;
+    let disposed = false;
 
     const updateDeviceStatus = async () => {
+      if (updating || disposed || document.hidden) return;
+      updating = true;
       try {
         // 抓取真實電量
         const batteryInfo = await Device.getBatteryInfo();
-        const realBattery = batteryInfo.batteryLevel !== undefined 
-          ? batteryInfo.batteryLevel * 100 
-          : undefined;
+        const realBattery =
+          batteryInfo.batteryLevel !== undefined
+            ? batteryInfo.batteryLevel * 100
+            : undefined;
 
         // 抓取真實心率 (如果抓不到，例如在網頁上，會回傳 null)
-        const realHeartRate = await getLatestHeartRate();
+        const realHeartRate = (await healthReady)
+          ? await getLatestHeartRate()
+          : null;
+        if (disposed) return;
 
         setUserStatus((prev) => ({
           ...prev,
           // 若有真實電量用真實電量，否則維持原值
-          batteryLevel: realBattery !== undefined ? realBattery : prev.batteryLevel,
-          
-          // 關鍵：如果抓得到真實心率就顯示真實數字，若在瀏覽器測試(回傳 null)則維持模擬數值
-          heartRate: realHeartRate !== null 
-            ? realHeartRate 
-            : (70 + Math.floor(Math.random() * 10)), 
+          batteryLevel:
+            realBattery !== undefined ? realBattery : prev.batteryLevel,
+
+          // 沒有新讀數時保留原值，不產生隨機心率。
+          heartRate: realHeartRate !== null ? realHeartRate : prev.heartRate,
         }));
       } catch (error) {
         console.error("無法更新裝置狀態:", error);
+      } finally {
+        updating = false;
       }
     };
 
     updateDeviceStatus();
-    const interval = setInterval(updateDeviceStatus, 10000);
-    return () => clearInterval(interval);
+    const interval = setInterval(updateDeviceStatus, 30000);
+    document.addEventListener("visibilitychange", updateDeviceStatus);
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", updateDeviceStatus);
+    };
   }, []);
 
   // ✅ 初始對話訊息、定位與地圖下載（獨立的最外層 useEffect）
   useEffect(() => {
-    // 初始系統訊息
-    setMessages([
-      {
-        id: "1",
-        role: "assistant",
-        content:
-          "我是 GuardiaAI 生存助手。請描述您目前遇到的緊急狀況，或直接上傳現場照片。",
-        timestamp: new Date(),
-      },
-    ]);
-
     // 持續追蹤使用者定位，離線避難導航會用最新位置重新排序。
     let watchId: number | null = null;
     if (navigator.geolocation) {
@@ -931,29 +1108,62 @@ const App: React.FC = () => {
   // ✅ LBS 環境風險分析初始化（線上/離線雙軌）
   useEffect(() => {
     // 每一場新地震各啟動一次；不能用單一 boolean，否則第二場地震永遠不會觸發。
-    if (!userStatus.location || !earthquakeAlert) return;
+    if (!earthquakeAlert) return;
     const currentEarthquakeKey = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
     if (initializedEarthquakeKey === currentEarthquakeKey) return;
     // 遠距使用者也需要得到「留在原地觀察」等不同建議，故此處不套用 100 公里門檻。
     // 仍限制為近期強震，避免 App 啟動時為 CWA 的舊資料開啟回報流程。
     if (earthquakeAlert.magnitude < SEVERE_EARTHQUAKE_MAGNITUDE) return;
-    const occurredAt = Date.parse(earthquakeAlert.time || earthquakeAlert.originTime || "");
-    if (Number.isFinite(occurredAt) && Date.now() - occurredAt > 30 * 60 * 1000) return;
+    const occurredAt = Date.parse(
+      earthquakeAlert.time || earthquakeAlert.originTime || "",
+    );
+    if (Number.isFinite(occurredAt) && Date.now() - occurredAt > 30 * 60 * 1000)
+      return;
     // 防止重複觸發
     if (isFetchingLbsRef.current) return;
     isFetchingLbsRef.current = true; // 上鎖
+    const progressId = `lbs-progress-${currentEarthquakeKey}`;
+    setMessages((previous) => [...previous.filter((message) => message.id !== progressId), {
+      id: progressId, role: "assistant",
+      content: isOffline ? "⏳ 正在產生離線環境評估…" : "⏳ GUARDIA 正在為您評估周遭地理環境，生成專屬逃生避難報告中...",
+      timestamp: new Date(),
+    }]);
+    const finishProgress = (content: string) => {
+      setMessages((previous) => previous.map((message) =>
+        message.id === progressId ? { ...message, content } : message));
+    };
+    const failProgress = (error: unknown) => {
+      finishProgress([
+        "【基本避難報告｜雲端或離線模型未完成】",
+        `原因：${error instanceof Error ? error.message : "無法連線至分析服務"}`,
+        "• 搖晃時趴下、掩護頭頸、抓穩固定物，遠離玻璃與掉落物。",
+        "• 搖晃停止後檢查傷勢與周遭危險，勿搭電梯；需要救援時聯絡緊急服務。",
+        userStatus.location ? "• 已取得定位，但尚未驗證附近路況或撤離路線。" : "• 尚未取得定位，無法判定震央距離或推薦在地路線。",
+        userStatus.batteryLevel <= 20 ? "• 電量偏低，開啟省電模式並保留求救電力。" : "",
+        summarizeMedicalCard(getMedicalCard()) ? "• 如需撤離，攜帶必要藥物與醫療裝置，勿返回危險處取物。" : "",
+        "這是依已知資訊提供的基本建議，不是已完成的 AI 環境評估。",
+      ].filter(Boolean).join("\n"));
+      setInitializedEarthquakeKey(currentEarthquakeKey);
+    };
 
     const fetchLbsRisk = async () => {
       const location = userStatus.location;
-      if (!location) return;
-
-      const { lat, lng } = location;
-      const currentLocation = `GPS座標 (緯度: ${lat.toFixed(4)}, 經度: ${lng.toFixed(4)})`;
+      const currentLocation = location
+        ? `GPS座標 (緯度: ${location.lat.toFixed(4)}, 經度: ${location.lng.toFixed(4)})`
+        : "未取得定位，不可推測所在位置";
 
       // 新增：在此處預先計算與震央的距離
       let distanceText = "";
-      if (earthquakeAlert.epicenterLat != null && earthquakeAlert.epicenterLng != null) {
-        const dist = distanceKm(lat, lng, earthquakeAlert.epicenterLat, earthquakeAlert.epicenterLng);
+      if (
+        location && earthquakeAlert.epicenterLat != null &&
+        earthquakeAlert.epicenterLng != null
+      ) {
+        const dist = distanceKm(
+          location.lat,
+          location.lng,
+          earthquakeAlert.epicenterLat,
+          earthquakeAlert.epicenterLng,
+        );
         distanceText = `距離震央 ${dist.toFixed(1)} 公里，`;
       }
       // 情況 A：斷網狀態，自動切換至裝置端離線大模型 (0.5B)
@@ -967,23 +1177,28 @@ const App: React.FC = () => {
             timestamp: new Date(),
           };
 
-          const offlineAnalysis = await getOfflineAnalysisWithTimeout([initTriggerMsg]);
+          const offlineAnalysis = await getOfflineAnalysisWithTimeout([
+            initTriggerMsg,
+          ]);
 
           setMessages((prev) => [
             ...prev,
             {
               id: `lbs-offline-${Date.now()}`,
               role: "assistant",
-              content: "⚠️ **[離線安全報告]** 已根據您的 GPS 座標完成環境風險評估：",
+              content:
+                "⚠️ **[離線安全報告]** 已根據您的 GPS 座標完成環境風險評估：",
               analysis: offlineAnalysis,
               timestamp: new Date(),
             },
           ]);
 
+          finishProgress("離線環境評估已完成，請查看下方結果。");
           setCurrentAnalysis(offlineAnalysis);
           setInitializedEarthquakeKey(currentEarthquakeKey);
           isFetchingLbsRef.current = false;
         } catch (error) {
+          failProgress(error);
           console.error("離線環境分析失敗:", error);
           isFetchingLbsRef.current = false;
         }
@@ -997,6 +1212,7 @@ const App: React.FC = () => {
           earthquakeAlert,
           userStatus,
           medicalSummary,
+          messages.filter((message) => message.role === "user").slice(-8).map((message) => message.content).join("\n"),
         );
         const warnings = [
           ...assessment.immediate_actions,
@@ -1004,31 +1220,32 @@ const App: React.FC = () => {
         ];
         const warningMessage =
           `🚨 【依位置產生的地震應變】\n` +
-          `您距震央約 ${assessment.distance_km.toFixed(1)} 公里。\n` +
+          (assessment.distance_km == null ? "尚無足夠座標判定震央距離，以下依已知資訊提供建議。\n" : `您距震央約 ${assessment.distance_km.toFixed(1)} 公里。\n`) +
           warnings.map((warning) => `• ${warning}`).join("\n");
 
         const lbsAnalysis = {
           missingInfoRequests: ["我目前安全", "我需要協助"],
-          immediateActions: [], 
+          immediateActions: [],
         } as unknown as DisasterAnalysis;
 
-        setMessages(prev => [
+        setMessages((prev) => [
           ...prev,
-          { 
-            id: `lbs-warn-${Date.now()}`, 
-            role: "assistant", 
-            content: warningMessage, 
-            timestamp: new Date() 
+          {
+            id: `lbs-warn-${Date.now()}`,
+            role: "assistant",
+            content: warningMessage,
+            timestamp: new Date(),
           },
-          { 
-            id: `lbs-quest-${Date.now() + 1}`, 
-            role: "assistant", 
+          {
+            id: `lbs-quest-${Date.now() + 1}`,
+            role: "assistant",
             content: assessment.safety_question,
-            analysis: lbsAnalysis, 
-            timestamp: new Date() 
-          }
+            analysis: lbsAnalysis,
+            timestamp: new Date(),
+          },
         ]);
 
+        finishProgress("地震應變建議已取得，請查看下方結果。");
         setEarthquakeWorkflow({
           phase: "awaiting_safety",
           assessment,
@@ -1036,15 +1253,20 @@ const App: React.FC = () => {
         });
         setInitializedEarthquakeKey(currentEarthquakeKey);
         isFetchingLbsRef.current = false;
-
       } catch (error) {
+        failProgress(error);
         console.error("初始化 LBS 聊天失敗:", error);
         isFetchingLbsRef.current = false; // 失敗時解鎖允許重試
       }
     };
 
     fetchLbsRisk();
-  }, [userStatus.location, earthquakeAlert, initializedEarthquakeKey, isOffline]);
+  }, [
+    userStatus.location,
+    earthquakeAlert,
+    initializedEarthquakeKey,
+    isOffline,
+  ]);
 
   // 處理使用者提交的訊息
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1066,20 +1288,28 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
 
     if (earthquakeWorkflow?.phase === "awaiting_safety") {
-      const confirmsSafe = /我目前安全|已安全|安全了|目前安全/.test(userMsg.content);
+      const confirmsSafe = /我目前安全|已安全|安全了|目前安全/.test(
+        userMsg.content,
+      );
       if (confirmsSafe) {
-        setEarthquakeWorkflow({ ...earthquakeWorkflow, phase: "collecting_report" });
-        setMessages((previous) => [...previous, {
-          id: `field-report-request-${Date.now()}`,
-          role: "assistant",
-          content:
-            "已確認您目前安全。若不需冒險移動，請用一段話回報您現在看得到的災情：\n" +
-            earthquakeWorkflow.assessment.field_report_questions
-              .map((question) => `• ${question}`)
-              .join("\n") +
-            "\n只回報親眼看到或確定的資訊；不確定可直接說不知道。",
-          timestamp: new Date(),
-        }]);
+        setEarthquakeWorkflow({
+          ...earthquakeWorkflow,
+          phase: "collecting_report",
+        });
+        setMessages((previous) => [
+          ...previous,
+          {
+            id: `field-report-request-${Date.now()}`,
+            role: "assistant",
+            content:
+              "已確認您目前安全。若不需冒險移動，請用一段話回報您現在看得到的災情：\n" +
+              earthquakeWorkflow.assessment.field_report_questions
+                .map((question) => `• ${question}`)
+                .join("\n") +
+              "\n只回報親眼看到或確定的資訊；不確定可直接說不知道。",
+            timestamp: new Date(),
+          },
+        ]);
         setIsAnalyzing(false);
         return;
       }
@@ -1092,21 +1322,27 @@ const App: React.FC = () => {
           status: userStatus,
           observation: userMsg.content,
         });
-        setMessages((previous) => [...previous, {
-          id: `field-report-received-${Date.now()}`,
-          role: "assistant",
-          content: `✅ 感謝回報。已將您的位置、與震央距離及第一手觀察送至災情後端（回報編號：${result.id}）。請勿為了補充資訊進入危險區域。`,
-          timestamp: new Date(),
-        }]);
+        setMessages((previous) => [
+          ...previous,
+          {
+            id: `field-report-received-${Date.now()}`,
+            role: "assistant",
+            content: `✅ 感謝回報。已將您的位置、與震央距離及第一手觀察送至災情後端（回報編號：${result.id}）。請勿為了補充資訊進入危險區域。`,
+            timestamp: new Date(),
+          },
+        ]);
         setEarthquakeWorkflow(null);
       } catch (error) {
         console.error("現場災情回報失敗", error);
-        setMessages((previous) => [...previous, {
-          id: `field-report-error-${Date.now()}`,
-          role: "assistant",
-          content: "目前無法送出災情回報，請先留在安全位置，稍後再試。",
-          timestamp: new Date(),
-        }]);
+        setMessages((previous) => [
+          ...previous,
+          {
+            id: `field-report-error-${Date.now()}`,
+            role: "assistant",
+            content: "目前無法送出災情回報，請先留在安全位置，稍後再試。",
+            timestamp: new Date(),
+          },
+        ]);
       } finally {
         setIsAnalyzing(false);
       }
@@ -1121,7 +1357,8 @@ const App: React.FC = () => {
     if (isCurrentlyOffline) {
       console.log("偵測到無網路，直接啟動本地離線大模型...");
       try {
-        const offlineAnalysis = await getOfflineAnalysisWithTimeout(updatedMessages);
+        const offlineAnalysis =
+          await getOfflineAnalysisWithTimeout(updatedMessages);
         const assistantMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
@@ -1142,12 +1379,15 @@ const App: React.FC = () => {
         }
       } catch (error) {
         console.error("離線應變模型失敗", error);
-        setMessages((prev) => [...prev, {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: "離線分析暫時無法使用，請保持冷靜並撥打 119 或 112。",
-          timestamp: new Date(),
-        }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: "離線分析暫時無法使用，請保持冷靜並撥打 119 或 112。",
+            timestamp: new Date(),
+          },
+        ]);
       } finally {
         setIsAnalyzing(false);
       }
@@ -1175,10 +1415,12 @@ const App: React.FC = () => {
       setCurrentAnalysis(analysis);
 
       // 無論是否有網路都先寫裝置端；線上時再嘗試同步到後端。
-      saveEmergencyReport(authUser.id, analysis.emergencySummary, [
-        ...updatedMessages,
-        assistantMsg,
-      ], userStatus.location)
+      saveEmergencyReport(
+        authUser.id,
+        analysis.emergencySummary,
+        [...updatedMessages, assistantMsg],
+        userStatus.location,
+      )
         .then(() => {
           if (navigator.onLine) return syncPendingEmergencyReports();
         })
@@ -1206,9 +1448,13 @@ const App: React.FC = () => {
         return;
       }
       // 終極保險：系統判定有網路，但可能遇上訊號死角或 DNS 解析失敗，自動降級切換至本地離線大模型
-      console.warn("雲端 Gemini 連線失敗，自動降級切換至本地離線大模型！", error);
+      console.warn(
+        "雲端 Gemini 連線失敗，自動降級切換至本地離線大模型！",
+        error,
+      );
       try {
-        const offlineAnalysis = await getOfflineAnalysisWithTimeout(updatedMessages);
+        const offlineAnalysis =
+          await getOfflineAnalysisWithTimeout(updatedMessages);
         const fallbackMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
@@ -1229,12 +1475,16 @@ const App: React.FC = () => {
         }
       } catch (fallbackError) {
         console.error("離線模型降級也失敗", fallbackError);
-        setMessages((prev) => [...prev, {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: "雲端與離線分析暫時無法使用，請保持冷靜並撥打 119 或 112。",
-          timestamp: new Date(),
-        }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content:
+              "雲端與離線分析暫時無法使用，請保持冷靜並撥打 119 或 112。",
+            timestamp: new Date(),
+          },
+        ]);
       }
     } finally {
       setIsAnalyzing(false);
@@ -1268,7 +1518,12 @@ const App: React.FC = () => {
   }
 
   if (showRescueMap) {
-    return <RescueMapPage location={userStatus.location} onBack={() => setShowRescueMap(false)} />;
+    return (
+      <RescueMapPage
+        location={userStatus.location}
+        onBack={() => setShowRescueMap(false)}
+      />
+    );
   }
 
   if (selectedMap) {
@@ -1323,7 +1578,10 @@ const App: React.FC = () => {
         nearbyUnreadCount={bleUnread}
         onShowMedicalCard={() => setShowMedicalCard(true)}
         onShowRescueMap={() => setShowRescueMap(true)}
+        canBroadcastEarthquakeDrill={canBroadcastEarthquakeDrill}
+        isSendingDrill={isSendingDrill}
         onSimulateSevereEarthquake={handleSimulateSevereEarthquake}
+        onBroadcastEarthquakeDrill={handleBroadcastEarthquakeDrill}
         onLogout={handleLogout}
       />
       <ChatMessageList

@@ -4,10 +4,15 @@ import os
 import math
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Iterable
 from uuid import uuid4
 
 from .. import schemas
+
+
+# All service instances in this process share the default Firebase app.
+_firebase_init_lock = Lock()
 
 
 class FirebaseService:
@@ -54,15 +59,16 @@ class FirebaseService:
                 "created_at": now,
             }
             transaction.set(user_ref, user)
-            transaction.set(username_ref, {"user_id": user_id})
+            transaction.set(username_ref, {"user_id": user_id, "user_name": username})
             if email_ref:
-                transaction.set(email_ref, {"user_id": user_id})
+                transaction.set(email_ref, {"user_id": user_id, "user_name": username})
             return user
 
         user = create(db.transaction())
         db.collection("medical_cards").document(user_id).set({
             "user_id": user_id,
             "full_name": username,
+            "user_name": username,
             "updated_at": now,
         })
         return user
@@ -70,6 +76,10 @@ class FirebaseService:
     def get_user(self, user_id: str) -> dict | None:
         snapshot = self._get_db().collection("users").document(str(user_id)).get()
         return snapshot.to_dict() if snapshot.exists else None
+
+    def _user_name(self, user_id: str | None) -> str | None:
+        user = self.get_user(user_id) if user_id else None
+        return user.get("username") if user else None
 
     def get_user_by_username(self, username: str) -> dict | None:
         db = self._get_db()
@@ -83,13 +93,13 @@ class FirebaseService:
         snapshot = ref.get()
         if snapshot.exists:
             return snapshot.to_dict()
-        card = {"user_id": user["id"], "full_name": user["username"], "updated_at": self._now()}
+        card = {"user_id": user["id"], "full_name": user["username"], "user_name": user["username"], "updated_at": self._now()}
         ref.set(card)
         return card
 
     def update_medical_card(self, user_id: str, card: schemas.MedicalCardBase) -> dict:
         payload = card.model_dump()
-        payload.update({"user_id": user_id, "updated_at": self._now()})
+        payload.update({"user_id": user_id, "user_name": self._user_name(user_id), "updated_at": self._now()})
         self._get_db().collection("medical_cards").document(user_id).set(payload, merge=True)
         return payload
 
@@ -110,6 +120,7 @@ class FirebaseService:
         payload = {
             **summary,
             "userId": user_id,
+            "user_name": self._user_name(user_id),
             "latitude": data.latitude,
             "longitude": data.longitude,
             "requiresRescue": requires_rescue,
@@ -130,6 +141,8 @@ class FirebaseService:
                 
                 ref = messages.document(msg_id)
                 batch.set(ref, {
+                    "user_id": user_id,
+                    "user_name": payload["user_name"],
                     "role": message.role,
                     "content": message.content,
                     "timestamp": message.timestamp or now,
@@ -199,20 +212,45 @@ class FirebaseService:
         return self.save_user_status_bulk([status])[0]
 
     def save_user_status_bulk(self, records: Iterable[schemas.UserStatusCreate]) -> list[str]:
+        from google.cloud import firestore
+
         db = self._get_db()
-        collection = db.collection("user_status")
-        saved_ids: list[str] = []
-        records = list(records)
-        for page in self._chunks(records, 450):
-            batch = db.batch()
-            for record in page:
-                doc_ref = collection.document()
-                payload = record.model_dump(mode="python")
-                payload["server_timestamp"] = self._now()
-                batch.set(doc_ref, payload)
-                saved_ids.append(doc_ref.id)
-            batch.commit()
-        return saved_ids
+        latest = {}
+        for record in records:
+            if not record.user_id or record.user_id in {"local-user", "test_user_001"} or "/" in record.user_id:
+                raise ValueError("A real user ID is required")
+            previous = latest.get(record.user_id)
+            if previous is None or self._status_time(record.model_dump()) >= self._status_time(previous.model_dump()):
+                latest[record.user_id] = record
+
+        @firestore.transactional
+        def update(transaction, ref, payload):
+            snapshot = ref.get(transaction=transaction)
+            if snapshot.exists:
+                previous = snapshot.to_dict()
+                if self._status_time(payload) < self._status_time(previous):
+                    return
+                fields = ("user_id", "heart_rate", "battery_level", "latitude", "longitude", "client_timestamp", "user_name")
+                if all(previous.get(key) == payload.get(key) for key in fields):
+                    return
+            payload["server_timestamp"] = self._now()
+            transaction.set(ref, payload)
+
+        for user_id, record in latest.items():
+            payload = record.model_dump(mode="python")
+            payload["user_name"] = self._user_name(user_id)
+            update(db.transaction(), db.collection("user_status").document(user_id), payload)
+        return list(latest)
+
+    @staticmethod
+    def _status_time(payload):
+        from datetime import timezone
+        value = payload.get("client_timestamp") or payload.get("server_timestamp")
+        if isinstance(value, str):
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if value is None:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
     def save_earthquake_field_report(
         self, user_id: str, data: schemas.EarthquakeFieldReportCreate
@@ -222,6 +260,7 @@ class FirebaseService:
         payload = data.model_dump(mode="python")
         payload.update({
             "user_id": user_id,
+            "user_name": self._user_name(user_id),
             "reporter_confirmed_safe": data.is_safe,
             "server_timestamp": self._now(),
         })
@@ -235,6 +274,7 @@ class FirebaseService:
             "token": token,
             "platform": platform,
             "user_id": user_id,
+            "user_name": self._user_name(user_id),
             "created_at": now,
             "last_seen_at": now,
         }, merge=True)
@@ -285,13 +325,20 @@ class FirebaseService:
         except ImportError as exc:
             raise RuntimeError("firebase-admin is not installed") from exc
 
-        if not firebase_admin._apps:
-            credential = self._load_credential(credentials)
-            project_id = os.getenv("FIREBASE_PROJECT_ID")
-            options = {"projectId": project_id} if project_id else None
-            firebase_admin.initialize_app(credential, options)
-        self._db = firestore.client()
-        return self._db
+        # FastAPI sync endpoints run concurrently in worker threads. Serialize
+        # app/client creation and recheck the cached client after acquiring the lock.
+        with _firebase_init_lock:
+            if self._db is not None:
+                return self._db
+            try:
+                app = firebase_admin.get_app()
+            except ValueError:
+                credential = self._load_credential(credentials)
+                project_id = os.getenv("FIREBASE_PROJECT_ID")
+                options = {"projectId": project_id} if project_id else None
+                app = firebase_admin.initialize_app(credential, options)
+            self._db = firestore.client(app=app)
+            return self._db
 
     def _load_credential(self, credentials):
         raw_json = os.getenv("FIREBASE_CREDENTIALS_JSON")

@@ -6,7 +6,7 @@ import {
 } from "@capacitor-community/sqlite";
 import { BACKEND } from "./backend";
 import { ChatMessage, EmergencySummary, UserStatus } from "../types";
-import { getBackendToken } from "./authService";
+import { getBackendToken, getCurrentUser } from "./authService";
 
 export interface UserStatusSyncRecord {
   id: string;
@@ -46,10 +46,16 @@ let initPromise: Promise<SQLiteDBConnection | null> | null = null;
 
 const isNativeSQLite = () => Capacitor.getPlatform() !== "web";
 
+const lastStatusSnapshot = new Map<string, string>();
+
 export async function saveUserStatusSnapshot(status: UserStatus) {
+  const user = getCurrentUser();
+  if (!user) return;
+  const fingerprint = JSON.stringify([status.heartRate, status.batteryLevel, status.location?.lat ?? null, status.location?.lng ?? null]);
+  if (lastStatusSnapshot.get(user.id) === fingerprint) return;
   const record: UserStatusSyncRecord = {
     id: createRecordId(),
-    user_id: "local-user",
+    user_id: user.id,
     heart_rate: status.heartRate,
     battery_level: status.batteryLevel,
     latitude: status.location?.lat ?? null,
@@ -60,14 +66,16 @@ export async function saveUserStatusSnapshot(status: UserStatus) {
   if (navigator.onLine) {
     const response = await fetch(`${BACKEND}/api/sync/bulk_status`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getBackendToken() || ""}` },
       body: JSON.stringify({ records: [record] }),
     });
     if (!response.ok) throw new Error(`線上狀態儲存失敗（HTTP ${response.status}）`);
+    lastStatusSnapshot.set(user.id, fingerprint);
     return record;
   }
 
   await savePendingUserStatus(record);
+  lastStatusSnapshot.set(user.id, fingerprint);
   return record;
 }
 
@@ -119,9 +127,10 @@ export async function getPendingUserStatusRecords(): Promise<UserStatusSyncRecor
   const result = await db.query(
     `SELECT id, user_id, heart_rate, battery_level, latitude, longitude, client_timestamp
      FROM pending_user_status
-     WHERE sync_status = 'pending'
+     WHERE sync_status = 'pending' AND user_id = ?
      ORDER BY created_at ASC
      LIMIT 100`,
+    [getCurrentUser()?.id || ""],
   );
 
   return (result.values || []).map((row: any) => ({
@@ -136,7 +145,9 @@ export async function getPendingUserStatusRecords(): Promise<UserStatusSyncRecor
 }
 
 export async function syncPendingUserStatusRecords() {
-  const pending = await getPendingUserStatusRecords();
+  const user = getCurrentUser();
+  if (!user || !getBackendToken()) return { success: false, synced: 0 };
+  const pending = (await getPendingUserStatusRecords()).filter((record) => record.user_id === user.id);
   if (pending.length === 0) {
     return { success: true, synced: 0 };
   }
@@ -144,7 +155,7 @@ export async function syncPendingUserStatusRecords() {
   try {
     const response = await fetch(`${BACKEND}/api/sync/bulk_status`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getBackendToken() || ""}` },
       body: JSON.stringify({
         records: pending.map((record) => ({
           user_id: record.user_id,

@@ -17,14 +17,18 @@ class EarthquakeResponseService:
         return radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
 
     def assess(self, data: schemas.EarthquakeAssessmentRequest) -> dict:
+        coordinates = (data.user_latitude, data.user_longitude, data.epicenter_latitude, data.epicenter_longitude)
         distance = self._distance_km(
             data.user_latitude,
             data.user_longitude,
             data.epicenter_latitude,
             data.epicenter_longitude,
-        )
+        ) if all(value is not None for value in coordinates) else None
 
-        if distance <= 20:
+        if distance is None:
+            zone = "unknown"
+            distance_action = "位置或震央資料不足，無法判定距離；先就地掩護，依現場狀況與官方指示行動。"
+        elif distance <= 20:
             zone = "epicentral"
             distance_action = "您位於近震央高風險區；留在掩護處，防範強烈餘震與建物掉落物。"
         elif distance <= 50:
@@ -53,7 +57,7 @@ class EarthquakeResponseService:
         earthquake_key = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:24]
         return {
             "earthquake_key": earthquake_key,
-            "distance_km": round(distance, 1),
+            "distance_km": round(distance, 1) if distance is not None else None,
             "impact_zone": zone,
             "immediate_actions": actions,
             "environmental_warnings": [],

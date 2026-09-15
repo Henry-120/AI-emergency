@@ -1,3 +1,4 @@
+from .ai_error import log_ai_error
 import base64
 import json
 import logging
@@ -74,20 +75,22 @@ class DisasterAIService:
                 )
                 response.raise_for_status()
         except httpx.TimeoutException as exc:
+            log_ai_error("disaster", exc)
             raise DisasterAIError("Gemini 回應逾時，請稍後再試") from exc
         except httpx.HTTPStatusError as exc:
-            logger.warning("Gemini HTTP error %s: %s", exc.response.status_code, exc.response.text)
+            log_ai_error("disaster", exc)
             if exc.response.status_code == 429:
                 raise DisasterAIError("Gemini 使用額度或速率已達上限，請稍後再試") from exc
             raise DisasterAIError(f"Gemini 服務連線失敗 (HTTP {exc.response.status_code})") from exc
         except httpx.HTTPError as exc:
+            log_ai_error("disaster", exc)
             raise DisasterAIError("無法連線至 Gemini 服務") from exc
 
         try:
             text = self._extract_text(response.json())
             return self._normalize(self._parse_json(text))
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            logger.warning("Invalid Gemini disaster response: %s", exc)
+            log_ai_error("disaster", exc)
             raise DisasterAIError("Gemini 回應格式不正確，請重新送出") from exc
 
     def _parse_image(self, value: str) -> tuple[str, str]:

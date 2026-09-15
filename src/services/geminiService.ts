@@ -1,3 +1,4 @@
+import { aiFetch } from "./aiDiagnostics";
 import { ChatMessage, DisasterAnalysis } from "../types";
 import { getBackendToken } from "./authService";
 import { BACKEND } from "./backend";
@@ -34,7 +35,7 @@ export async function analyzeDisaster(
   const timeout = window.setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${BACKEND}/api/ai/analyze`, {
+    const response = await aiFetch("disaster", `${BACKEND}/api/ai/analyze`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -107,4 +107,4 @@ export const INBOX_STORAGE_KEY = "guardia.bluetooth.inbox";
 export const INBOX_MAX_MESSAGES = 200;
 
 /** 藍牙狀態輪詢間隔。使用者可能隨時在系統設定關掉藍牙，UI 需要跟著更新。 */
-export const STATUS_POLL_INTERVAL_MS = 3000;
+export const STATUS_POLL_INTERVAL_MS = 15000;

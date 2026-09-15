@@ -38,6 +38,7 @@ class SosStoreService:
                 "location_details": location_details,
                 "from_local_id": from_local_id,
                 "username": payload.get("username", "未知使用者"),
+                "user_name": payload.get("username") or None,
                 "injury_summary": payload.get("injurySummary", ""),
                 "rescue_needs": payload.get("rescueNeeds", []),
                 "mobility_status": payload.get("mobilityStatus", "unknown"),

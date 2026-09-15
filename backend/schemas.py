@@ -171,23 +171,25 @@ class WeatherAlert(BaseModel):
 
 # --- 地震在地應變 / 災情回報 ---
 class EarthquakeAssessmentRequest(BaseModel):
-    user_latitude: float = Field(ge=-90, le=90)
-    user_longitude: float = Field(ge=-180, le=180)
-    epicenter_latitude: float = Field(ge=-90, le=90)
-    epicenter_longitude: float = Field(ge=-180, le=180)
-    magnitude: float = Field(ge=0, le=10)
+    user_latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    user_longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    epicenter_latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    epicenter_longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    magnitude: Optional[float] = Field(default=None, ge=0, le=10)
     location: str = Field(default="未知震央", max_length=300)
     origin_time: str = Field(default="", max_length=100)
     depth: Optional[float] = Field(default=None, ge=0, le=1000)
     battery_level: Optional[float] = Field(default=None, ge=0, le=100)
     heart_rate: Optional[int] = Field(default=None, ge=0, le=300)
     medical_summary: str = Field(default="", max_length=2000)
+    available_context: str = Field(default="", max_length=6000)
 
 
 class EarthquakeAssessmentResponse(BaseModel):
+    ai_error: Optional[dict] = None
     earthquake_key: str
-    distance_km: float
-    impact_zone: Literal["epicentral", "near", "affected", "distant"]
+    distance_km: Optional[float]
+    impact_zone: Literal["epicentral", "near", "affected", "distant", "unknown"]
     immediate_actions: List[str]
     environmental_warnings: List[str]
     safety_question: str
@@ -299,6 +301,7 @@ class RoomRiskZone(BaseModel):
     polygon: List[RoomRiskPoint]
 
 class RoomRiskAnalysisResponse(BaseModel):
+    ai_error: Optional[dict] = None
     summary: str
     overallRiskLevel: int
     objects: List[RoomRiskObject]

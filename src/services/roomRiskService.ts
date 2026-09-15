@@ -1,3 +1,4 @@
+import { aiFetch } from "./aiDiagnostics";
 import { BACKEND } from "./backend";
 import { RoomRiskAnalysis } from "../types";
 
@@ -9,7 +10,7 @@ export async function analyzeRoomRisk(
   form.append("image", image);
   form.append("sensor_context", sensorContext);
 
-  const response = await fetch(`${BACKEND}/api/room-risk/analyze`, {
+  const response = await aiFetch("room_risk", `${BACKEND}/api/room-risk/analyze`, {
     method: "POST",
     body: form,
   });

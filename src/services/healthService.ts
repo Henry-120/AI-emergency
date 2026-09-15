@@ -1,55 +1,57 @@
-import { Health } from '@awesome-cordova-plugins/health';
 import { Capacitor } from '@capacitor/core';
 
-/**
- * 初始化並請求 iOS HealthKit 讀取心律的權限
- */
-export const initHealthKit = async (): Promise<boolean> => {
-  // 如果不是在 iOS/Android 原生環境（例如在電腦瀏覽器測試），直接跳過
-  if (!Capacitor.isNativePlatform()) {
-    return false;
-  }
+// cordova-plugin-health 3.x exposes cordova.plugins.health, whereas the
+// Awesome Cordova wrapper still looks for navigator.health.
+interface NativeHealth {
+  isAvailable(success: (available: boolean) => void, error: (error: unknown) => void): void;
+  requestAuthorization(types: { read: string[] }, success: () => void, error: (error: unknown) => void): void;
+  query(options: { startDate: Date; endDate: Date; dataType: string; limit: number; ascending: boolean },
+    success: (rows: { value: unknown }[]) => void, error: (error: unknown) => void): void;
+}
 
-  try {
-    const isAvailable = await Health.isAvailable();
-    if (isAvailable) {
-      // 請求讀取心率 (heart_rate) 權限
-      await Health.requestAuthorization([
-        { read: ['heart_rate'] }
-      ]);
-      console.log('HealthKit 授權成功');
+function nativeHealth(): NativeHealth | undefined {
+  if (!Capacitor.isNativePlatform()) return undefined;
+  return (globalThis as typeof globalThis & {
+    cordova?: { plugins?: { health?: NativeHealth } };
+  }).cordova?.plugins?.health;
+}
+
+let ready = false;
+let initialization: Promise<boolean> | null = null;
+
+export function initHealthKit(): Promise<boolean> {
+  if (initialization) return initialization;
+  initialization = (async () => {
+    const health = nativeHealth();
+    if (!health) return false;
+    try {
+      const available = await new Promise<boolean>((resolve, reject) => health.isAvailable(resolve, reject));
+      if (!available) return false;
+      await new Promise<void>((resolve, reject) => health.requestAuthorization({ read: ['heart_rate'] }, resolve, reject));
+      ready = true;
       return true;
+    } catch (error) {
+      console.warn('HealthKit 初始化或授權失敗:', error);
+      return false;
     }
-  } catch (error) {
-    console.warn('HealthKit 初始化或授權失敗:', error);
-  }
-  return false;
-};
+  })();
+  return initialization;
+}
 
-/**
- * 取得最新的一筆心率數據 (BPM)
- */
-export const getLatestHeartRate = async (): Promise<number | null> => {
-  // 非原生環境直接回傳 null
-  if (!Capacitor.isNativePlatform()) {
+export async function getLatestHeartRate(): Promise<number | null> {
+  const health = nativeHealth();
+  if (!ready || !health) return null;
+  try {
+    const results = await new Promise<{ value: unknown }[]>((resolve, reject) => health.query({
+      startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      endDate: new Date(), dataType: 'heart_rate', limit: 1, ascending: false,
+    }, resolve, reject));
+    const value = Number(results?.[0]?.value);
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+  } catch (error) {
+    // Stop repeated failing native calls for this session.
+    ready = false;
+    console.warn('心率讀取失敗，本次啟動停止自動查詢:', error);
     return null;
   }
-
-  try {
-    const results = await Health.query({
-      startDate: new Date(new Date().getTime() - 24 * 60 * 60 * 1000), // 查詢過去 24 小時內
-      endDate: new Date(),
-      dataType: 'heart_rate',
-      limit: 1, // 只拿最新 1 筆
-      ascending: false
-    });
-
-    if (results && results.length > 0) {
-      // 回傳最新的心率數值
-      return Math.round(Number(results[0].value));
-    }
-  } catch (error) {
-    console.error('讀取 HealthKit 心率失敗:', error);
-  }
-  return null;
-};
+}

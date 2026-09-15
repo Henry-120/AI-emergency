@@ -1,3 +1,4 @@
+from .ai_error import log_ai_error
 import base64
 import asyncio
 import json
@@ -62,16 +63,12 @@ class RoomRiskService:
                 data = self._parse_json(text)
                 return self._normalize(data)
             except (httpx.HTTPError, ValueError, KeyError, json.JSONDecodeError) as exc:
-                logger.warning(
-                    "Room-risk Gemini attempt %s failed: %s",
-                    attempt + 1,
-                    exc,
-                )
+                error_info = log_ai_error("room_risk", exc)
                 if attempt == 0:
                     await asyncio.sleep(0.4)
 
         logger.error("Room-risk Gemini failed twice; returning safe fallback analysis.")
-        return self._fallback_analysis()
+        return {**self._fallback_analysis(), "ai_error": error_info}
 
     def _prompt(self, sensor_context: str) -> str:
         return f"""
