@@ -1,8 +1,92 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { EarthquakeAlert } from "../../services/cwaService";
 import { AuthUser, DisasterAnalysis, UserStatus } from "../../types";
 import EmergencyStatus from "../EmergencyStatus";
 import SurvivalGauge from "../SurvivalGauge";
+import { ThemePicker } from "./ThemePicker";
+
+/**
+ * 報頭。電腦版的功能入口全部收進右上角的 ☰ 選單，報頭只留問候、選單與 119。
+ *
+ * 119 刻意留在選單外：急難時要一按就撥，不能多藏一層。
+ * 「附近的人」的未讀數掛在 ☰ 上——收進選單後，使用者仍必須知道有人傳訊息來。
+ *
+ * 無障礙：☰ 帶 aria-expanded；選單可按 Esc 或點選單外關閉。
+ */
+const ICON_BTN =
+  "has-tip relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[#c8ced6] transition-[background-color,color,transform] duration-100 hover:bg-white/15 hover:text-white focus-visible:bg-white/15 active:scale-90 active:bg-white/25 disabled:opacity-40 disabled:cursor-not-allowed";
+
+function IconButton({
+  label,
+  icon,
+  onClick,
+  disabled,
+  tone,
+  badge,
+  expanded,
+}: {
+  label: string;
+  icon: string;
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: string;
+  badge?: number;
+  /** 有給值代表這顆鈕開關選單；選單開著時收起提示，免得擋住選單。 */
+  expanded?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={badge ? `${label}，${badge} 則未讀訊息` : label}
+      aria-haspopup={expanded === undefined ? undefined : "dialog"}
+      aria-expanded={expanded}
+      className={`${ICON_BTN} ${tone || ""}`}
+    >
+      <i className={`fas ${icon} text-[17px]`} aria-hidden="true"></i>
+      {badge ? (
+        <span className="font-data absolute right-1 top-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full border-2 border-[#322e4a] bg-critical px-1 text-[10px] font-bold tabular-nums text-white">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
+      {!expanded && <span className="tip">{label}</span>}
+    </button>
+  );
+}
+
+/** ☰ 選單裡的一列，樣式與手機版「更多」一致。 */
+function MenuItem({
+  label,
+  icon,
+  onClick,
+  disabled,
+  iconTone = "text-accent",
+  badge,
+}: {
+  label: string;
+  icon: string;
+  onClick: () => void;
+  disabled?: boolean;
+  iconTone?: string;
+  badge?: number;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={badge ? `${label}，${badge} 則未讀訊息` : undefined}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 active:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <i className={`fas ${icon} w-5 text-center ${iconTone}`} aria-hidden="true"></i>
+      <span className="text-sm font-semibold text-ink">{label}</span>
+      {badge ? (
+        <span className="font-data ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-critical px-1.5 text-[11px] font-bold tabular-nums text-white">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
 
 export function AppHeader({
   currentAnalysis,
@@ -51,149 +135,192 @@ export function AppHeader({
   onBroadcastEarthquakeDrill: () => void;
   onLogout: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // 選單開著時：按 Esc、或點選單以外的地方就關閉
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [menuOpen]);
+
+  const close = (fn: () => void) => () => {
+    setMenuOpen(false);
+    fn();
+  };
+
+  const statusPill = locationError ? (
+    <div className="min-w-0 truncate rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] text-[#f0b9a8]">
+      {locationError}
+    </div>
+  ) : earthquakeAlert ? (
+    <button
+      onClick={onRefreshCwa}
+      title="重新載入 CWA"
+      className="flex min-w-0 items-center gap-1.5 truncate rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] text-[#e9eaef] hover:bg-white/20"
+    >
+      <span className="truncate">
+        CWA：{earthquakeAlert.location} {earthquakeAlert.magnitude.toFixed(1)} 級
+      </span>
+      <span aria-hidden="true">⟳</span>
+    </button>
+  ) : cwaError ? (
+    <div className="min-w-0 truncate rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] text-[#f0b9a8]">
+      {cwaError}
+    </div>
+  ) : userStatus.location ? (
+    <div className="min-w-0 truncate rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] text-[#c8ced6]">
+      目前定位：{userStatus.location.lat.toFixed(4)},{" "}
+      {userStatus.location.lng.toFixed(4)}
+    </div>
+  ) : null;
+
   return (
-    <header className="z-50 shrink-0 shadow-lg safe-area-top bg-[#020617]">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3 border-b border-white/5">
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-            <i className="fas fa-shield-alt text-black text-xs"></i>
+    <header className="grad-chrome z-header shrink-0 shadow-[var(--elev-2)] safe-area-top">
+      <div className="flex items-center justify-between gap-3 px-3 pb-2 pt-2 sm:px-4">
+        <div className="flex min-w-0 shrink items-center gap-2">
+          <div className="grad-03 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+            <i className="fas fa-shield-alt text-xs text-white" aria-hidden="true"></i>
           </div>
-          <span className="font-bold text-lg tracking-tight text-white">
-            Guardia<span className="text-amber-500">AI</span>
-            {isOffline && (
-              <span className="ml-2 text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full">
-                OFFLINE
-              </span>
-            )}
+          <span className="truncate text-lg font-bold tracking-tight text-white">
+            Guardia<span className="text-[#c3b8dc]">AI</span>
           </span>
+          {isOffline && (
+            <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[10px] text-[#e9eaef]">
+              OFFLINE
+            </span>
+          )}
         </div>
 
-        <div className="order-3 flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar sm:order-none sm:w-auto sm:max-w-[75%] sm:gap-3">
+        <div className="flex shrink-0 items-center gap-3.5">
           {currentAnalysis && (
-            <div className="flex items-center gap-2 animate-in fade-in duration-500">
+            <div className="flex items-center gap-1.5">
               <div className="text-right">
-                <p className="text-[8px] text-slate-500 uppercase tracking-widest font-bold">
+                <p className="text-[8px] font-bold uppercase tracking-widest text-[#a9aec0]">
                   生存率
                 </p>
-                <p className="text-[10px] font-mono font-bold text-amber-500">
+                <p className="font-data text-[10px] font-bold text-[#c3b8dc]">
                   {currentAnalysis.survivalProbability}%
                 </p>
               </div>
               <SurvivalGauge probability={currentAnalysis.survivalProbability} />
             </div>
           )}
-          {locationError ? (
-            <div className="max-w-[70vw] shrink-0 truncate text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
-              {locationError}
-            </div>
-          ) : earthquakeAlert ? (
-            <div className="flex items-center gap-2">
-              <div className="max-w-[68vw] truncate text-[10px] text-amber-100 bg-slate-800/80 px-3 py-1 rounded-full border border-amber-500/20" title={`CWA：${earthquakeAlert.location} ${earthquakeAlert.magnitude.toFixed(1)} 級`}>
-                CWA：{earthquakeAlert.location}{" "}
-                {earthquakeAlert.magnitude.toFixed(1)} 級
-              </div>
-              <button
-                onClick={onRefreshCwa}
-                className="text-[10px] text-slate-400 hover:text-amber-400"
-                title="重新載入 CWA"
-              >
-                ⟳
-              </button>
-            </div>
-          ) : cwaError ? (
-            <div className="max-w-[70vw] shrink-0 truncate text-[10px] text-rose-300 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/10">
-              {cwaError}
-            </div>
-          ) : userStatus.location ? (
-            <div className="shrink-0 text-[10px] text-slate-300 bg-slate-800/80 px-3 py-1 rounded-full border border-white/10">
-              目前定位：{userStatus.location.lat.toFixed(4)},{" "}
-              {userStatus.location.lng.toFixed(4)}
-            </div>
-          ) : null}
-          <button
-            onClick={onDownloadOfflineSafetyPack}
-            disabled={isDownloadingMap}
-            className="shrink-0 px-3 py-2 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs font-semibold hover:bg-amber-500/20 transition-all disabled:opacity-40"
-          >
-            {isDownloadingMap ? "下載中..." : "下載避難包"}
-          </button>
-          {offlineSafetyPackReady && (
-            <button
-              onClick={onShowShelterNavigator}
-              className="shrink-0 px-3 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs font-semibold hover:bg-emerald-500/20 transition-all"
-            >
-              避難導航
-            </button>
-          )}
-          {/* 藍牙模組：附近的人入口。未讀訊息以紅點提示——使用者不在該頁面時，
-              仍必須知道有人傳訊息給他。 */}
-          {/* main 新增：救援地圖（走後端 API，與藍牙無關） */}
-          <button
-            onClick={onShowRescueMap}
-            className="shrink-0 px-3 py-2 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold hover:bg-red-500/20 transition-all"
-          >
-            救援地圖
-          </button>
-          <button
-            onClick={onShowNearbyPeople}
-            className="relative shrink-0 px-3 py-2 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-200 text-xs font-semibold hover:bg-sky-500/20 transition-all"
-            title="找到附近的人，直接傳訊息給他們（不需要網路）"
-          >
-            附近的人
-            {nearbyUnreadCount > 0 && (
-              <span
-                aria-label={`${nearbyUnreadCount} 則未讀訊息`}
-                className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold"
-              >
-                {nearbyUnreadCount > 99 ? "99+" : nearbyUnreadCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={onShowMedicalCard}
-            title="緊急醫療卡"
-            className="shrink-0 px-3 py-2 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs font-semibold hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
-          >
-            <i className="fas fa-notes-medical"></i>
-            <span className="hidden sm:inline">醫療卡</span>
-          </button>
-          <button
-            onClick={onSimulateSevereEarthquake}
-            title="測試本機強震通知、避難流程與附近 BLE 存活訊號"
-            className="shrink-0 px-3 py-2 rounded-2xl bg-red-600 text-white text-xs font-black hover:bg-red-500 transition-all"
-          >
-            🚨 模擬強震
-          </button>
-          {canBroadcastEarthquakeDrill && <button
-            disabled={isSendingDrill || isOffline}
-            onClick={onBroadcastEarthquakeDrill}
-            title="向所有已註冊推播裝置發送演練通知（非真實地震）"
-            className="shrink-0 px-3 py-2 rounded-2xl bg-red-600 text-white text-xs font-black hover:bg-red-500 transition-all"
-          >
-            {isSendingDrill ? "發送中…" : "🧪 全體強震演練"}
-          </button>}
+
           {authUser && (
-            <div className="flex shrink-0 items-center gap-2">
-              <span
-                className="text-[11px] text-slate-300 max-w-[80px] truncate hidden sm:inline"
-                title={authUser.username}
-              >
-                {authUser.username}
-              </span>
-              <button
-                onClick={onLogout}
-                title="登出"
-                className="w-8 h-8 rounded-full bg-slate-700/60 border border-white/10 flex items-center justify-center text-slate-300 hover:text-rose-300 hover:border-rose-500/30 transition-colors"
-              >
-                <i className="fas fa-right-from-bracket text-xs"></i>
-              </button>
-            </div>
+            <span
+              className="hidden max-w-[160px] truncate text-[13px] font-medium text-[#e9eaef] sm:inline"
+              title={authUser.username}
+            >
+              Hi, {authUser.username}
+            </span>
           )}
-          <button className="w-8 h-8 shrink-0 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center active:bg-red-500/30 transition-colors">
-            <i className="fas fa-phone-alt text-red-500 text-xs"></i>
-          </button>
+
+          {/* 電腦版：功能全收在 ☰ 選單。手機版隱藏，改由底部分頁列負責。 */}
+          <div ref={menuRef} className="relative hidden sm:block">
+            <IconButton
+              label="選單"
+              icon="fa-bars"
+              onClick={() => setMenuOpen((open) => !open)}
+              badge={nearbyUnreadCount}
+              expanded={menuOpen}
+            />
+            {menuOpen && (
+              <div
+                role="dialog"
+                aria-label="選單"
+                className="absolute right-0 top-[calc(100%+8px)] z-modal w-72 rounded-2xl border border-line bg-surface p-2 shadow-[var(--elev-2)]"
+              >
+                <MenuItem
+                  label={isDownloadingMap ? "下載中..." : "下載避難包"}
+                  icon={isDownloadingMap ? "fa-circle-notch fa-spin" : "fa-download"}
+                  onClick={close(onDownloadOfflineSafetyPack)}
+                  disabled={isDownloadingMap}
+                />
+                {offlineSafetyPackReady && (
+                  <MenuItem
+                    label="避難導航"
+                    icon="fa-diamond-turn-right"
+                    onClick={close(onShowShelterNavigator)}
+                  />
+                )}
+                <MenuItem
+                  label="救援地圖"
+                  icon="fa-map-location-dot"
+                  onClick={close(onShowRescueMap)}
+                />
+                <MenuItem
+                  label="附近的人"
+                  icon="fa-user-group"
+                  onClick={close(onShowNearbyPeople)}
+                  badge={nearbyUnreadCount}
+                />
+                <MenuItem
+                  label="醫療卡"
+                  icon="fa-heart-pulse"
+                  onClick={close(onShowMedicalCard)}
+                />
+                <MenuItem
+                  label="模擬強震"
+                  icon="fa-tower-broadcast"
+                  onClick={close(onSimulateSevereEarthquake)}
+                  iconTone="text-critical"
+                />
+                <div className="my-1 border-t border-line" />
+                {canBroadcastEarthquakeDrill && (
+                  <MenuItem
+                    label={isSendingDrill ? "發送中…" : "🧪 全體強震演練"}
+                    icon="fa-bullhorn"
+                    disabled={isSendingDrill || isOffline}
+                    onClick={close(onBroadcastEarthquakeDrill)}
+                    iconTone="text-critical"
+                  />
+                )}
+                <ThemePicker />
+                {authUser && (
+                  <>
+                    <div className="my-1 border-t border-line" />
+                    <MenuItem
+                      label="登出"
+                      icon="fa-right-from-bracket"
+                      onClick={close(onLogout)}
+                      iconTone="text-muted"
+                    />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <a
+            href="tel:119"
+            aria-label="撥打緊急電話 119"
+            className="grad-critical has-tip relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-transform duration-100 active:scale-90"
+          >
+            <i className="fas fa-phone-alt text-[15px] text-white" aria-hidden="true"></i>
+            <span className="tip">撥打 119</span>
+          </a>
         </div>
       </div>
+
+      {statusPill && (
+        <div className="flex px-3 pb-2 sm:px-4">
+          <div className="flex min-w-0 max-w-full">{statusPill}</div>
+        </div>
+      )}
+
+
       <EmergencyStatus status={userStatus} />
     </header>
   );

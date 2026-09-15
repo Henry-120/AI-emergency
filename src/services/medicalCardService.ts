@@ -1,6 +1,7 @@
 import { MedicalCard } from "../types";
 import { BACKEND } from "./backend";
 import { getCurrentUser, getBackendToken } from "./authService";
+import { joinFullName, splitFullName } from "./personName";
 
 /**
  * 緊急醫療卡服務。線上時以後端為準，離線時才使用 localStorage 快取。
@@ -12,6 +13,8 @@ const CARD_KEY_PREFIX = "guardia_medical_card_";
 export function emptyMedicalCard(): MedicalCard {
   return {
     fullName: "",
+    lastName: "",
+    firstName: "",
     birthday: "",
     gender: "",
     bloodType: "",
@@ -32,6 +35,18 @@ export function emptyMedicalCard(): MedicalCard {
   };
 }
 
+/**
+ * 姓、名分開存；舊的卡（快取或後端）只有全名時，從全名拆出來。
+ * 全名一律由姓＋名重組，兩邊不會對不上。
+ */
+function withNameParts(card: MedicalCard): MedicalCard {
+  const parts =
+    card.lastName || card.firstName
+      ? { lastName: card.lastName.trim(), firstName: card.firstName.trim() }
+      : splitFullName(card.fullName);
+  return { ...card, ...parts, fullName: joinFullName(parts.lastName, parts.firstName) };
+}
+
 function cardKey(): string | null {
   const user = getCurrentUser();
   return user ? `${CARD_KEY_PREFIX}${user.id}` : null;
@@ -43,7 +58,7 @@ export function getMedicalCard(): MedicalCard {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return emptyMedicalCard();
-    return { ...emptyMedicalCard(), ...JSON.parse(raw) };
+    return withNameParts({ ...emptyMedicalCard(), ...JSON.parse(raw) });
   } catch {
     return emptyMedicalCard();
   }
@@ -60,6 +75,8 @@ export function hasMedicalCard(): boolean {
 function toSnake(card: MedicalCard): Record<string, any> {
   return {
     full_name: card.fullName,
+    last_name: card.lastName,
+    first_name: card.firstName,
     birthday: card.birthday,
     gender: card.gender,
     blood_type: card.bloodType,
@@ -80,8 +97,10 @@ function toSnake(card: MedicalCard): Record<string, any> {
 }
 
 function fromSnake(data: Record<string, any>): MedicalCard {
-  return {
+  return withNameParts({
     fullName: data.full_name || "",
+    lastName: data.last_name || "",
+    firstName: data.first_name || "",
     birthday: data.birthday || "",
     gender: data.gender || "",
     bloodType: data.blood_type || "",
@@ -99,7 +118,7 @@ function fromSnake(data: Record<string, any>): MedicalCard {
     nationalId: data.national_id || "",
     notes: data.notes || "",
     updatedAt: data.updated_at || "",
-  };
+  });
 }
 
 function cacheMedicalCard(card: MedicalCard) {
@@ -137,7 +156,7 @@ export async function loadMedicalCard(): Promise<MedicalCard> {
 }
 
 export async function saveMedicalCard(card: MedicalCard): Promise<MedicalCard> {
-  const saved: MedicalCard = { ...card, updatedAt: new Date().toISOString() };
+  const saved: MedicalCard = withNameParts({ ...card, updatedAt: new Date().toISOString() });
   if (!navigator.onLine) {
     cacheMedicalCard(saved);
     return saved;

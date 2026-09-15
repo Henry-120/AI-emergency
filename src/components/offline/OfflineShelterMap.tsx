@@ -41,17 +41,17 @@ export function OfflineShelterMap({
   const nearestPoint = nearest ? project(nearest.lat, nearest.lon) : null;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+    <section className="overflow-hidden rounded-2xl border border-line bg-bg">
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-amber-300">
+          <div className="text-[10px] uppercase tracking-[0.22em] text-accent">
             離線地圖
           </div>
-          <div className="text-sm text-slate-400">
+          <div className="text-sm text-muted">
             內建避難所點位，不使用外部圖磚
           </div>
         </div>
-        <div className="text-right text-[11px] text-slate-500">
+        <div className="text-right text-[11px] text-muted">
           <div>{plottedShelters.length} 點</div>
           <div>本機資料</div>
         </div>

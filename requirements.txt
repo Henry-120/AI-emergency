@@ -1,6 +1,11 @@
+# 根目錄清單：本機直接跑後端時使用（python -m venv .venv && pip install -r requirements.txt）。
+# 需與 backend/requirements.txt（Dockerfile 使用）保持一致。
 fastapi>=0.110
 uvicorn[standard]>=0.27
 firebase-admin>=6.5
 pydantic>=2.6
 httpx>=0.27
 python-dotenv>=1.0
+python-multipart>=0.0.9
+requests>=2.31
+cryptography>=42

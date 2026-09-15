@@ -12,6 +12,8 @@ export interface EarthquakeAlert {
   epicenterLng?: number | null;
   reportColor?: string;
   web?: string;
+  /** 測試用的模擬警報。不受「震央在附近」的距離判定限制。 */
+  simulated?: boolean;
 }
 
 export async function fetchLatestAlert(): Promise<EarthquakeAlert | null> {

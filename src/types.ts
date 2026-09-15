@@ -64,7 +64,9 @@ export interface AuthUser {
 
 // 緊急醫療卡 (ICE - In Case of Emergency)
 export interface MedicalCard {
-  fullName: string;              // 姓名
+  fullName: string;              // 姓名（由姓＋名組成，對應後端 full_name）
+  lastName: string;              // 姓
+  firstName: string;             // 名
   birthday: string;              // 生日 (YYYY-MM-DD)
   gender: string;                // 性別
   bloodType: string;             // 血型 (含 Rh)

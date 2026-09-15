@@ -5,7 +5,7 @@ A calm, instrument-grade visual system for emergency response. The mood: an offi
 ## Theme
 
 - **Register:** product (the UI serves the task).
-- **Mode:** automatic light/dark. Default is a **high-contrast light** theme (most legible in daylight / outdoors). It follows `prefers-color-scheme`, and force-switches to dark on low battery (≤20%, not charging) to save power in a disaster. Users can be force-pinned via `data-theme="light|dark"` on `<html>`.
+- **Mode:** automatic light/dark. Default is a **high-contrast light** theme (most legible in daylight / outdoors). It follows `prefers-color-scheme`, and force-switches to dark on low battery (≤20%, not charging) to save power in a disaster. Users pick 自動／日間／夜間 in the 外觀 control (☰ menu on desktop, 更多 sheet on mobile): a pin sets `data-theme="light|dark"` on `<html>`, is remembered in localStorage (`guardia_theme`), and also overrides the low-battery switch; 自動 removes it.
 - **Color strategy:** Restrained. Neutral surfaces carry the page; one brand color (safety blue) carries chrome + primary actions; a disciplined red/amber/green scale carries priority. Red is reserved for CRITICAL only.
 
 ## Colors (OKLCH intent → shipped hex)
@@ -26,6 +26,19 @@ All tokens are CSS variables defined in `index.html` and surfaced to Tailwind as
 | `--critical` / `-soft` / `-text` | `#d11f2a` / `#fbeaeb` / `#9c121b` | CRITICAL priority |
 | `--high` / `-soft` / `-text` | `#b45309` / `#f8ecd9` / `#8a4308` | HIGH priority (amber) |
 | `--safe` / `-soft` / `-text` | `#157f43` / `#e3f3e9` / `#0f6536` | Safe / success / evacuate / connected |
+
+### Command chrome (兩種主題共用，固定深色)
+| Token | Hex | Role |
+|---|---|---|
+| `--command` | `#10151e` | Header / footer 外框底 |
+| `--command-2` | `#1d2532` | 外框內的次要面板、輸入框、次要按鈕 |
+| `--command-ink` | `#f4f7fb` | 外框上的主要文字 |
+| `--command-muted` | `#97a4b8` | 外框上的次要文字 |
+| `--command-line` | `#2b3443` | 外框內的細邊框 |
+| `--command-accent` | `#6ba5ff` | 外框上的焦點色（`--accent` 在亮色主題下於深底對比不足，故另立） |
+
+外框固定深色，因此**不可**在其中使用 `--ink` / `--muted` / `--accent`；
+全螢幕子頁面屬於內容而非外框，使用明亮畫布 token。
 
 ### Dark (system dark or low battery)
 | Token | Hex |

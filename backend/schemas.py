@@ -29,6 +29,8 @@ class AuthResponse(BaseModel):
 # --- 緊急醫療卡 (ICE) ---
 class MedicalCardBase(BaseModel):
     full_name: str = ""
+    last_name: str = ""   # 姓（full_name 由前端以姓＋名組成）
+    first_name: str = ""  # 名
     birthday: str = ""
     gender: str = ""
     blood_type: str = ""
@@ -354,3 +356,11 @@ class SosCaseResponse(BaseModel):
     drug_allergies: str = ""
     chronic_conditions: str = ""
     received_at: datetime
+
+
+class TTSRequest(BaseModel):
+    """語音合成請求。voice 留空時使用後端 GOOGLE_TTS_VOICE 設定值。"""
+
+    text: str
+    voice: Optional[str] = None
+    speakingRate: Optional[float] = None
