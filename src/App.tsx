@@ -735,7 +735,7 @@ const App: React.FC = () => {
    * 朗讀語速。1.0 是原速；災害提示講快一點才不會拖到後續動作，但太快會聽不清。
    * Google 與瀏覽器兩條路徑共用同一個值，聽起來才一致。
    */
-  const SPEECH_RATE = 1.2;
+  const SPEECH_RATE = 1.1;
 
   /**
    * 挑最自然的中文語音。
