@@ -25,6 +25,7 @@ export async function fetchLatestAlert(): Promise<EarthquakeAlert | null> {
       throw new Error(data.error);
     }
     return {
+      id: data.id != null ? String(data.id) : undefined,
       magnitude: Number(data.magnitude),
       location: data.location || "未知位置",
       time: data.time || "",

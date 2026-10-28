@@ -129,12 +129,6 @@ export function AppTabBar({
       },
     },
     {
-      key: "rescue",
-      label: "救援地圖",
-      icon: "fa-map-location-dot",
-      onSelect: onShowRescueMap,
-    },
-    {
       key: "nearby",
       label: "附近的人",
       icon: "fa-user-group",

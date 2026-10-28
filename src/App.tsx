@@ -65,15 +65,27 @@ import { RoomRiskAnalysis } from "./types";
 import { AuthPage } from "./components/auth/AuthPage";
 import { MedicalCardPage } from "./components/medical/MedicalCardPage";
 import { RescueMapPage } from "./components/rescue/RescueMapPage";
+import { RescueCenter } from "./components/rescue/RescueCenter";
+import { FieldMissionCenter } from "./components/rescue/FieldMissionCenter";
 import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 import { initHealthKit, getLatestHeartRate } from "./services/healthService";
 import {
   assessEarthquakeForUser,
-  submitEarthquakeFieldReport,
+  assessEarthquakeOffline,
+  submitOrQueueEarthquakeFieldReport,
+  syncPendingEarthquakeFieldReports,
 } from "./services/earthquakeResponseService";
 
 const OFFLINE_ANALYSIS_TIMEOUT_MS = 20_000;
+
+// 災情送出後仍要主動追蹤安全，但不能把每一句追蹤回答都當成新的
+// field report 重複寫入資料庫。
+const EARTHQUAKE_FOLLOW_UP_QUESTIONS = [
+  "請再確認：你或身邊的人有受傷、受困，或需要立即撥打 119／112 嗎？",
+  "目前位置有瓦斯味、火煙、掉落物、結構裂損或出口受阻嗎？",
+  "你現在仍在相對安全的位置嗎？如果要移動，撤離路線是否安全？",
+];
 
 async function getOfflineAnalysisWithTimeout(messages: ChatMessage[]) {
   let timeoutId: number | undefined;
@@ -124,9 +136,10 @@ const App: React.FC = () => {
   const [cwaError, setCwaError] = useState<string>("");
   const [initializedEarthquakeKey, setInitializedEarthquakeKey] = useState<string | null>(null);
   const [earthquakeWorkflow, setEarthquakeWorkflow] = useState<{
-    phase: "awaiting_safety" | "collecting_report";
+    phase: "awaiting_safety" | "collecting_report" | "follow_up";
     assessment: EarthquakeAssessment;
     alert: EarthquakeAlert;
+    followUpIndex?: number;
   } | null>(null);
 
   // 新增：用戶狀態
@@ -522,6 +535,60 @@ const App: React.FC = () => {
     return `BPM: ${userStatus.heartRate}, 電量: ${userStatus.batteryLevel.toFixed(0)}%, 定位: ${userStatus.location ? `${userStatus.location.lat.toFixed(5)}, ${userStatus.location.lng.toFixed(5)}` : "無訊號"}${medicalInfo}`;
   };
 
+  /**
+   * 完成地震安全追蹤後，立即把已蒐集的資訊交給目前可用的分析系統。
+   * 這是一個系統觸發的交接，不需使用者多送一則「好的」才能得到下一步；
+   * 但下一則問題仍會要求使用者提供一項可執行決策所需的關鍵資訊。
+   */
+  const continueAfterEarthquakeSafetyTracking = async (history: ChatMessage[]) => {
+    const handoffMessage: ChatMessage = {
+      id: `earthquake-handoff-context-${Date.now()}`,
+      role: "user",
+      content:
+        "【系統交接：地震安全追蹤已完成】請整合以上使用者的安全確認、第一手觀察與追蹤回答。" +
+        "請提供目前最優先的下一步，並在 missingInfoRequests 的第一項提出一個明確、可直接回答的問題，" +
+        "例如目前位置、出口是否暢通、是否有人受傷；不要用『有任何狀況再告訴我』這種開放式結語。",
+      timestamp: new Date(),
+    };
+    const analysisHistory = [...history, handoffMessage];
+
+    try {
+      const analysis = isOffline
+        ? await getOfflineAnalysisWithTimeout(analysisHistory)
+        : await analyzeDisaster(analysisHistory, getSensorContext());
+      const requiredQuestion = analysis.missingInfoRequests?.[0]
+        || "請直接回覆：你現在在室內、室外，還是正在撤離？";
+      const assistantMsg: ChatMessage = {
+        id: `earthquake-next-step-${Date.now()}`,
+        role: "assistant",
+        content:
+          "✅ 已整合目前的地震安全資訊。請先依下方行動指引處理；為判斷下一步，請優先回覆：\n" +
+          `「${requiredQuestion}」`,
+        analysis,
+        timestamp: new Date(),
+      };
+      setMessages((previous) => [...previous, assistantMsg]);
+      setCurrentAnalysis(analysis);
+      await saveEmergencyReport(
+        authUser.id,
+        analysis.emergencySummary,
+        [...history, assistantMsg],
+        userStatus.location,
+      );
+    } catch (error) {
+      console.error("地震安全追蹤交接分析失敗", error);
+      const fallbackQuestion = "請直接回覆：你現在在室內、室外，還是正在撤離？";
+      setMessages((previous) => [...previous, {
+        id: `earthquake-next-step-fallback-${Date.now()}`,
+        role: "assistant",
+        content:
+          "目前無法完成自動整合，但安全追蹤資料已保留。\n" +
+          `請先回覆：${fallbackQuestion}`,
+        timestamp: new Date(),
+      }]);
+    }
+  };
+
   const buildRoomRiskChatSummary = (analysis: RoomRiskAnalysis) => {
     const riskyObjects = analysis.objects
       .filter((object) => object.risk !== "low")
@@ -703,6 +770,15 @@ const App: React.FC = () => {
         await syncPendingEmergencyReports();
         if (user) {
           await syncPendingUserStatusRecords(user.id);
+          const fieldReports = await syncPendingEarthquakeFieldReports(user.id);
+          if (fieldReports.synced > 0) {
+            setMessages((previous) => [...previous, {
+              id: `field-report-synced-${Date.now()}`,
+              role: "assistant",
+              content: `✅ 網路已恢復，已補送 ${fieldReports.synced} 份離線地震回報。`,
+              timestamp: new Date(),
+            }]);
+          }
         }
 
         // 3. 資料都順利推播後，才來處理 UI 與登出邏輯
@@ -732,6 +808,7 @@ const App: React.FC = () => {
     if (authUser && navigator.onLine) {
       syncPendingEmergencyReports();
       syncPendingUserStatusRecords(authUser.id);
+      syncPendingEarthquakeFieldReports(authUser.id);
     }
   }, [authUser]);
 
@@ -929,8 +1006,12 @@ ${notes}`,
 
   useEffect(() => {
     void initPushNotifications();
-    return onPushEarthquakeNotificationTapped(() => {
-      void handleRefreshCwa();
+    return onPushEarthquakeNotificationTapped((alertFromPush) => {
+      if (alertFromPush) {
+        setEarthquakeAlert(alertFromPush);
+      } else {
+        void handleRefreshCwa();
+      }
       announceEarthquakeSafety();
     });
   }, []);
@@ -1148,6 +1229,39 @@ ${notes}`,
       // 情況 A：斷網狀態，自動切換至裝置端離線大模型 (0.5B)
       if (isOffline) {
         console.log("離線狀態：啟動在地 LLM 地理風險分析...");
+        // 不等待裝置端模型載入。安全確認與離線回報必須先可用，否則模型
+        // 初始化失敗或逾時時，使用者就無法留下可在連線後補送的觀察。
+        const offlineAssessment = assessEarthquakeOffline(earthquakeAlert, userStatus);
+        if (offlineAssessment) {
+          const offlineWarnings = [
+            ...offlineAssessment.immediate_actions,
+            ...offlineAssessment.environmental_warnings,
+          ];
+          setMessages((prev) => [...prev,
+            {
+              id: `offline-eq-warn-${Date.now()}`,
+              role: "assistant",
+              content:
+                `🚨 【離線地震安全確認】\n${offlineAssessment.risk_summary}\n` +
+                "這是裝置端的保守判斷；恢復連線後才會補上雲端在地分析。\n" +
+                offlineWarnings.map((warning) => `• ${warning}`).join("\n"),
+              timestamp: new Date(),
+            },
+            {
+              id: `offline-eq-question-${Date.now()}`,
+              role: "assistant",
+              content: offlineAssessment.safety_question,
+              timestamp: new Date(),
+            },
+          ]);
+          setEarthquakeWorkflow({
+            phase: "awaiting_safety",
+            assessment: offlineAssessment,
+            alert: earthquakeAlert,
+          });
+        }
+        // 離線模型失敗時也不能重新插入一輪相同的安全問題。
+        setInitializedEarthquakeKey(currentEarthquakeKey);
         try {
           const initTriggerMsg: ChatMessage = {
             id: `offline-trigger-${Date.now()}`,
@@ -1193,7 +1307,8 @@ ${notes}`,
         ];
         const warningMessage =
           `🚨 【依位置產生的地震應變】\n` +
-          `您距震央約 ${assessment.distance_km.toFixed(1)} 公里。\n` +
+          `${assessment.risk_summary}\n` +
+          "此為保守的應變優先級，不是官方震度或災損預測。\n" +
           warnings.map((warning) => `• ${warning}`).join("\n");
 
         const lbsAnalysis = {
@@ -1275,7 +1390,8 @@ ${notes}`,
       // 未確認安全時仍交給原本的災害 AI，優先提供求救與自救指示。
     } else if (earthquakeWorkflow?.phase === "collecting_report") {
       try {
-        const result = await submitEarthquakeFieldReport({
+        const result = await submitOrQueueEarthquakeFieldReport({
+          userId: authUser.id,
           assessment: earthquakeWorkflow.assessment,
           alert: earthquakeWorkflow.alert,
           status: userStatus,
@@ -1284,10 +1400,20 @@ ${notes}`,
         setMessages((previous) => [...previous, {
           id: `field-report-received-${Date.now()}`,
           role: "assistant",
-          content: `✅ 感謝回報。已將您的位置、與震央距離及第一手觀察送至災情後端（回報編號：${result.id}）。請勿為了補充資訊進入危險區域。`,
+          content:
+            (result.status === "queued"
+              ? `✅ 感謝回報。你目前離線；已將這份第一手觀察安全保存在裝置內（暫存編號：${result.id}），恢復連線後會自動上傳。`
+              : `✅ 感謝回報。已將您的位置、與震央距離及第一手觀察送至災情後端（回報編號：${result.id}）。`) +
+            "請勿為了補充資訊進入危險區域。\n\n" +
+            EARTHQUAKE_FOLLOW_UP_QUESTIONS[0],
           timestamp: new Date(),
         }]);
-        setEarthquakeWorkflow(null);
+        // 第一手災情只送一次；接下來是純對話式安全追蹤，不重複建立文件。
+        setEarthquakeWorkflow({
+          ...earthquakeWorkflow,
+          phase: "follow_up",
+          followUpIndex: 0,
+        });
       } catch (error) {
         console.error("現場災情回報失敗", error);
         setMessages((previous) => [...previous, {
@@ -1299,6 +1425,50 @@ ${notes}`,
       } finally {
         setIsAnalyzing(false);
       }
+      return;
+    } else if (earthquakeWorkflow?.phase === "follow_up") {
+      const mentionsUrgentDanger = /受傷|流血|受困|瓦斯|火煙|火災|出口受阻|無法離開|需要救援|救命/.test(
+        userMsg.content,
+      );
+      const mentionsInjury = /受傷|流血|胸痛|昏倒|呼吸困難/.test(userMsg.content);
+      if (mentionsInjury) {
+        setUserStatus((previous) => ({ ...previous, hasInjuries: true }));
+      }
+
+      const nextIndex = (earthquakeWorkflow.followUpIndex ?? 0) + 1;
+      const nextQuestion = EARTHQUAKE_FOLLOW_UP_QUESTIONS[nextIndex];
+      const urgentInstruction = mentionsUrgentDanger
+        ? "⚠️ 你提到可能的危險或需要協助。若有立即危險、傷勢或受困，請立刻撥打 119 或 112；不要為了回覆而進入危險區域。\n\n"
+        : "了解，請持續留在安全位置並觀察環境變化。\n\n";
+
+      if (nextQuestion) {
+        setMessages((previous) => [...previous, {
+          id: `safety-follow-up-${Date.now()}`,
+          role: "assistant",
+          content: urgentInstruction + nextQuestion,
+          timestamp: new Date(),
+        }]);
+        setEarthquakeWorkflow({
+          ...earthquakeWorkflow,
+          followUpIndex: nextIndex,
+        });
+      } else {
+        // 已收齊固定安全問題，不讓使用者還要多輸入一句話才開始下一步分析。
+        // 清掉地震 workflow，避免交接後的回答被誤認為另一筆 field report。
+        setEarthquakeWorkflow(null);
+        if (mentionsUrgentDanger) {
+          setMessages((previous) => [...previous, {
+            id: `safety-urgent-${Date.now()}`,
+            role: "assistant",
+            content: urgentInstruction.trim(),
+            timestamp: new Date(),
+          }]);
+        }
+        // 保持送出中的狀態直到整合結果回來，避免使用者連續輸入造成
+        // 兩次分析交錯、順序顛倒。
+        await continueAfterEarthquakeSafetyTracking(updatedMessages);
+      }
+      setIsAnalyzing(false);
       return;
     }
 
@@ -1435,6 +1605,13 @@ ${notes}`,
 
   if (!authUser) {
     return <AuthPage onAuthed={setAuthUser} />;
+  }
+
+  if (authUser.role === "rescue") {
+    return <RescueCenter location={userStatus.location} username={authUser.username} onLogout={handleLogout} />;
+  }
+  if (authUser.role === "field") {
+    return <FieldMissionCenter username={authUser.username} onLogout={handleLogout} />;
   }
 
   /**

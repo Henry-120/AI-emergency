@@ -9,6 +9,13 @@ class RegisterRequest(BaseModel):
     password: str
     email: Optional[str] = None
 
+class RescueRegisterRequest(RegisterRequest):
+    enrollment_code: str
+
+
+class FieldRegisterRequest(RegisterRequest):
+    team_code: str
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -18,6 +25,8 @@ class UserResponse(BaseModel):
     username: str
     email: Optional[str] = None
     created_at: datetime
+    role: Literal["user", "rescue", "field"] = "user"
+    team_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -119,6 +128,7 @@ class EmergencyReportResponse(EmergencySummary):
     requiresRescue: bool = False
 
 class RescueCaseResponse(BaseModel):
+    caseId: str = ""
     userId: str
     username: str
     latitude: float
@@ -134,6 +144,7 @@ class RescueCaseResponse(BaseModel):
     battery_level: Optional[float] = None
     heart_rate: Optional[int] = None
     updatedAt: datetime
+    status: str = "待處理"
 
 # --- Cloud Run Gemini 災害對話 ---
 class AIChatMessage(BaseModel):
@@ -178,6 +189,8 @@ class EarthquakeAssessmentRequest(BaseModel):
     magnitude: float = Field(ge=0, le=10)
     location: str = Field(default="未知震央", max_length=300)
     origin_time: str = Field(default="", max_length=100)
+    # CWA EarthquakeNo；搭配發震時間使用，防止不同報告重用同一編號時碰撞。
+    source_event_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     depth: Optional[float] = Field(default=None, ge=0, le=1000)
     battery_level: Optional[float] = Field(default=None, ge=0, le=100)
     heart_rate: Optional[int] = Field(default=None, ge=0, le=300)
@@ -188,6 +201,11 @@ class EarthquakeAssessmentResponse(BaseModel):
     earthquake_key: str
     distance_km: float
     impact_zone: Literal["epicentral", "near", "affected", "distant"]
+    risk_level: Literal["critical", "high", "elevated", "guarded"]
+    risk_summary: str
+    magnitude_band: str
+    depth_band: str
+    official_tsunami_status: Literal["unknown", "none", "advisory", "warning"]
     immediate_actions: List[str]
     environmental_warnings: List[str]
     safety_question: str
@@ -195,6 +213,8 @@ class EarthquakeAssessmentResponse(BaseModel):
 
 
 class EarthquakeFieldReportCreate(BaseModel):
+    # 裝置離線時會先保留這個 UUID；恢復連線重送時用它避免建立重複文件。
+    client_report_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     earthquake_key: str = Field(min_length=1, max_length=500)
     user_latitude: float = Field(ge=-90, le=90)
     user_longitude: float = Field(ge=-180, le=180)
@@ -202,6 +222,7 @@ class EarthquakeFieldReportCreate(BaseModel):
     epicenter_longitude: float = Field(ge=-180, le=180)
     magnitude: float = Field(ge=0, le=10)
     location: str = Field(default="未知震央", max_length=300)
+    source_event_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     distance_km: float = Field(ge=0)
     is_safe: bool
     observation: str = Field(min_length=1, max_length=4000)
@@ -213,6 +234,162 @@ class EarthquakeFieldReportCreate(BaseModel):
 class EarthquakeFieldReportResponse(BaseModel):
     id: str
     status: str
+
+
+class RescueIncidentCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    earthquake_key: str = Field(min_length=1, max_length=500)
+
+
+class RescueIncidentEventAdd(BaseModel):
+    earthquake_key: str = Field(min_length=1, max_length=500)
+
+
+class RescueIncidentResponse(BaseModel):
+    id: str
+    title: str
+    event_keys: List[str] = Field(default_factory=list)
+    status: str = "active"
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class RescueSiteCreateFromReport(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=4000)
+    incident_id: Optional[str] = Field(default=None, max_length=128)
+
+
+class RescueSiteResponse(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    earthquake_key: str
+    incident_id: Optional[str] = None
+    latitude: float
+    longitude: float
+    status: str = "待查證"
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonRescueCaseCreateFromReport(BaseModel):
+    label: str = Field(default="匿名受災者", min_length=1, max_length=120)
+    situation_summary: str = Field(default="", max_length=4000)
+    priority: int = Field(default=3, ge=1, le=5)
+    site_id: Optional[str] = Field(default=None, max_length=128)
+    incident_id: Optional[str] = Field(default=None, max_length=128)
+
+
+class PersonRescueCaseStatusUpdate(BaseModel):
+    status: Literal[
+        "已確認需要救援", "已確認無需救援", "待派遣",
+        "救援中", "已協助", "結案",
+    ]
+
+
+class PersonRescueCaseStatusHistoryEntry(BaseModel):
+    from_status: Optional[str] = None
+    to_status: str
+    updated_by: str
+    updated_at: datetime
+    reason: Optional[str] = None
+    mission_id: Optional[str] = None
+
+
+class PersonRescueCaseResponse(BaseModel):
+    id: str
+    label: str
+    situation_summary: str = ""
+    earthquake_key: str
+    incident_id: Optional[str] = None
+    site_id: Optional[str] = None
+    latitude: float
+    longitude: float
+    priority: int = 3
+    status: str = "待核實"
+    status_history: List[PersonRescueCaseStatusHistoryEntry] = Field(default_factory=list)
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class RescueMissionCreate(BaseModel):
+    case_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=160)
+    team_id: str = Field(min_length=1, max_length=128)
+    instructions: str = Field(min_length=1, max_length=4000)
+
+
+class RescueMissionResponse(BaseModel):
+    id: str
+    case_id: str
+    title: str
+    team_id: Optional[str] = None
+    team_name: str
+    case_label: str = ""
+    case_summary: str = ""
+    instructions: str
+    earthquake_key: str
+    incident_id: Optional[str] = None
+    site_id: Optional[str] = None
+    latitude: float
+    longitude: float
+    status: str = "待隊伍確認"
+    created_by: str
+    assigned_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    status_history: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class RescueTeamCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+
+
+class RescueTeamResponse(BaseModel):
+    id: str
+    name: str
+    created_by: str
+    created_at: datetime
+    member_count: int = 0
+
+
+class RescueTeamCreatedResponse(RescueTeamResponse):
+    join_code: str
+
+
+class RescueTeamMemberResponse(BaseModel):
+    id: str
+    username: str
+    email: Optional[str] = None
+    created_at: datetime
+    role: Literal["field"] = "field"
+
+
+class RescueMissionStatusUpdate(BaseModel):
+    status: Literal["已接受", "前往現場", "已抵達", "任務完成", "已拒絕"]
+    note: str = Field(default="", max_length=2000)
+
+
+class RescueReportLinkCreate(BaseModel):
+    target_type: Literal["site", "case"]
+    target_id: str = Field(min_length=1, max_length=128)
+    note: str = Field(default="", max_length=500)
+
+
+class RescueReportLinkResponse(BaseModel):
+    id: str
+    source_type: str
+    source_id: str
+    target_type: Literal["site", "case"]
+    target_id: str
+    target_label: str
+    note: str = ""
+    linked_by: str
+    linked_at: datetime
 
 
 # --- 推播裝置註冊 ---
@@ -351,6 +528,7 @@ class SosCaseResponse(BaseModel):
     drug_allergies: str = ""
     chronic_conditions: str = ""
     received_at: datetime
+    rescue_status: str = "待處理"
 
 
 class TTSRequest(BaseModel):

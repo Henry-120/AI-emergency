@@ -1,16 +1,19 @@
 import React, { useState } from "react";
 import { AuthUser } from "../../types";
-import { login, register } from "../../services/authService";
+import { login, register, registerField, registerRescue } from "../../services/authService";
 
 type Mode = "login" | "register";
 
 /** 版面回到最初的結構（置中 Logo、分頁切換、欄位標籤在上）。 */
 export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
   const [mode, setMode] = useState<Mode>("login");
+  const [accountType, setAccountType] = useState<"user" | "rescue" | "field">("user");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [enrollmentCode, setEnrollmentCode] = useState("");
+  const [teamCode, setTeamCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -29,9 +32,18 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
       const result =
         mode === "login"
           ? await login(username, password)
-          : await register(username, password, email);
+          : accountType === "rescue"
+            ? await registerRescue(username, password, email, enrollmentCode)
+            : accountType === "field"
+              ? await registerField(username, password, email, teamCode)
+              : await register(username, password, email);
 
       if (result.success && result.user) {
+        if (accountType !== result.user.role) {
+          const roleName = accountType === "user" ? "一般使用者" : accountType === "rescue" ? "協調員" : "外勤隊員";
+          setError(`此帳號角色與目前選擇不符，請切換至「${roleName}」登入。`);
+          return;
+        }
         onAuthed(result.user);
       } else {
         setError(result.error || "發生未知錯誤，請再試一次");
@@ -66,6 +78,15 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
             Guardia<span className="text-accent">AI</span>
           </span>
           <p className="text-xs text-muted mt-1">智慧災害應變系統</p>
+        </div>
+
+        <div className="mb-4 grid grid-cols-3 rounded-xl border border-line bg-surface-2 p-1">
+          {(["user", "rescue", "field"] as const).map((type) => (
+            <button key={type} type="button" onClick={() => { setAccountType(type); setError(""); setMode("login"); }}
+              className={`min-h-11 flex-1 rounded-lg text-sm font-semibold ${accountType === type ? "grad-action text-white" : "text-muted"}`}>
+              {type === "user" ? "一般使用者" : type === "rescue" ? "協調員" : "外勤隊員"}
+            </button>
+          ))}
         </div>
 
         {/* 分頁切換 */}
@@ -127,6 +148,22 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
             </div>
           )}
 
+          {mode === "register" && accountType === "rescue" && (
+            <div>
+              <label htmlFor="auth-rescue-code" className="block text-xs text-muted mb-1.5">救援啟用碼</label>
+              <input id="auth-rescue-code" type="password" value={enrollmentCode} onChange={(e) => setEnrollmentCode(e.target.value)}
+                autoComplete="off" placeholder="請向系統管理者取得" className={FIELD} />
+            </div>
+          )}
+
+          {mode === "register" && accountType === "field" && (
+            <div>
+              <label htmlFor="auth-team-code" className="block text-xs text-muted mb-1.5">隊伍邀請碼</label>
+              <input id="auth-team-code" type="text" value={teamCode} onChange={(e) => setTeamCode(e.target.value.toUpperCase())}
+                autoComplete="off" placeholder="請向協調員取得隊伍邀請碼" className={FIELD} />
+            </div>
+          )}
+
           <div>
             <label htmlFor="auth-password" className="block text-xs text-muted mb-1.5">
               密碼
@@ -173,12 +210,12 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
             disabled={busy}
             className="grad-action min-h-11 w-full py-3 rounded-xl text-white font-bold text-sm transition-all active:scale-[0.99] disabled:opacity-50"
           >
-            {busy ? "處理中..." : mode === "login" ? "登入" : "建立帳號"}
+            {busy ? "處理中..." : mode === "login" ? "登入" : accountType === "rescue" ? "申請協調員帳號" : accountType === "field" ? "加入隊伍並建立帳號" : "建立帳號"}
           </button>
         </form>
 
         <p className="text-[11px] text-muted text-center mt-6 leading-relaxed">
-          姓名與醫療卡資料會安全地儲存在本機，
+          {accountType === "rescue" ? "協調員帳號需由系統管理者核發啟用碼。" : accountType === "field" ? "外勤帳號需使用所屬救援隊伍的邀請碼。" : "姓名與醫療卡資料會安全地儲存在本機，"}
           <br />
           即使在無網路的災害現場也能使用。
         </p>

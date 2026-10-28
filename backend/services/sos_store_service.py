@@ -24,7 +24,8 @@ class SosStoreService:
     ) -> bool:
         db = firebase_service._get_db()
         ref = db.collection("sos_reports").document(msg_id)
-        is_new = not ref.get().exists
+        existing = ref.get()
+        is_new = not existing.exists
         medical = payload.get("medical") or {}
         ref.set(
             {
@@ -46,6 +47,7 @@ class SosStoreService:
                 "chronic_conditions": medical.get("chronicConditions", ""),
                 "client_timestamp": payload.get("timestamp"),
                 "received_at": datetime.now(timezone.utc),
+                "rescue_status": (existing.to_dict() or {}).get("rescue_status", "待處理"),
             },
             merge=True,
         )

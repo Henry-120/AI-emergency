@@ -2,6 +2,7 @@ import { BACKEND, buildBackendUrl } from "./backend";
 import { getBackendToken } from "./authService";
 
 export interface RescueCase {
+  caseId: string;
   userId: string;
   username: string;
   latitude: number;
@@ -15,7 +16,224 @@ export interface RescueCase {
   mobilityStatus: string;
   locationDetails: string;
   updatedAt: string;
+  status: string;
 }
+
+export interface FieldReport {
+  id: string;
+  earthquake_key: string;
+  source_event_id?: string;
+  origin_time?: string;
+  epicenter_latitude?: number;
+  epicenter_longitude?: number;
+  user_latitude: number;
+  user_longitude: number;
+  magnitude: number;
+  location: string;
+  distance_km: number;
+  observation: string;
+  observed_at?: string;
+  server_timestamp?: string;
+  status: string;
+  links?: RescueReportLink[];
+}
+
+export interface RescueReportLink {
+  id: string;
+  target_type: "site" | "case";
+  target_id: string;
+  target_label: string;
+  note: string;
+}
+
+export interface PersonRescueCase {
+  id: string;
+  label: string;
+  situation_summary: string;
+  earthquake_key: string;
+  incident_id?: string;
+  site_id?: string;
+  latitude: number;
+  longitude: number;
+  priority: number;
+  status: string;
+  status_history?: PersonRescueCaseStatusHistoryEntry[];
+}
+
+export interface PersonRescueCaseStatusHistoryEntry {
+  from_status?: string | null;
+  to_status: string;
+  updated_by: string;
+  updated_at: string;
+  reason?: string;
+  mission_id?: string;
+}
+
+export interface RescueMission {
+  id: string;
+  case_id: string;
+  title: string;
+  team_id?: string;
+  team_name: string;
+  case_label?: string;
+  case_summary?: string;
+  instructions: string;
+  earthquake_key: string;
+  incident_id?: string;
+  site_id?: string;
+  latitude: number;
+  longitude: number;
+  status: string;
+  created_by: string;
+  assigned_at: string;
+  created_at: string;
+  updated_at: string;
+  status_history?: { from_status: string; to_status: string; updated_by: string; updated_at: string; note?: string }[];
+}
+
+export interface RescueTeam {
+  id: string;
+  name: string;
+  created_by: string;
+  created_at: string;
+  member_count: number;
+}
+
+export interface RescueTeamCreated extends RescueTeam {
+  join_code: string;
+}
+
+export interface RescueTeamMember {
+  id: string;
+  username: string;
+  email?: string;
+  created_at: string;
+  role: "field";
+}
+
+export interface RescueSite {
+  id: string;
+  title: string;
+  description: string;
+  earthquake_key: string;
+  incident_id?: string;
+  latitude: number;
+  longitude: number;
+  status: string;
+}
+
+export interface RescueIncident {
+  id: string;
+  title: string;
+  event_keys: string[];
+  status: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FieldSummary {
+  summary: string;
+  key_findings: string[];
+  uncertainties: string[];
+  report_count: number;
+  source_ids: string[];
+  source_refs: { number: number; id: string; observed_at: string; location: string }[];
+  generated_at: string;
+}
+
+async function rescueRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = getBackendToken();
+  if (!token) throw new Error("請重新登入救援人員帳號");
+  const response = await fetch(`${BACKEND}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || `救援資料載入失敗（HTTP ${response.status}）`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export const fetchFieldReports = (limit = 200, incidentId?: string) => {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (incidentId) query.set("incident_id", incidentId);
+  return rescueRequest<FieldReport[]>(`/api/rescue/field-reports?${query.toString()}`);
+};
+export const fetchFieldSummary = (earthquakeKey?: string, incidentId?: string) => {
+  const query = new URLSearchParams();
+  if (earthquakeKey) query.set("earthquake_key", earthquakeKey);
+  if (incidentId) query.set("incident_id", incidentId);
+  return rescueRequest<FieldSummary>(`/api/rescue/field-summary?${query.toString()}`, { method: "GET" });
+};
+export const fetchRescueIncidents = () => rescueRequest<RescueIncident[]>("/api/rescue/incidents");
+export const createRescueIncident = (title: string, earthquakeKey: string) =>
+  rescueRequest<RescueIncident>("/api/rescue/incidents", {
+    method: "POST",
+    body: JSON.stringify({ title, earthquake_key: earthquakeKey }),
+  });
+export const addEventToRescueIncident = (incidentId: string, earthquakeKey: string) =>
+  rescueRequest<RescueIncident>(`/api/rescue/incidents/${encodeURIComponent(incidentId)}/events`, {
+    method: "POST",
+    body: JSON.stringify({ earthquake_key: earthquakeKey }),
+  });
+export const fetchPersonRescueCases = () => rescueRequest<PersonRescueCase[]>("/api/rescue/person-cases");
+export const fetchRescueMissions = (caseId?: string) => {
+  const query = new URLSearchParams();
+  if (caseId) query.set("case_id", caseId);
+  const suffix = query.toString();
+  return rescueRequest<RescueMission[]>(`/api/rescue/missions${suffix ? `?${suffix}` : ""}`);
+};
+export const createRescueMission = (data: { case_id: string; title: string; team_id: string; instructions: string }) =>
+  rescueRequest<RescueMission>("/api/rescue/missions", { method: "POST", body: JSON.stringify(data) });
+export const fetchRescueTeams = () => rescueRequest<RescueTeam[]>("/api/rescue/teams");
+export const createRescueTeam = (name: string) => rescueRequest<RescueTeamCreated>("/api/rescue/teams", {
+  method: "POST", body: JSON.stringify({ name }),
+});
+export const fetchRescueTeamMembers = (teamId: string) =>
+  rescueRequest<RescueTeamMember[]>(`/api/rescue/teams/${encodeURIComponent(teamId)}/members`);
+export const fetchFieldTeam = () => rescueRequest<RescueTeam>("/api/field/team");
+export const fetchFieldMissions = () => rescueRequest<RescueMission[]>("/api/field/missions");
+export const updateFieldMissionStatus = (missionId: string, status: string, note = "") =>
+  rescueRequest<RescueMission>(`/api/field/missions/${encodeURIComponent(missionId)}/status`, {
+    method: "POST", body: JSON.stringify({ status, note }),
+  });
+export const updatePersonRescueCaseStatus = (caseId: string, status: string) =>
+  rescueRequest<PersonRescueCase>(`/api/rescue/person-cases/${encodeURIComponent(caseId)}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+export const fetchNearbyPersonRescueCases = (location: { lat: number; lng: number }, radiusKm = 50) => {
+  const query = new URLSearchParams({ latitude: String(location.lat), longitude: String(location.lng), radius_km: String(radiusKm) });
+  return rescueRequest<PersonRescueCase[]>(`/api/rescue/person-cases/nearby?${query.toString()}`);
+};
+export const fetchRescueSites = () => rescueRequest<RescueSite[]>("/api/rescue/sites");
+export const createPersonRescueCaseFromReport = (
+  reportId: string,
+  data: { label: string; situation_summary: string; priority: number; site_id?: string; incident_id?: string },
+) => rescueRequest<PersonRescueCase>(`/api/rescue/field-reports/${encodeURIComponent(reportId)}/person-cases`, {
+  method: "POST",
+  body: JSON.stringify(data),
+});
+export const createRescueSiteFromReport = (
+  reportId: string,
+  data: { title: string; description: string; incident_id?: string },
+) => rescueRequest<RescueSite>(`/api/rescue/field-reports/${encodeURIComponent(reportId)}/sites`, {
+  method: "POST",
+  body: JSON.stringify(data),
+});
+export const linkFieldReport = (
+  reportId: string,
+  targetType: "site" | "case",
+  targetId: string,
+  note = "",
+) => rescueRequest<RescueReportLink>(`/api/rescue/field-reports/${encodeURIComponent(reportId)}/links`, {
+  method: "POST",
+  body: JSON.stringify({ target_type: targetType, target_id: targetId, note }),
+});
+export const updateRescueStatus = (kind: "cases" | "field-reports" | "sos", id: string, status: string) =>
+  rescueRequest<{ status: string }>(`/api/rescue/${kind}/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify({ status }) });
 
 export async function fetchNearbyRescueCases(
   location: { lat: number; lng: number },
@@ -69,6 +287,7 @@ export interface SosCase {
   drugAllergies: string;
   chronicConditions: string;
   receivedAt: string;
+  status: string;
 }
 
 interface SosCaseApiResponse {
@@ -90,6 +309,7 @@ interface SosCaseApiResponse {
   drug_allergies: string;
   chronic_conditions: string;
   received_at: string;
+  rescue_status: string;
 }
 
 function fromSosApiResponse(item: SosCaseApiResponse): SosCase {
@@ -112,6 +332,7 @@ function fromSosApiResponse(item: SosCaseApiResponse): SosCase {
     drugAllergies: item.drug_allergies,
     chronicConditions: item.chronic_conditions,
     receivedAt: item.received_at,
+    status: item.rescue_status,
   };
 }
 

@@ -48,6 +48,11 @@ export interface EarthquakeAssessment {
   earthquake_key: string;
   distance_km: number;
   impact_zone: 'epicentral' | 'near' | 'affected' | 'distant';
+  risk_level: 'critical' | 'high' | 'elevated' | 'guarded';
+  risk_summary: string;
+  magnitude_band: string;
+  depth_band: string;
+  official_tsunami_status: 'unknown' | 'none' | 'advisory' | 'warning';
   immediate_actions: string[];
   environmental_warnings: string[];
   safety_question: string;
@@ -60,6 +65,8 @@ export interface AuthUser {
   username: string;
   email?: string;
   createdAt: string;
+  role: 'user' | 'rescue' | 'field';
+  teamId?: string;
 }
 
 // 緊急醫療卡 (ICE - In Case of Emergency)

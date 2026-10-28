@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import os
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -101,6 +102,18 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="使用者不存在")
     return user
+
+
+def require_rescue_user(current_user: dict = Depends(get_current_user)) -> dict:
+    if current_user.get("role", "user") != "rescue":
+        raise HTTPException(status_code=403, detail="此功能僅限救援人員帳號使用")
+    return current_user
+
+
+def require_field_user(current_user: dict = Depends(get_current_user)) -> dict:
+    if current_user.get("role") != "field" or not current_user.get("team_id"):
+        raise HTTPException(status_code=403, detail="此功能僅限已加入救援隊的外勤人員使用")
+    return current_user
 @app.post("/api/auth/register", response_model=schemas.AuthResponse)
 def register(data: schemas.RegisterRequest):
     username = data.username.strip()
@@ -116,11 +129,67 @@ def register(data: schemas.RegisterRequest):
     except ValueError as exc:
         if str(exc) == "username_exists":
             raise HTTPException(status_code=409, detail="此帳號已被註冊") from exc
+        elif str(exc) == "email_exists":
+            raise HTTPException(status_code=409, detail="此 Email 已被註冊") from exc
+        else:
+            raise
+    token = auth.create_token(user["id"], user["username"])
+    return {"token": token, "user": user}
+
+
+@app.post("/api/auth/rescue/register", response_model=schemas.AuthResponse)
+def register_rescue(data: schemas.RescueRegisterRequest):
+    enrollment_code = os.getenv("RESCUE_ENROLLMENT_CODE", "").strip()
+    if not enrollment_code:
+        raise HTTPException(status_code=503, detail="伺服器尚未開放救援帳號申請，請聯絡系統管理者")
+    if not secrets.compare_digest(data.enrollment_code, enrollment_code):
+        raise HTTPException(status_code=403, detail="救援啟用碼錯誤")
+    username = data.username.strip()
+    if len(username) < 2 or len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="帳號至少 2 個字元，密碼至少 6 個字元")
+    try:
+        user = firebase_service.create_user(
+            username=username,
+            email=(data.email or "").strip() or None,
+            password_hash=auth.hash_password(data.password),
+            role="rescue",
+        )
+    except ValueError as exc:
+        if str(exc) == "username_exists":
+            existing_user = firebase_service.get_user_by_username(username)
+            if not existing_user or not auth.verify_password(data.password, existing_user.get("password_hash", "")):
+                raise HTTPException(status_code=401, detail="既有帳號的密碼不正確") from exc
+            user = firebase_service.set_user_role(existing_user["id"], "rescue")
+            if not user:
+                raise HTTPException(status_code=404, detail="找不到既有帳號") from exc
+        elif str(exc) == "email_exists":
+            raise HTTPException(status_code=409, detail="此 Email 已被註冊") from exc
+        else:
+            raise
+    return {"token": auth.create_token(user["id"], user["username"]), "user": user}
+
+
+@app.post("/api/auth/field/register", response_model=schemas.AuthResponse)
+def register_field(data: schemas.FieldRegisterRequest):
+    username = data.username.strip()
+    if len(username) < 2 or len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="帳號至少 2 個字元，密碼至少 6 個字元")
+    try:
+        user = firebase_service.register_field_user(
+            username=username,
+            email=(data.email or "").strip() or None,
+            password_hash=auth.hash_password(data.password),
+            team_code=data.team_code,
+        )
+    except ValueError as exc:
+        if str(exc) == "team_code_invalid":
+            raise HTTPException(status_code=403, detail="隊伍邀請碼無效或已停用") from exc
+        if str(exc) == "username_exists":
+            raise HTTPException(status_code=409, detail="此帳號名稱已被使用") from exc
         if str(exc) == "email_exists":
             raise HTTPException(status_code=409, detail="此 Email 已被註冊") from exc
         raise
-    token = auth.create_token(user["id"], user["username"])
-    return {"token": token, "user": user}
+    return {"token": auth.create_token(user["id"], user["username"]), "user": user}
 
 
 @app.post("/api/auth/login", response_model=schemas.AuthResponse)
@@ -239,11 +308,311 @@ def get_nearby_rescue_cases(
     latitude: float,
     longitude: float,
     radius_km: float = 50,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_rescue_user),
 ):
     """回傳救難隊位置周圍、由 AI 判定需要救援且有 GPS 的案件。"""
     radius_km = max(1, min(radius_km, 200))
     return firebase_service.get_nearby_rescue_cases(latitude, longitude, radius_km)
+
+
+class RescueStatusUpdate(BaseModel):
+    status: str
+
+
+@app.get("/api/rescue/incidents", response_model=list[schemas.RescueIncidentResponse])
+def list_rescue_incidents(
+    limit: int = 100,
+    current_user: dict = Depends(require_rescue_user),
+):
+    return firebase_service.list_rescue_incidents(limit)
+
+
+@app.get("/api/rescue/missions", response_model=list[schemas.RescueMissionResponse])
+def list_rescue_missions(
+    case_id: str | None = None,
+    limit: int = 200,
+    current_user: dict = Depends(require_rescue_user),
+):
+    return firebase_service.list_rescue_missions(case_id=case_id, limit=limit)
+
+
+@app.post("/api/rescue/missions", response_model=schemas.RescueMissionResponse)
+def create_rescue_mission(
+    data: schemas.RescueMissionCreate,
+    current_user: dict = Depends(require_rescue_user),
+):
+    try:
+        return firebase_service.create_rescue_mission(current_user["id"], data)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/rescue/teams", response_model=list[schemas.RescueTeamResponse])
+def list_rescue_teams(current_user: dict = Depends(require_rescue_user)):
+    return firebase_service.list_rescue_teams()
+
+
+@app.post("/api/rescue/teams", response_model=schemas.RescueTeamCreatedResponse)
+def create_rescue_team(
+    data: schemas.RescueTeamCreate,
+    current_user: dict = Depends(require_rescue_user),
+):
+    if not data.name.strip():
+        raise HTTPException(status_code=400, detail="請輸入隊伍名稱")
+    return firebase_service.create_rescue_team(current_user["id"], data.name)
+
+
+@app.get("/api/rescue/teams/{team_id}/members", response_model=list[schemas.RescueTeamMemberResponse])
+def list_rescue_team_members(
+    team_id: str,
+    current_user: dict = Depends(require_rescue_user),
+):
+    if not firebase_service.get_rescue_team(team_id):
+        raise HTTPException(status_code=404, detail="找不到救援隊伍")
+    return firebase_service.list_rescue_team_members(team_id)
+
+
+@app.get("/api/field/team", response_model=schemas.RescueTeamResponse)
+def get_field_team(current_user: dict = Depends(require_field_user)):
+    team = next((item for item in firebase_service.list_rescue_teams() if item["id"] == current_user["team_id"]), None)
+    if not team:
+        raise HTTPException(status_code=404, detail="所屬隊伍已不存在或停用")
+    return team
+
+
+@app.get("/api/field/missions", response_model=list[schemas.RescueMissionResponse])
+def list_field_missions(current_user: dict = Depends(require_field_user)):
+    return firebase_service.list_rescue_missions(team_id=current_user["team_id"])
+
+
+@app.post("/api/field/missions/{mission_id}/status", response_model=schemas.RescueMissionResponse)
+def update_field_mission_status(
+    mission_id: str,
+    data: schemas.RescueMissionStatusUpdate,
+    current_user: dict = Depends(require_field_user),
+):
+    try:
+        mission = firebase_service.update_rescue_mission_status(
+            current_user["id"], current_user["team_id"], mission_id, data.status, data.note
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not mission:
+        raise HTTPException(status_code=404, detail="找不到救援任務")
+    return mission
+
+
+@app.get("/api/rescue/person-cases/nearby", response_model=list[schemas.PersonRescueCaseResponse])
+def get_nearby_person_rescue_cases(
+    latitude: float,
+    longitude: float,
+    radius_km: float = 50,
+    current_user: dict = Depends(require_rescue_user),
+):
+    """只查詢救難隊附近的個人案件，供任務地圖使用。"""
+    radius_km = max(1, min(radius_km, 200))
+    return firebase_service.get_nearby_person_rescue_cases(latitude, longitude, radius_km)
+
+
+@app.post("/api/rescue/incidents", response_model=schemas.RescueIncidentResponse)
+def create_rescue_incident(
+    data: schemas.RescueIncidentCreate,
+    current_user: dict = Depends(require_rescue_user),
+):
+    return firebase_service.create_rescue_incident(
+        current_user["id"], data.title, data.earthquake_key
+    )
+
+
+@app.post("/api/rescue/incidents/{incident_id}/events", response_model=schemas.RescueIncidentResponse)
+def add_event_to_rescue_incident(
+    incident_id: str,
+    data: schemas.RescueIncidentEventAdd,
+    current_user: dict = Depends(require_rescue_user),
+):
+    incident = firebase_service.add_event_to_rescue_incident(incident_id, data.earthquake_key)
+    if not incident:
+        raise HTTPException(status_code=404, detail="找不到救援行動")
+    return incident
+
+
+@app.get("/api/rescue/person-cases", response_model=list[schemas.PersonRescueCaseResponse])
+def list_person_rescue_cases(
+    earthquake_key: str | None = None,
+    incident_id: str | None = None,
+    current_user: dict = Depends(require_rescue_user),
+):
+    return firebase_service.list_person_rescue_cases(earthquake_key, incident_id)
+
+
+@app.post(
+    "/api/rescue/person-cases/{case_id}/status",
+    response_model=schemas.PersonRescueCaseResponse,
+)
+def update_person_rescue_case_status(
+    case_id: str,
+    data: schemas.PersonRescueCaseStatusUpdate,
+    current_user: dict = Depends(require_rescue_user),
+):
+    try:
+        case = firebase_service.update_person_rescue_case_status(
+            current_user["id"], case_id, data.status
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not case:
+        raise HTTPException(status_code=404, detail="找不到個人救援案件")
+    return case
+
+
+@app.get("/api/rescue/sites", response_model=list[schemas.RescueSiteResponse])
+def list_rescue_sites(
+    earthquake_key: str | None = None,
+    incident_id: str | None = None,
+    current_user: dict = Depends(require_rescue_user),
+):
+    return firebase_service.list_rescue_sites(earthquake_key, incident_id)
+
+
+@app.post("/api/rescue/field-reports/{report_id}/sites", response_model=schemas.RescueSiteResponse)
+def create_rescue_site_from_report(
+    report_id: str,
+    data: schemas.RescueSiteCreateFromReport,
+    current_user: dict = Depends(require_rescue_user),
+):
+    if not data.title.strip():
+        raise HTTPException(status_code=400, detail="請輸入現場名稱")
+    try:
+        site = firebase_service.create_rescue_site_from_report(current_user["id"], report_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not site:
+        raise HTTPException(status_code=404, detail="找不到來源回報")
+    return site
+
+
+@app.post("/api/rescue/field-reports/{report_id}/person-cases", response_model=schemas.PersonRescueCaseResponse)
+def create_person_rescue_case_from_report(
+    report_id: str,
+    data: schemas.PersonRescueCaseCreateFromReport,
+    current_user: dict = Depends(require_rescue_user),
+):
+    if not data.label.strip():
+        raise HTTPException(status_code=400, detail="請輸入個案標示")
+    try:
+        case = firebase_service.create_person_rescue_case_from_report(current_user["id"], report_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not case:
+        raise HTTPException(status_code=404, detail="找不到來源回報")
+    return case
+
+
+@app.post("/api/rescue/field-reports/{report_id}/links", response_model=schemas.RescueReportLinkResponse)
+def link_field_report(
+    report_id: str,
+    data: schemas.RescueReportLinkCreate,
+    current_user: dict = Depends(require_rescue_user),
+):
+    try:
+        relation = firebase_service.link_field_report_to_target(
+            current_user["id"], report_id, data.target_type, data.target_id, data.note
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not relation:
+        raise HTTPException(status_code=404, detail="找不到來源回報")
+    return relation
+
+
+@app.get("/api/rescue/field-reports")
+def get_rescue_field_reports(
+    earthquake_key: str | None = None,
+    limit: int = 200,
+    incident_id: str | None = None,
+    current_user: dict = Depends(require_rescue_user),
+):
+    if incident_id and not firebase_service.get_rescue_incident(incident_id):
+        raise HTTPException(status_code=404, detail="找不到救援行動")
+    if not incident_id and not earthquake_key:
+        return firebase_service.list_earthquake_field_reports(limit=limit)
+    return firebase_service.list_earthquake_field_reports(
+        earthquake_key, limit, incident_id=incident_id
+    )
+
+
+@app.post("/api/rescue/cases/{case_id}/status")
+def update_rescue_case_status(
+    case_id: str,
+    data: RescueStatusUpdate,
+    current_user: dict = Depends(require_rescue_user),
+):
+    allowed = {"待處理", "已確認", "已派遣", "處理中", "已完成"}
+    if data.status not in allowed:
+        raise HTTPException(status_code=400, detail="無效的案件狀態")
+    if not firebase_service.update_rescue_status(case_id, data.status):
+        raise HTTPException(status_code=404, detail="找不到案件")
+    return {"status": data.status}
+
+
+@app.post("/api/rescue/field-reports/{report_id}/status")
+def update_field_report_status(
+    report_id: str,
+    data: RescueStatusUpdate,
+    current_user: dict = Depends(require_rescue_user),
+):
+    allowed = {"待確認", "已確認", "已處理"}
+    if data.status not in allowed:
+        raise HTTPException(status_code=400, detail="無效的回報狀態")
+    if not firebase_service.update_rescue_status(report_id, data.status):
+        raise HTTPException(status_code=404, detail="找不到現場回報")
+    return {"status": data.status}
+
+
+@app.post("/api/rescue/sos/{case_id}/status")
+def update_sos_case_status(
+    case_id: str,
+    data: RescueStatusUpdate,
+    current_user: dict = Depends(require_rescue_user),
+):
+    if data.status not in {"待處理", "已確認", "已派遣", "處理中", "已完成"}:
+        raise HTTPException(status_code=400, detail="無效的案件狀態")
+    if not firebase_service.update_rescue_status(case_id, data.status):
+        raise HTTPException(status_code=404, detail="找不到求救案件")
+    return {"status": data.status}
+
+
+@app.get("/api/rescue/field-summary")
+async def summarize_rescue_field_reports(
+    earthquake_key: str | None = None,
+    incident_id: str | None = None,
+    current_user: dict = Depends(require_rescue_user),
+):
+    if incident_id and not firebase_service.get_rescue_incident(incident_id):
+        raise HTTPException(status_code=404, detail="找不到救援行動")
+    if not earthquake_key and not incident_id:
+        raise HTTPException(status_code=400, detail="請指定地震事件或救援行動")
+    reports = firebase_service.list_earthquake_field_reports(
+        earthquake_key, 200, incident_id=incident_id
+    )
+    if not reports:
+        raise HTTPException(status_code=404, detail="目前沒有這起地震的現場回報")
+    try:
+        summary = await disaster_ai_service.summarize_field_reports(reports)
+    except DisasterAIError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        **summary,
+        "report_count": len(reports),
+        "source_ids": [item["id"] for item in reports],
+        "source_refs": [
+            {"number": index, "id": item["id"], "observed_at": str(item.get("observed_at") or item.get("server_timestamp") or ""), "location": item.get("location", "未知地點")}
+            for index, item in enumerate(reports[:200], 1)
+        ],
+        "generated_at": firebase_service._now().isoformat(),
+    }
 
 
 @app.get("/api/weather/latest")
@@ -287,7 +656,21 @@ async def assess_earthquake(
             f"規模 {data.magnitude:.1f} 地震，震央 {data.location}，"
             f"座標 {data.epicenter_latitude:.5f}, {data.epicenter_longitude:.5f}"
         )
-        ai_result = await location_ai_service.analyze_risk(location_info, disaster_info)
+        # 將規則引擎已驗證的數值交給 AI。AI 只能做在地化措辭與補充，
+        # 不可覆寫距離、規模、深度或官方警報狀態。
+        verified_context = {
+            "distanceKm": assessment["distance_km"],
+            "impactZone": assessment["impact_zone"],
+            "riskLevel": assessment["risk_level"],
+            "riskSummary": assessment["risk_summary"],
+            "magnitudeBand": assessment["magnitude_band"],
+            "depthBand": assessment["depth_band"],
+            "officialTsunamiStatus": assessment["official_tsunami_status"],
+            "localEnvironment": "unknown",
+        }
+        ai_result = await location_ai_service.analyze_risk(
+            location_info, disaster_info, verified_context
+        )
         warnings = ai_result.get("environmentalWarnings") or []
         assessment["environmental_warnings"] = [str(item) for item in warnings[:4]]
     except Exception:
@@ -440,7 +823,7 @@ def get_nearby_sos_reports(
     latitude: float,
     longitude: float,
     radius_km: float = 50,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_rescue_user),
 ):
     """
     救援地圖用：附近透過藍牙中繼送達的求救記錄。

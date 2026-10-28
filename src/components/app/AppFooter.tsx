@@ -190,7 +190,7 @@ export function AppFooter({
             hideQuickBar ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
           }`}
           aria-hidden={hideQuickBar}
-          {...(hideQuickBar ? { inert: "" as unknown as boolean } : {})}
+          {...(hideQuickBar ? { inert: true } : {})}
         >
           <div className="overflow-hidden">
         {/* AR 鈕放在捲動容器外面：overflow-x-auto 會把浮出的提示裁掉，

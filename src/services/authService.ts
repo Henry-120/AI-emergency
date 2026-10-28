@@ -27,6 +27,8 @@ interface BackendUser {
   username: string;
   email?: string | null;
   created_at: string;
+  role?: "user" | "rescue" | "field";
+  team_id?: string | null;
 }
 
 interface BackendAuthResponse {
@@ -53,6 +55,8 @@ function toAuthUser(user: BackendUser): AuthUser {
     username: user.username,
     email: user.email || undefined,
     createdAt: user.created_at,
+    role: user.role || "user",
+    teamId: user.team_id || undefined,
   };
 }
 
@@ -263,6 +267,7 @@ export async function register(
     username: name,
     email: mail || undefined,
     createdAt: new Date().toISOString(),
+    role: "user",
   };
   const passwordHash = await hashPassword(password);
   users.push({ ...user, passwordHash });
@@ -299,7 +304,52 @@ export async function login(username: string, password: string): Promise<AuthRes
     username: found.username,
     email: found.email,
     createdAt: found.createdAt,
+    role: found.role || "user",
   };
   setSession(user);
   return { success: true, user };
+}
+
+export async function registerRescue(
+  username: string,
+  password: string,
+  email: string,
+  enrollmentCode: string,
+): Promise<AuthResult> {
+  if (!navigator.onLine) return { success: false, error: "救援帳號需連線驗證，請連上網路後再申請" };
+  try {
+    const response = await fetchBackend("/api/auth/rescue/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username.trim(), password, email: email.trim() || null, enrollment_code: enrollmentCode }),
+    });
+    if (!response.ok) return { success: false, error: await readBackendError(response) };
+    const data = await response.json() as BackendAuthResponse;
+    const user = await cacheOnlineAccount(data, password);
+    return { success: true, user };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "救援帳號申請失敗" };
+  }
+}
+
+export async function registerField(
+  username: string,
+  password: string,
+  email: string,
+  teamCode: string,
+): Promise<AuthResult> {
+  if (!navigator.onLine) return { success: false, error: "外勤帳號需連線驗證，請連上網路後再申請" };
+  try {
+    const response = await fetchBackend("/api/auth/field/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username.trim(), password, email: email.trim() || null, team_code: teamCode.trim() }),
+    });
+    if (!response.ok) return { success: false, error: await readBackendError(response) };
+    const data = await response.json() as BackendAuthResponse;
+    const user = await cacheOnlineAccount(data, password);
+    return { success: true, user };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "外勤帳號申請失敗" };
+  }
 }

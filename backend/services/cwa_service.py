@@ -38,6 +38,7 @@ class CWAService:
                 eq = earthquakes[0]["EarthquakeInfo"]
                 epicenter = eq["Epicenter"]
                 return {
+                    "id": str(eq.get("EarthquakeNo")) if eq.get("EarthquakeNo") is not None else None,
                     "magnitude": eq["EarthquakeMagnitude"]["MagnitudeValue"],
                     "location": epicenter["Location"],
                     "time": eq["OriginTime"],
@@ -127,11 +128,16 @@ class CWAService:
 
         seen = set()
         unique = []
+        # 同一筆地震報告可能因測站展開多列；以官方編號和發震時間
+        # 去重，避免不同地震共用／重用 EarthquakeNo 時被誤刪。
         for earthquake in collected:
             earthquake_id = earthquake["id"]
-            if earthquake_id is None or earthquake_id in seen:
+            if earthquake_id is None:
                 continue
-            seen.add(earthquake_id)
+            identity = (str(earthquake_id), earthquake["originTime"])
+            if identity in seen:
+                continue
+            seen.add(identity)
             unique.append(earthquake)
 
         unique.sort(key=lambda item: item["originTime"], reverse=True)
