@@ -139,3 +139,38 @@ export async function fetchNearbySosReports(
     window.clearTimeout(timeout);
   }
 }
+
+export interface FieldReport {
+  id: string;
+  earthquake_key: string;
+  latitude: number;
+  longitude: number;
+  distance_km: number;
+  observation: string;
+  observed_at: string | null;
+  received_at: string;
+  analysis_status: "pending" | "ready" | "unavailable";
+  analysis: null | {
+    category: "road" | "building" | "fire" | "utility" | "other";
+    summary: string;
+    impact: string;
+    location_description: string;
+  };
+}
+
+export async function fetchNearbyFieldReports(location: { lat: number; lng: number }): Promise<FieldReport[]> {
+  const token = getBackendToken();
+  if (!token) throw new Error("請先登入才能查看災情回報");
+  const url = buildBackendUrl("/api/earthquake/field-reports/nearby");
+  url.searchParams.set("latitude", String(location.lat));
+  url.searchParams.set("longitude", String(location.lng));
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+    if (!response.ok) throw new Error(`災情回報載入失敗（HTTP ${response.status}）`);
+    return response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}

@@ -45,6 +45,7 @@ export interface UserStatus {
 }
 
 export interface EarthquakeAssessment {
+  ai_error?: { code?: string; http_status?: number | null; error_type?: string } | null;
   earthquake_key: string;
   distance_km: number | null;
   impact_zone: 'epicentral' | 'near' | 'affected' | 'distant' | 'unknown';

@@ -56,12 +56,14 @@ class TTSService:
                     raise TTSError("google-auth 未安裝") from exc
 
                 path = self._service_account_path()
-                if path is None:
-                    raise TTSError("找不到 Google 服務帳號金鑰檔")
-
-                self._credentials = service_account.Credentials.from_service_account_file(
-                    str(path), scopes=SCOPES
-                )
+                if path is not None:
+                    self._credentials = service_account.Credentials.from_service_account_file(
+                        str(path), scopes=SCOPES
+                    )
+                else:
+                    # Cloud Run supplies its service identity through ADC; no key file is needed.
+                    import google.auth
+                    self._credentials, _ = google.auth.default(scopes=SCOPES)
             return self._credentials
 
     def _access_token(self) -> str:

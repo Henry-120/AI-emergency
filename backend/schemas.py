@@ -214,6 +214,28 @@ class EarthquakeFieldReportCreate(BaseModel):
     observed_at: Optional[datetime] = None
 
 
+class FieldReportAnalysis(BaseModel):
+    category: Literal["road", "building", "fire", "utility", "other"]
+    summary: str = Field(min_length=1, max_length=600)
+    impact: str = Field(min_length=1, max_length=600)
+    location_description: str = Field(min_length=1, max_length=300)
+
+
+class FieldReportMapItem(BaseModel):
+    id: str
+    earthquake_key: str
+    latitude: float
+    longitude: float
+    distance_km: float
+    observation: str
+    observed_at: Optional[datetime] = None
+    received_at: datetime
+    analysis_status: Literal["pending", "ready", "unavailable"]
+    analysis: Optional[FieldReportAnalysis] = None
+    verification_status: Literal["unverified"] = "unverified"
+    location_basis: Literal["reporter"] = "reporter"
+
+
 class EarthquakeFieldReportResponse(BaseModel):
     id: str
     status: str

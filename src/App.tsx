@@ -191,7 +191,6 @@ const App: React.FC = () => {
   });
   const notifiedEarthquakeRef = useRef<string | null>(null);
   const sosEarthquakeRef = useRef<string | null>(null);
-  const isFetchingLbsRef = useRef(false);
 
   // 藍牙收件匣必須在 App 層級常駐。
   //
@@ -561,17 +560,21 @@ const App: React.FC = () => {
   };
 
   const handleSimulateSevereEarthquake = () => {
+    goHome();
     const location = userStatus.location || { lat: 25.033, lng: 121.5654 };
     notifiedEarthquakeRef.current = null;
     sosEarthquakeRef.current = null;
-    setEarthquakeAlert({
+    const simulatedAlert: EarthquakeAlert = {
       magnitude: 6.5,
       location: "模擬強震（測試資料）",
       time: new Date().toISOString(),
       epicenterLat: location.lat + 0.5,
       epicenterLng: location.lng,
       simulated: true,
-    });
+    };
+    earthquakeAlertRef.current = simulatedAlert;
+    setEarthquakeAlert(simulatedAlert);
+    announceEarthquakeSafety(simulatedAlert);
   };
 
   const [canBroadcastEarthquakeDrill, setCanBroadcastEarthquakeDrill] =
@@ -999,8 +1002,8 @@ const App: React.FC = () => {
     "切勿搭乘電梯",
   ];
 
-  const announceEarthquakeSafety = () => {
-    const alert = earthquakeAlertRef.current;
+  const announceEarthquakeSafety = (currentAlert?: EarthquakeAlert) => {
+    const alert = currentAlert ?? earthquakeAlertRef.current;
 
     // 語音只問一句：人身安全 + 周遭狀況，講完立刻開麥克風讓使用者直接回答。
     // 搖晃當下沒有人聽得完一整段防災指令，先確認人還好不好才是要緊的。
@@ -1082,6 +1085,7 @@ ${notes}`,
     // 發送推播通知
     if (notifiedEarthquakeRef.current !== key) {
       notifiedEarthquakeRef.current = key;
+      if (!earthquakeAlert.simulated) announceEarthquakeSafety(earthquakeAlert);
       void notifyEarthquakeAlert(earthquakeAlert).then((result) => {
         if (result.shown) return;
         // 通知被擋掉時要講出來。原本這裡靜靜吞掉失敗，使用者只會覺得「按了沒反應」。
@@ -1256,7 +1260,7 @@ ${notes}`,
   // ✅ LBS 環境風險分析初始化（線上/離線雙軌）
   useEffect(() => {
     // 每一場新地震各啟動一次；不能用單一 boolean，否則第二場地震永遠不會觸發。
-    if (!earthquakeAlert) return;
+    if (isCheckingSession || !authUser || !earthquakeAlert) return;
     const currentEarthquakeKey = `${earthquakeAlert.time || earthquakeAlert.originTime}-${earthquakeAlert.magnitude}-${earthquakeAlert.location}`;
     if (initializedEarthquakeKey === currentEarthquakeKey) return;
     // 遠距使用者也需要得到「留在原地觀察」等不同建議，故此處不套用 100 公里門檻。
@@ -1267,9 +1271,11 @@ ${notes}`,
     );
     if (Number.isFinite(occurredAt) && Date.now() - occurredAt > 30 * 60 * 1000)
       return;
-    // 防止重複觸發
-    if (isFetchingLbsRef.current) return;
-    isFetchingLbsRef.current = true; // 上鎖
+    // Each event/account owns its result. An older request must not block a new drill
+    // or overwrite its safety workflow when it eventually completes.
+    let active = true;
+    setEarthquakeWorkflow(null);
+    const status = userStatusRef.current;
     const progressId = `lbs-progress-${currentEarthquakeKey}`;
     setMessages((previous) => [...previous.filter((message) => message.id !== progressId), {
       id: progressId, role: "assistant",
@@ -1277,17 +1283,19 @@ ${notes}`,
       timestamp: new Date(),
     }]);
     const finishProgress = (content: string) => {
+      if (!active) return;
       setMessages((previous) => previous.map((message) =>
         message.id === progressId ? { ...message, content } : message));
     };
     const failProgress = (error: unknown) => {
+      if (!active) return;
       finishProgress([
         "【基本避難報告｜雲端或離線模型未完成】",
         `原因：${error instanceof Error ? error.message : "無法連線至分析服務"}`,
         "• 搖晃時趴下、掩護頭頸、抓穩固定物，遠離玻璃與掉落物。",
         "• 搖晃停止後檢查傷勢與周遭危險，勿搭電梯；需要救援時聯絡緊急服務。",
-        userStatus.location ? "• 已取得定位，但尚未驗證附近路況或撤離路線。" : "• 尚未取得定位，無法判定震央距離或推薦在地路線。",
-        userStatus.batteryLevel <= 20 ? "• 電量偏低，開啟省電模式並保留求救電力。" : "",
+        status.location ? "• 已取得定位，但尚未驗證附近路況或撤離路線。" : "• 尚未取得定位，無法判定震央距離或推薦在地路線。",
+        status.batteryLevel <= 20 ? "• 電量偏低，開啟省電模式並保留求救電力。" : "",
         summarizeMedicalCard(getMedicalCard()) ? "• 如需撤離，攜帶必要藥物與醫療裝置，勿返回危險處取物。" : "",
         "這是依已知資訊提供的基本建議，不是已完成的 AI 環境評估。",
       ].filter(Boolean).join("\n"));
@@ -1295,7 +1303,7 @@ ${notes}`,
     };
 
     const fetchLbsRisk = async () => {
-      const location = userStatus.location;
+      const location = status.location;
       const currentLocation = location
         ? `GPS座標 (緯度: ${location.lat.toFixed(4)}, 經度: ${location.lng.toFixed(4)})`
         : "未取得定位，不可推測所在位置";
@@ -1328,6 +1336,7 @@ ${notes}`,
           const offlineAnalysis = await getOfflineAnalysisWithTimeout([
             initTriggerMsg,
           ]);
+          if (!active) return;
 
           setMessages((prev) => [
             ...prev,
@@ -1344,11 +1353,9 @@ ${notes}`,
           finishProgress("離線環境評估已完成，請查看下方結果。");
           setCurrentAnalysis(offlineAnalysis);
           setInitializedEarthquakeKey(currentEarthquakeKey);
-          isFetchingLbsRef.current = false;
         } catch (error) {
           failProgress(error);
           console.error("離線環境分析失敗:", error);
-          isFetchingLbsRef.current = false;
         }
         return;
       }
@@ -1358,16 +1365,17 @@ ${notes}`,
         const medicalSummary = summarizeMedicalCard(getMedicalCard());
         const assessment = await assessEarthquakeForUser(
           earthquakeAlert,
-          userStatus,
+          status,
           medicalSummary,
           messages.filter((message) => message.role === "user").slice(-8).map((message) => message.content).join("\n"),
         );
+        if (!active) return;
         const warnings = [
           ...assessment.immediate_actions,
           ...assessment.environmental_warnings,
         ];
         const warningMessage =
-          `🚨 【依位置產生的地震應變】\n` +
+          (assessment.ai_error ? "🚨 【地震基本應變｜AI 個人化分析暫未完成】\n" : "🚨 【AI 個人化地震應變分析】\n") +
           (assessment.distance_km == null ? "尚無足夠座標判定震央距離，以下依已知資訊提供建議。\n" : `您距震央約 ${assessment.distance_km.toFixed(1)} 公里。\n`) +
           warnings.map((warning) => `• ${warning}`).join("\n");
 
@@ -1400,17 +1408,18 @@ ${notes}`,
           alert: earthquakeAlert,
         });
         setInitializedEarthquakeKey(currentEarthquakeKey);
-        isFetchingLbsRef.current = false;
       } catch (error) {
         failProgress(error);
         console.error("初始化 LBS 聊天失敗:", error);
-        isFetchingLbsRef.current = false; // 失敗時解鎖允許重試
       }
     };
 
-    fetchLbsRisk();
+    void fetchLbsRisk();
+    return () => { active = false; };
   }, [
-    userStatus.location,
+    authUser?.id,
+    isCheckingSession,
+    userStatus.location !== null,
     earthquakeAlert,
     initializedEarthquakeKey,
     isOffline,

@@ -28,7 +28,7 @@ for env_file in [
                 if key and key not in os.environ:
                     os.environ[key] = value
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Query, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from . import auth, schemas
@@ -301,7 +301,7 @@ async def get_location_risk(request: LocationRiskRequest):
 
 # 地震應變的 AI 在地補充最多等幾秒。Gemini 忙線時可能卡到 25 秒，
 # 但「趴下、掩護」等距離規則的救命指示不能跟著等，逾時就只回規則部分。
-EARTHQUAKE_AI_TIMEOUT_SECONDS = 6
+EARTHQUAKE_AI_TIMEOUT_SECONDS = 20
 
 
 @app.post("/api/earthquake/assess", response_model=schemas.EarthquakeAssessmentResponse)
@@ -340,13 +340,27 @@ async def assess_earthquake(
 @app.post("/api/earthquake/field-report", response_model=schemas.EarthquakeFieldReportResponse)
 def create_earthquake_field_report(
     data: schemas.EarthquakeFieldReportCreate,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):
     """接收已確認安全之使用者提供的具座標第一手災情。"""
     if not data.is_safe:
         raise HTTPException(status_code=409, detail="尚未確認安全，請先依指示避難或求救")
     report_id = firebase_service.save_earthquake_field_report(current_user["id"], data)
+    from .services.field_report_service import structure_field_report
+    background_tasks.add_task(structure_field_report, report_id, data.observation)
     return {"id": report_id, "status": "received"}
+
+
+@app.get("/api/earthquake/field-reports/nearby", response_model=list[schemas.FieldReportMapItem])
+def nearby_field_reports(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    radius_km: float = Query(default=50, gt=0, le=100),
+    current_user: dict = Depends(get_current_user),
+):
+    """Recent anonymous field observations; never expose medical or account data."""
+    return firebase_service.nearby_field_reports(latitude, longitude, radius_km)
 
 
 def require_drill_operator(current_user: dict = Depends(get_current_user)) -> dict:

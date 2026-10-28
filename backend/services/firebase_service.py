@@ -2,7 +2,7 @@ import hashlib
 import json
 import os
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from threading import Lock
 from typing import Iterable
@@ -262,10 +262,38 @@ class FirebaseService:
             "user_id": user_id,
             "user_name": self._user_name(user_id),
             "reporter_confirmed_safe": data.is_safe,
+            "analysis_status": "pending",
             "server_timestamp": self._now(),
         })
         ref.set(payload)
         return ref.id
+
+    def update_field_report_analysis(self, report_id: str, update: dict) -> None:
+        self._get_db().collection("earthquake_field_reports").document(report_id).update(update)
+
+    def nearby_field_reports(self, latitude: float, longitude: float, radius_km: float) -> list[dict]:
+        # One range query avoids a composite index; bound history to the last 24 hours.
+        query = (self._get_db().collection("earthquake_field_reports")
+                 .where("server_timestamp", ">=", self._now() - timedelta(hours=24)))
+        items = []
+        for snapshot in query.stream():
+            report = snapshot.to_dict()
+            lat, lon = report.get("user_latitude"), report.get("user_longitude")
+            if lat is None or lon is None:
+                continue
+            distance = self._distance_km(latitude, longitude, lat, lon)
+            if distance > radius_km:
+                continue
+            analysis = report.get("analysis")
+            items.append({
+                "id": snapshot.id, "earthquake_key": report["earthquake_key"],
+                "latitude": lat, "longitude": lon, "distance_km": round(distance, 2),
+                "observation": report["observation"], "observed_at": report.get("observed_at"),
+                "received_at": report["server_timestamp"],
+                "analysis_status": report.get("analysis_status", "unavailable"),
+                "analysis": analysis,
+            })
+        return sorted(items, key=lambda item: item["received_at"], reverse=True)[:300]
 
     def register_device_token(self, token: str, platform: str, user_id: str | None) -> None:
         ref = self._get_db().collection("device_tokens").document(token)
