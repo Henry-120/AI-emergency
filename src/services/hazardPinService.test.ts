@@ -82,7 +82,7 @@ describe("hazardPinService", () => {
 describe("disasterCategories", () => {
   it("五類都有名稱和顏色，跟郭宏的災情區域一致", () => {
     expect(DISASTER_CATEGORIES).toEqual(["road", "building", "fire", "utility", "other"]);
-    expect(CATEGORY_LABELS.utility).toBe("民生設施");
+    expect(CATEGORY_LABELS.utility).toBe("停水停電");
     expect(CATEGORY_COLORS.fire).toBe("#ef4444");
     expect(new Set(Object.values(CATEGORY_COLORS)).size).toBe(5);
   });

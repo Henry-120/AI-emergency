@@ -470,8 +470,10 @@ export function RescueMapPage({
           ))}
         </div>
       )}
-      <div className="relative min-h-[45vh] flex-1">
-        <div ref={containerRef} className="absolute inset-0" />
+      {/* 地圖容器跟原本一樣自己帶 min-h，不用 absolute：MapLibre 會在容器加上 position: relative
+          蓋掉 absolute，而且建立當下量到的高度就是畫布高度，之後不一定會跟著外框長大。 */}
+      <div className="relative flex min-h-[45vh] flex-1 flex-col">
+        <div ref={containerRef} className="min-h-[45vh] flex-1" />
         {placing ? (
           // 地圖中央的十字：水滴的尖端就是標記的位置。
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-10">

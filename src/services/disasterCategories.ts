@@ -9,11 +9,11 @@ export type DisasterCategory = "road" | "building" | "fire" | "utility" | "other
 export const DISASTER_CATEGORIES: DisasterCategory[] = ["road", "building", "fire", "utility", "other"];
 
 export const CATEGORY_LABELS: Record<DisasterCategory, string> = {
-  road: "道路",
-  building: "建物",
-  fire: "火災",
-  utility: "民生設施",
-  other: "其他觀察",
+  road: "道路不通",
+  building: "建築受損",
+  fire: "火災・瓦斯",
+  utility: "停水停電",
+  other: "其他危險",
 };
 
 export const CATEGORY_COLORS: Record<DisasterCategory, string> = {
