@@ -44,6 +44,34 @@ export function hazardPinSvg(color: string): string {
 }
 
 /**
+ * 自己的位置：像 Google 地圖的藍色圓點加淡藍光圈，跟水滴形的災情標記分得開。
+ * 光圈不接收點擊，才不會擋到底下的地圖和標記；點中間的圓點仍可打開說明。
+ */
+export function createMyLocationElement(label: string): HTMLElement {
+  const element = document.createElement("div");
+  element.style.width = "40px";
+  element.style.height = "40px";
+  element.style.borderRadius = "50%";
+  element.style.background = "rgb(26 115 232 / 0.18)";
+  element.style.display = "grid";
+  element.style.placeItems = "center";
+  element.style.pointerEvents = "none";
+  const dot = document.createElement("div");
+  dot.setAttribute("role", "img");
+  dot.setAttribute("aria-label", label);
+  dot.style.width = "16px";
+  dot.style.height = "16px";
+  dot.style.borderRadius = "50%";
+  dot.style.background = "#1a73e8";
+  dot.style.border = "3px solid #fff";
+  dot.style.boxShadow = "0 1px 4px rgb(0 0 0 / 0.35)";
+  dot.style.cursor = "pointer";
+  dot.style.pointerEvents = "auto";
+  element.append(dot);
+  return element;
+}
+
+/**
  * 藍牙收到的附近訊號：受困的求救是紅色三角形，其他求救是琥珀色菱形，存活訊號是藍色圓點。
  * 跟災情大頭針、救援端的案件標記都分得開。
  */

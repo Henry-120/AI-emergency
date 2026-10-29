@@ -9,7 +9,7 @@ import { getRecords, subscribeInbox } from "../../services/bluetooth/bluetoothIn
 import { getNearbySosSightings, subscribeSosStatus } from "../../services/sos/sosRelay";
 import { HazardPinEditor } from "./HazardPinEditor";
 import { MyStatusCard } from "./MyStatusCard";
-import { createHazardPinElement, createNearbySignalElement, hazardPinSvg } from "./statusStyles";
+import { createHazardPinElement, createMyLocationElement, createNearbySignalElement, hazardPinSvg } from "./statusStyles";
 const reportTime = (item: FieldReport) => new Date(item.observed_at || item.received_at).toLocaleString("zh-TW", { hour12: false });
 
 const RESCUE_REFRESH_INTERVAL_MS = 10_000;
@@ -159,9 +159,10 @@ export function RescueMapPage({
       zoom: 12,
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
-    userMarkerRef.current = new maplibregl.Marker({ color: "#22c55e" })
+    const selfLabel = isRescue ? "救難隊目前位置" : "你的位置";
+    userMarkerRef.current = new maplibregl.Marker({ element: createMyLocationElement(selfLabel) })
       .setLngLat([mapLocation.lng, mapLocation.lat])
-      .setPopup(new maplibregl.Popup().setText("救難隊目前位置"))
+      .setPopup(new maplibregl.Popup({ offset: 14 }).setText(selfLabel))
       .addTo(map);
     mapRef.current = map;
     return () => {
@@ -338,6 +339,14 @@ export function RescueMapPage({
     mapRef.current?.flyTo({ center: [point.longitude, point.latitude], zoom: 16 });
   };
 
+  /** 飛回自己現在的位置（GPS 有更新就用最新的），至少放大到看得到街道。 */
+  const recenter = () => {
+    const map = mapRef.current;
+    const here = location ?? mapLocation;
+    if (!map || !here) return;
+    map.flyTo({ center: [here.lng, here.lat], zoom: Math.max(map.getZoom(), 15) });
+  };
+
   const startPlacing = () => {
     setPinError("");
     setPlacingCategory(null);
@@ -494,6 +503,22 @@ export function RescueMapPage({
             </button>
           )
         )}
+        {mapLocation && (
+          // 放在右上角放大縮小按鈕的正下方；釘選災情時也能用，把十字拉回自己身邊。
+          <button
+            type="button"
+            onClick={recenter}
+            aria-label="回到我的位置"
+            title="回到我的位置"
+            className="tappable absolute right-[10px] top-[108px] z-10 grid h-11 w-11 place-items-center rounded-full bg-white text-[#1a73e8] shadow-[var(--elev-2)]"
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="7" />
+              <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+            </svg>
+          </button>
+        )}
       </div>
       <section className="pb-[var(--tabbar-clearance)] max-h-[38vh] overflow-y-auto border-t border-line bg-bg p-3 space-y-2">
         {placing ? (
@@ -555,7 +580,7 @@ export function RescueMapPage({
         {isRescue ? (
           <>
             <div className="text-xs text-muted">
-              待救援 {cases.length} 人、藍牙求救 {sosCases.length} 筆、災情回報 {fieldReports.length} 筆 · 綠色是你的位置
+              待救援 {cases.length} 人、藍牙求救 {sosCases.length} 筆、災情回報 {fieldReports.length} 筆 · 藍點是你的位置
             </div>
             {cases.length === 0 && sosCases.length === 0 && fieldReports.length === 0 && !loading && (
               <div className="py-6 text-center text-sm text-muted">附近目前沒有具 GPS 的待救援案件</div>
@@ -563,7 +588,7 @@ export function RescueMapPage({
           </>
         ) : (
           <div className="text-xs text-muted">
-            災情回報 {fieldReports.length} 筆、使用者標記 {hazardPins.length} 個 · 綠色是你的位置
+            災情回報 {fieldReports.length} 筆、使用者標記 {hazardPins.length} 個 · 藍點是你的位置
           </div>
         )}
         {showFieldReports && <div className="text-xs text-muted">災情顯示最近 24 小時，最多 300 筆。各色區域為回報者周圍 300 公尺的示意範圍，非實際災區邊界；回報均未查證。</div>}
