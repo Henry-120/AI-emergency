@@ -2,9 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import maplibregl, { Map, Marker, GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { fetchNearbyRescueCases, fetchNearbySosReports, fetchNearbyFieldReports, FieldReport, RescueCase, SosCase } from "../../services/rescueService";
-
-const CATEGORY_LABELS = { road: "道路", building: "建物", fire: "火災", utility: "民生設施", other: "其他觀察" };
-const CATEGORY_COLORS = { road: "#f97316", building: "#8b5cf6", fire: "#ef4444", utility: "#0ea5e9", other: "#64748b" };
+import { CATEGORY_COLORS, CATEGORY_LABELS, DisasterCategory } from "../../services/disasterCategories";
+import { createHazardPin, deleteHazardPin, fetchNearbyHazardPins, HazardPin, updateHazardPin } from "../../services/hazardPinService";
+import { buildNearbySignals, describeNearbySignal, NearbySignal } from "../../services/nearbyBluetoothSignals";
+import { getRecords, subscribeInbox } from "../../services/bluetooth/bluetoothInbox";
+import { getNearbySosSightings, subscribeSosStatus } from "../../services/sos/sosRelay";
+import { HazardPinEditor } from "./HazardPinEditor";
+import { MyStatusCard } from "./MyStatusCard";
+import { createHazardPinElement, createNearbySignalElement, hazardPinSvg } from "./statusStyles";
 const reportTime = (item: FieldReport) => new Date(item.observed_at || item.received_at).toLocaleString("zh-TW", { hour12: false });
 
 const RESCUE_REFRESH_INTERVAL_MS = 10_000;
@@ -34,13 +39,25 @@ function fieldReportArea(item: FieldReport) {
   };
 }
 
+/** 釘選中：新增一個標記，或修改自己的某個標記（位置用地圖中央的十字決定）。 */
+type Placing = { mode: "create" } | { mode: "edit"; pin: HazardPin };
+
+/**
+ * 同一張地圖，依使用者身分顯示不同圖層：
+ * - public（一般使用者）：自己的狀況、藍牙實際收到的附近訊號、災情色塊、使用者釘選的災情。
+ *   看不到別人的救援案件和醫療資料。
+ * - rescue（救援端）：再加上所有救援案件和藍牙求救（後端資料）。
+ */
 export function RescueMapPage({
   location,
   onBack,
+  viewer = "public",
 }: {
   location: { lat: number; lng: number } | null;
   onBack: () => void;
+  viewer?: "public" | "rescue";
 }) {
+  const isRescue = viewer === "rescue";
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
@@ -49,6 +66,17 @@ export function RescueMapPage({
   const [fieldReports, setFieldReports] = useState<FieldReport[]>([]);
   const [showFieldReports, setShowFieldReports] = useState(true);
   const [showRescue, setShowRescue] = useState(true);
+  const [showNearby, setShowNearby] = useState(true);
+  const [hazardPins, setHazardPins] = useState<HazardPin[]>([]);
+  const [nearbySignals, setNearbySignals] = useState<NearbySignal[]>([]);
+  const pinMarkersRef = useRef<Marker[]>([]);
+  const nearbyMarkersRef = useRef<Marker[]>([]);
+  const [placing, setPlacing] = useState<Placing | null>(null);
+  const [placingCategory, setPlacingCategory] = useState<DisasterCategory | null>(null);
+  const [pinSaving, setPinSaving] = useState(false);
+  const [pinError, setPinError] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
   const locationRef = useRef(location);
   const refreshInFlightRef = useRef(false);
   const initialLoadStartedRef = useRef(false);
@@ -61,7 +89,7 @@ export function RescueMapPage({
   const refresh = async () => {
     const currentLocation = locationRef.current;
     if (!currentLocation) {
-      setError("尚未取得救難隊位置，請允許定位權限");
+      setError("尚未取得你的位置，請允許定位權限");
       return;
     }
     if (refreshInFlightRef.current) return;
@@ -70,15 +98,19 @@ export function RescueMapPage({
     setError("");
     // 兩種資料來源獨立擷取：其中一種載入失敗（例如求救記錄的後端還沒部署）
     // 不該連帶讓另一種也顯示不出來。
-    const [rescueResult, sosResult, fieldResult] = await Promise.allSettled([
-      fetchNearbyRescueCases(currentLocation),
-      fetchNearbySosReports(currentLocation),
+    // 別人的救援案件和藍牙求救只給救援端；一般使用者不抓這兩種資料。
+    const skip = Promise.resolve([] as never[]);
+    const [rescueResult, sosResult, fieldResult, pinResult] = await Promise.allSettled([
+      isRescue ? fetchNearbyRescueCases(currentLocation) : skip,
+      isRescue ? fetchNearbySosReports(currentLocation) : skip,
       fetchNearbyFieldReports(currentLocation),
+      fetchNearbyHazardPins(currentLocation),
     ]);
     if (rescueResult.status === "fulfilled") setCases(rescueResult.value);
     if (sosResult.status === "fulfilled") setSosCases(sosResult.value);
     if (fieldResult.status === "fulfilled") setFieldReports(fieldResult.value);
-    const failures = [rescueResult, sosResult, fieldResult]
+    if (pinResult.status === "fulfilled") setHazardPins(pinResult.value);
+    const failures = [rescueResult, sosResult, fieldResult, pinResult]
       .flatMap((result) => result.status === "rejected" ? [result.reason instanceof Error ? result.reason.message : "部分資料載入失敗"] : []);
     setError(failures.join("；"));
     refreshInFlightRef.current = false;
@@ -150,7 +182,7 @@ export function RescueMapPage({
     const map = mapRef.current;
     if (!map) return;
     markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = (showRescue ? cases : []).map((item) => {
+    markersRef.current = (isRescue && showRescue ? cases : []).map((item) => {
       const color = item.urgencyLevel >= 9 ? "#ef4444" : item.urgencyLevel >= 7 ? "#f97316" : "#eab308";
       return new maplibregl.Marker({ color })
         .setLngLat([item.longitude, item.latitude])
@@ -167,7 +199,7 @@ export function RescueMapPage({
     const map = mapRef.current;
     if (!map) return;
     sosMarkersRef.current.forEach((marker) => marker.remove());
-    sosMarkersRef.current = (showRescue ? sosCases : []).map((item) => {
+    sosMarkersRef.current = (isRescue && showRescue ? sosCases : []).map((item) => {
       const el = document.createElement("div");
       el.style.width = "18px";
       el.style.height = "18px";
@@ -216,6 +248,8 @@ export function RescueMapPage({
       }
     };
     const showAreaDetails = (event: maplibregl.MapLayerMouseEvent) => {
+      // 釘選或修改標記時，點地圖是在移動十字，不要跳出區域說明。
+      if (placing) return;
       const ids = new Set(event.features?.map((feature) => feature.properties?.report_id));
       const reports = fieldReports.filter((item) => ids.has(item.id));
       if (!reports.length) return;
@@ -245,7 +279,163 @@ export function RescueMapPage({
       activePopup?.remove();
       if (mapRef.current === map) map.getCanvas().style.cursor = "";
     };
-  }, [fieldReports, showFieldReports, mapLocation]);
+  }, [fieldReports, showFieldReports, mapLocation, placing]);
+
+  // 藍牙實際收到的附近訊號（只在手機本機，斷網也能用）。沒有藍牙接觸就看不到其他人。
+  useEffect(() => {
+    if (isRescue) return;
+    const update = () => setNearbySignals(buildNearbySignals(getNearbySosSightings(), getRecords()));
+    update();
+    const unsubscribeSos = subscribeSosStatus(update);
+    const unsubscribeInbox = subscribeInbox(update);
+    // 訊號會過期，沒有新封包時也要定期重算。
+    const interval = window.setInterval(update, 30_000);
+    return () => {
+      unsubscribeSos();
+      unsubscribeInbox();
+      window.clearInterval(interval);
+    };
+  }, [isRescue]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    nearbyMarkersRef.current.forEach((marker) => marker.remove());
+    nearbyMarkersRef.current = (!isRescue && showNearby ? nearbySignals : []).map((signal) => {
+      const label = describeNearbySignal(signal);
+      return new maplibregl.Marker({ element: createNearbySignalElement(signal.kind, signal.trapped, label) })
+        .setLngLat([signal.longitude, signal.latitude])
+        .setPopup(new maplibregl.Popup({ offset: 14 }).setText(`${label} · ${formatTime(signal.lastSeenAt)} 收到`))
+        .addTo(map);
+    });
+  }, [nearbySignals, showNearby, isRescue, mapLocation]);
+
+  // 使用者釘選的災情：水滴形標記，顏色跟災情色塊同一套分類。正在修改的那個先藏起來，
+  // 位置交給地圖中央的十字。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    pinMarkersRef.current.forEach((marker) => marker.remove());
+    const editingId = placing?.mode === "edit" ? placing.pin.id : null;
+    pinMarkersRef.current = (showFieldReports ? hazardPins : [])
+      .filter((pin) => pin.id !== editingId)
+      .map((pin) => new maplibregl.Marker({
+        element: createHazardPinElement(CATEGORY_COLORS[pin.category], `災情標記：${CATEGORY_LABELS[pin.category]}`),
+        anchor: "bottom",
+      })
+        .setLngLat([pin.longitude, pin.latitude])
+        .setPopup(new maplibregl.Popup({ offset: 30, maxWidth: "280px" }).setDOMContent(pinPopup(pin)))
+        .addTo(map));
+  }, [hazardPins, showFieldReports, mapLocation, placing]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(""), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  const focusPoint = (point: { latitude: number; longitude: number }) => {
+    mapRef.current?.flyTo({ center: [point.longitude, point.latitude], zoom: 16 });
+  };
+
+  const startPlacing = () => {
+    setPinError("");
+    setPlacingCategory(null);
+    setPlacing({ mode: "create" });
+  };
+
+  const startEditing = (pin: HazardPin) => {
+    setPinError("");
+    setPlacingCategory(pin.category);
+    setPlacing({ mode: "edit", pin });
+    mapRef.current?.flyTo({ center: [pin.longitude, pin.latitude], zoom: Math.max(mapRef.current.getZoom(), 16) });
+  };
+
+  const savePin = async (category: DisasterCategory, note: string) => {
+    const map = mapRef.current;
+    if (!map || !placing) return;
+    const center = map.getCenter();
+    const input = { category, note, latitude: center.lat, longitude: center.lng };
+    setPinSaving(true);
+    setPinError("");
+    try {
+      if (placing.mode === "edit") {
+        const saved = await updateHazardPin(placing.pin.id, input);
+        setHazardPins((pins) => pins.map((pin) => (pin.id === saved.id ? { ...saved, distance_km: pin.distance_km } : pin)));
+        setNotice(`已更新「${CATEGORY_LABELS[saved.category]}」標記。`);
+      } else {
+        const saved = await createHazardPin(input);
+        setHazardPins((pins) => [saved, ...pins]);
+        setNotice(`已標記「${CATEGORY_LABELS[saved.category]}」，附近的人都看得到。`);
+      }
+      setShowFieldReports(true);
+      setPlacing(null);
+    } catch (saveError) {
+      setPinError(saveError instanceof Error ? saveError.message : "標記失敗，請稍後再試");
+    } finally {
+      setPinSaving(false);
+    }
+  };
+
+  const removePin = async (pin: HazardPin) => {
+    // 刪除要按兩次，避免手抖誤刪。
+    if (confirmDeleteId !== pin.id) {
+      setConfirmDeleteId(pin.id);
+      return;
+    }
+    setConfirmDeleteId(null);
+    try {
+      await deleteHazardPin(pin.id);
+      setHazardPins((pins) => pins.filter((item) => item.id !== pin.id));
+      setNotice(`已刪除「${CATEGORY_LABELS[pin.category]}」標記。`);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "刪除失敗，請稍後再試");
+    }
+  };
+
+  /** 地圖上點標記時的說明；自己標的可以直接修改或刪除。 */
+  function pinPopup(pin: HazardPin): HTMLElement {
+    const root = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${CATEGORY_LABELS[pin.category]} · 使用者標記・未查證`;
+    root.append(title);
+    if (pin.note) {
+      const note = document.createElement("p");
+      note.style.margin = "4px 0 0";
+      note.textContent = pin.note;
+      root.append(note);
+    }
+    const meta = document.createElement("p");
+    meta.style.margin = "4px 0 0";
+    meta.style.fontSize = "12px";
+    meta.style.color = "#586271";
+    meta.textContent = `${formatTime(Date.parse(pin.updated_at))} 標記${pin.mine ? " · 你標記的" : ""}`;
+    root.append(meta);
+    if (pin.mine) {
+      const actions = document.createElement("div");
+      actions.style.display = "flex";
+      actions.style.gap = "8px";
+      actions.style.marginTop = "8px";
+      const edit = popupButton("修改", () => startEditing(pin));
+      const remove = popupButton("刪除", () => {
+        if (remove.dataset.confirm !== "1") {
+          remove.dataset.confirm = "1";
+          remove.textContent = "確定刪除？";
+          remove.style.color = "#9c121b";
+          return;
+        }
+        void deleteHazardPin(pin.id)
+          .then(() => {
+            setHazardPins((pins) => pins.filter((item) => item.id !== pin.id));
+            setNotice(`已刪除「${CATEGORY_LABELS[pin.category]}」標記。`);
+          })
+          .catch((deleteError) => setError(deleteError instanceof Error ? deleteError.message : "刪除失敗，請稍後再試"));
+      });
+      actions.append(edit, remove);
+      root.append(actions);
+    }
+    return root;
+  }
 
   const focusCase = (item: RescueCase) => {
     mapRef.current?.flyTo({ center: [item.longitude, item.latitude], zoom: 16 });
@@ -263,9 +453,12 @@ export function RescueMapPage({
         <button onClick={refresh} disabled={loading} className="tappable min-h-11 text-sm text-accent disabled:opacity-50">{loading ? "更新中" : "手動更新"}</button>
       </header>
       {error && <div className="shrink-0 px-3 py-2 text-xs text-critical-text bg-critical-soft">{error}</div>}
+      {notice && <div role="status" className="shrink-0 px-3 py-2 text-xs text-safe-text bg-safe-soft">{notice}</div>}
       <div className="shrink-0 flex gap-4 px-3 py-2 text-xs border-b border-line">
-        <label><input type="checkbox" checked={showRescue} onChange={(event) => setShowRescue(event.target.checked)} /> 求救案件</label>
-        <label><input type="checkbox" checked={showFieldReports} onChange={(event) => setShowFieldReports(event.target.checked)} /> 災情區域（依類型著色）</label>
+        {isRescue
+          ? <label><input type="checkbox" checked={showRescue} onChange={(event) => setShowRescue(event.target.checked)} /> 求救案件</label>
+          : <label><input type="checkbox" checked={showNearby} onChange={(event) => setShowNearby(event.target.checked)} /> 附近的人（藍牙）</label>}
+        <label><input type="checkbox" checked={showFieldReports} onChange={(event) => setShowFieldReports(event.target.checked)} /> 災情（依類型著色）</label>
       </div>
       {showFieldReports && (
         <div className="shrink-0 flex flex-wrap gap-x-4 gap-y-2 px-3 py-2 text-xs border-b border-line" aria-label="災情分類顏色圖例">
@@ -277,13 +470,99 @@ export function RescueMapPage({
           ))}
         </div>
       )}
-      <div ref={containerRef} className="min-h-[45vh] flex-1" />
+      <div className="relative min-h-[45vh] flex-1">
+        <div ref={containerRef} className="absolute inset-0" />
+        {placing ? (
+          // 地圖中央的十字：水滴的尖端就是標記的位置。
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-10">
+            <div
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full drop-shadow"
+              dangerouslySetInnerHTML={{ __html: hazardPinSvg(placingCategory ? CATEGORY_COLORS[placingCategory] : "#1b2026") }}
+            />
+            <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/60" />
+          </div>
+        ) : (
+          mapLocation && (
+            <button
+              onClick={startPlacing}
+              className="tappable absolute bottom-3 left-3 z-10 inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-4 text-sm font-bold text-white shadow-[var(--elev-2)]"
+            >
+              <i className="fas fa-location-dot" aria-hidden="true"></i>
+              標記災情
+            </button>
+          )
+        )}
+      </div>
       <section className="pb-[var(--tabbar-clearance)] max-h-[38vh] overflow-y-auto border-t border-line bg-bg p-3 space-y-2">
-        <div className="text-xs text-muted">
-          待救援 {cases.length} 人、藍牙求救 {sosCases.length} 筆、災情回報 {fieldReports.length} 筆 · 綠色是你的位置
-        </div>
-        {cases.length === 0 && sosCases.length === 0 && fieldReports.length === 0 && !loading && (
-          <div className="py-6 text-center text-sm text-muted">附近目前沒有具 GPS 的待救援案件</div>
+        {placing ? (
+          <HazardPinEditor
+            key={placing.mode === "edit" ? placing.pin.id : "create"}
+            mode={placing.mode}
+            initialCategory={placing.mode === "edit" ? placing.pin.category : undefined}
+            initialNote={placing.mode === "edit" ? placing.pin.note : ""}
+            saving={pinSaving}
+            error={pinError}
+            onCategoryChange={setPlacingCategory}
+            onCancel={() => setPlacing(null)}
+            onSave={(category, note) => void savePin(category, note)}
+          />
+        ) : (
+        <>
+        {!isRescue && <MyStatusCard location={location} />}
+        {!isRescue && showNearby && (
+          <div className="pt-1 text-xs text-muted">
+            {nearbySignals.length > 0
+              ? `藍牙收到附近 ${nearbySignals.length} 個訊號，只顯示位置和是否受困。`
+              : "附近還沒有用藍牙收到其他人的求救或存活訊號。"}
+          </div>
+        )}
+        {(!isRescue && showNearby ? nearbySignals : []).map((signal) => (
+          <button key={signal.key} onClick={() => focusPoint(signal)} className={`tappable w-full text-left rounded-xl p-3 shadow-[var(--elev-soft)] ${signal.kind === "sos" && signal.trapped ? "bg-critical-soft" : "bg-surface-2"}`}>
+            <div className="font-bold">{describeNearbySignal(signal)}</div>
+            <div className="mt-1 text-xs text-muted">{formatTime(signal.lastSeenAt)} 用藍牙收到</div>
+          </button>
+        ))}
+        {showFieldReports && hazardPins.length > 0 && (
+          <div className="pt-1 text-xs text-muted">水滴標記是使用者自己釘選的災情，所有人都看得到；按「標記災情」可以新增。</div>
+        )}
+        {(showFieldReports ? hazardPins : []).map((pin) => (
+          <article key={pin.id} className="rounded-xl bg-surface-2 p-3 space-y-1">
+            <button className="tappable w-full text-left" onClick={() => focusPoint(pin)}>
+              <div className="font-bold flex items-center gap-2">
+                <span aria-hidden="true" className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[pin.category] }} />
+                {CATEGORY_LABELS[pin.category]} · 使用者標記・未查證
+              </div>
+              <div className="text-xs text-muted">
+                {pin.distance_km != null ? `距離 ${pin.distance_km.toFixed(1)} km · ` : ""}{formatTime(Date.parse(pin.updated_at))} 標記{pin.mine ? " · 你標記的" : ""}
+              </div>
+              {pin.note && <div className="text-sm whitespace-pre-wrap">{pin.note}</div>}
+            </button>
+            {pin.mine && (
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => startEditing(pin)} className="tappable min-h-11 rounded-xl border border-line bg-surface px-3 text-xs font-bold text-ink">修改</button>
+                <button
+                  onClick={() => void removePin(pin)}
+                  className={`tappable min-h-11 rounded-xl border px-3 text-xs font-bold ${confirmDeleteId === pin.id ? "border-critical bg-critical-soft text-critical-text" : "border-line bg-surface text-ink"}`}
+                >
+                  {confirmDeleteId === pin.id ? "確定刪除？" : "刪除"}
+                </button>
+              </div>
+            )}
+          </article>
+        ))}
+        {isRescue ? (
+          <>
+            <div className="text-xs text-muted">
+              待救援 {cases.length} 人、藍牙求救 {sosCases.length} 筆、災情回報 {fieldReports.length} 筆 · 綠色是你的位置
+            </div>
+            {cases.length === 0 && sosCases.length === 0 && fieldReports.length === 0 && !loading && (
+              <div className="py-6 text-center text-sm text-muted">附近目前沒有具 GPS 的待救援案件</div>
+            )}
+          </>
+        ) : (
+          <div className="text-xs text-muted">
+            災情回報 {fieldReports.length} 筆、使用者標記 {hazardPins.length} 個 · 綠色是你的位置
+          </div>
         )}
         {showFieldReports && <div className="text-xs text-muted">災情顯示最近 24 小時，最多 300 筆。各色區域為回報者周圍 300 公尺的示意範圍，非實際災區邊界；回報均未查證。</div>}
         {(showFieldReports ? fieldReports : []).map((item) => (
@@ -303,7 +582,7 @@ export function RescueMapPage({
             </details>
           </article>
         ))}
-        {(showRescue ? sosCases : []).map((item) => (
+        {(isRescue && showRescue ? sosCases : []).map((item) => (
           <button
             key={item.msgId}
             onClick={() => focusSosCase(item)}
@@ -335,16 +614,37 @@ export function RescueMapPage({
             )}
           </button>
         ))}
-        {(showRescue ? cases : []).map((item) => (
+        {(isRescue && showRescue ? cases : []).map((item) => (
           <button key={item.userId} onClick={() => focusCase(item)} className="tappable w-full text-left rounded-xl bg-surface-2 p-3 shadow-[var(--elev-soft)]">
             <div className="flex justify-between gap-3"><span className="font-bold">{item.username}</span><span className="text-critical-text">緊急度 {item.urgencyLevel}</span></div>
             <div className="mt-1 text-xs text-ink">距離 {item.distanceKm.toFixed(1)} km{item.isTrapped ? " · 受困" : ""}</div>
             <div className="mt-1 text-xs text-muted">{item.injurySummary || item.rescueNeeds.join("、") || "需要救援"}</div>
           </button>
         ))}
+        </>
+        )}
       </section>
     </div>
   );
+}
+
+function popupButton(label: string, onClick: () => void): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.style.minHeight = "36px";
+  button.style.padding = "0 12px";
+  button.style.border = "1px solid #d3dae3";
+  button.style.borderRadius = "10px";
+  button.style.background = "#fff";
+  button.style.fontWeight = "700";
+  button.style.fontSize = "13px";
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function formatTime(ms: number): string {
+  return new Date(ms).toLocaleString("zh-TW", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function escapeHtml(value: string) {

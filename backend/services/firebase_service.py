@@ -9,6 +9,24 @@ from typing import Iterable
 from uuid import uuid4
 
 from .. import schemas
+from .case_status import effective_condition, requires_rescue
+
+# 一個帳號 24 小時內最多能釘選幾個災情，防止洗版。
+HAZARD_PIN_DAILY_LIMIT = 30
+# 沒有人更新的災情標記，地圖上顯示多久。
+HAZARD_PIN_VISIBLE_FOR = timedelta(hours=72)
+
+
+class HazardPinNotFoundError(LookupError):
+    pass
+
+
+class HazardPinPermissionError(PermissionError):
+    pass
+
+
+class HazardPinLimitError(RuntimeError):
+    pass
 
 
 # All service instances in this process share the default Firebase app.
@@ -111,23 +129,17 @@ class FirebaseService:
         summary["urgencyLevel"] = max(1, min(10, summary["urgencyLevel"]))
         summary["confidence"] = max(0, min(1, summary["confidence"]))
         now = self._now()
-        requires_rescue = (
-            summary["isTrapped"]
-            or bool(summary["rescueNeeds"])
-            or summary["injurySeverity"] in {"severe", "critical"}
-            or summary["urgencyLevel"] >= 7
+        location = self._location_tuple(data.latitude, data.longitude)
+        # AI 彙整只更新自己的欄位，本人在災情地圖上選的狀況不會被蓋掉。
+        payload = self._write_case(
+            user_id,
+            lambda previous: {
+                **summary,
+                "aiUpdatedAt": now,
+                **self._location_update(previous, location, now),
+            },
         )
-        payload = {
-            **summary,
-            "userId": user_id,
-            "user_name": self._user_name(user_id),
-            "latitude": data.latitude,
-            "longitude": data.longitude,
-            "requiresRescue": requires_rescue,
-            "updatedAt": now,
-        }
         report_ref = db.collection("emergency_reports").document(user_id)
-        report_ref.set(payload)
 
         # Messages live in a subcollection. 
         # 改用內容雜湊產生固定 ID 並使用 merge=True，避免先刪後寫的雙倍成本與 Race Condition
@@ -149,6 +161,95 @@ class FirebaseService:
                 }, merge=True)
             batch.commit()
         return payload
+
+    def update_self_condition(self, user_id: str, data: schemas.MyStatusUpdate) -> dict:
+        """受難者在災情地圖或對話按鈕上自己標示的狀況。"""
+        now = self._now()
+        reported_at = now
+        if data.reported_at is not None:
+            reported = data.reported_at
+            if reported.tzinfo is None:
+                reported = reported.replace(tzinfo=timezone.utc)
+            # 離線時先記下、恢復連線才送出的狀況用當時的時間；未來的或一天以前的不採用。
+            if now - timedelta(hours=24) <= reported <= now:
+                reported_at = reported
+        location = self._location_tuple(data.latitude, data.longitude)
+
+        def build(previous: dict) -> dict | None:
+            known = previous.get("selfConditionAt")
+            if known and known > reported_at:
+                # 比已經記錄的狀況還舊（例如離線時記下、很晚才送到），不覆蓋較新的。
+                return None
+            return {
+                "selfCondition": data.condition,
+                "selfConditionAt": reported_at,
+                **self._location_update(previous, location, reported_at),
+            }
+
+        return self._write_case(user_id, build)
+
+    def _write_case(self, user_id: str, build_updates) -> dict:
+        """更新救援摘要的一部分欄位，再依合併後的內容重算目前狀況和是否需要救援。
+
+        AI 彙整和本人回報各寫各的欄位（merge），放在交易裡，同時寫入也不會互相蓋掉。
+        build_updates 回傳 None 表示不必更新。
+        """
+        from firebase_admin import firestore
+
+        db = self._get_db()
+        ref = db.collection("emergency_reports").document(user_id)
+        user_name = self._user_name(user_id)
+
+        @firestore.transactional
+        def run(transaction):
+            snapshot = ref.get(transaction=transaction)
+            previous = snapshot.to_dict() if snapshot.exists else {}
+            updates = build_updates(previous)
+            if updates is None:
+                return previous
+            payload = {"userId": user_id, "user_name": user_name, **updates}
+            merged = {**previous, **payload}
+            condition, source, condition_at = effective_condition(merged)
+            payload.update({
+                "condition": condition,
+                "conditionSource": source,
+                "conditionUpdatedAt": condition_at,
+                "requiresRescue": requires_rescue(merged),
+                "updatedAt": self._now(),
+            })
+            transaction.set(ref, payload, merge=True)
+            return {**previous, **payload}
+
+        return run(db.transaction())
+
+    @staticmethod
+    def _location_tuple(latitude: float | None, longitude: float | None) -> tuple[float, float] | None:
+        return (latitude, longitude) if latitude is not None and longitude is not None else None
+
+    @staticmethod
+    def _location_update(previous: dict, location: tuple[float, float] | None, at: datetime) -> dict:
+        """位置以最新送出的為準：沒有位置時不清掉舊的，晚到的舊位置也不覆蓋新的。"""
+        if location is None:
+            return {}
+        known = previous.get("locationUpdatedAt")
+        if known and known > at:
+            return {}
+        return {"latitude": location[0], "longitude": location[1], "locationUpdatedAt": at}
+
+    @staticmethod
+    def my_case_view(case: dict) -> dict:
+        """給受難者自己看的摘要。狀況每次重算，改版前的舊資料也適用。"""
+        condition, source, condition_at = effective_condition(case)
+        return {
+            "condition": condition,
+            "conditionSource": source,
+            "conditionUpdatedAt": condition_at,
+            "selfCondition": case.get("selfCondition"),
+            "selfConditionAt": case.get("selfConditionAt"),
+            "requiresRescue": requires_rescue(case) if case else False,
+            "hasLocation": case.get("latitude") is not None and case.get("longitude") is not None,
+            "updatedAt": case.get("updatedAt"),
+        }
 
     def get_emergency_report(self, user_id: str) -> dict | None:
         snapshot = self._get_db().collection("emergency_reports").document(user_id).get()
@@ -192,10 +293,15 @@ class FirebaseService:
                 continue
 
             user = self.get_user(str(report.get("userId", snapshot.id))) or {}
+            condition, condition_source, condition_at = effective_condition(report)
             cases.append({
                 **report,
                 "username": user.get("username", "未知使用者"),
                 "distanceKm": round(distance, 2),
+                # 受難者目前狀況（本人回報或 AI 推斷），給救援端顯示用。
+                "condition": condition,
+                "conditionSource": condition_source,
+                "conditionUpdatedAt": condition_at,
             })
 
         return sorted(cases, key=lambda item: (-item.get("urgencyLevel", 1), item["distanceKm"]))
@@ -294,6 +400,84 @@ class FirebaseService:
                 "analysis": analysis,
             })
         return sorted(items, key=lambda item: item["received_at"], reverse=True)[:300]
+
+    def create_hazard_pin(self, user_id: str, data: schemas.HazardPinCreate) -> dict:
+        """使用者在地圖上釘選一個災情（像 Google 地圖那樣），所有人都看得到。"""
+        db = self._get_db()
+        now = self._now()
+        # 防止洗版：一個帳號 24 小時內最多 HAZARD_PIN_DAILY_LIMIT 個。單一欄位查詢，不需要複合索引。
+        recent = [
+            snapshot for snapshot in db.collection("hazard_pins").where("created_by", "==", user_id).stream()
+            if (snapshot.to_dict().get("created_at") or now) >= now - timedelta(hours=24)
+        ]
+        if len(recent) >= HAZARD_PIN_DAILY_LIMIT:
+            raise HazardPinLimitError(f"24 小時內最多只能標記 {HAZARD_PIN_DAILY_LIMIT} 個災情")
+        ref = db.collection("hazard_pins").document()
+        pin = {
+            "category": data.category,
+            "note": data.note.strip(),
+            "latitude": data.latitude,
+            "longitude": data.longitude,
+            "created_by": user_id,
+            "user_name": self._user_name(user_id),
+            "created_at": now,
+            "updated_at": now,
+        }
+        ref.set(pin)
+        return self._hazard_pin_view(ref.id, pin, user_id)
+
+    def update_hazard_pin(self, user_id: str, pin_id: str, data: schemas.HazardPinUpdate) -> dict:
+        """只有標記的人自己能改（分類、說明、位置）。"""
+        ref = self._get_db().collection("hazard_pins").document(pin_id)
+        pin = self._own_hazard_pin(ref, user_id)
+        updates = {key: value for key, value in data.model_dump(exclude_unset=True).items() if value is not None}
+        if "note" in updates:
+            updates["note"] = updates["note"].strip()
+        updates["updated_at"] = self._now()
+        ref.update(updates)
+        return self._hazard_pin_view(pin_id, {**pin, **updates}, user_id)
+
+    def delete_hazard_pin(self, user_id: str, pin_id: str) -> None:
+        ref = self._get_db().collection("hazard_pins").document(pin_id)
+        self._own_hazard_pin(ref, user_id)
+        ref.delete()
+
+    def nearby_hazard_pins(self, user_id: str, latitude: float, longitude: float, radius_km: float) -> list[dict]:
+        """附近的災情標記；超過 HAZARD_PIN_VISIBLE_FOR 沒更新的不再顯示。"""
+        cutoff = self._now() - HAZARD_PIN_VISIBLE_FOR
+        query = self._get_db().collection("hazard_pins").where("updated_at", ">=", cutoff)
+        pins = []
+        for snapshot in query.stream():
+            pin = snapshot.to_dict()
+            distance = self._distance_km(latitude, longitude, float(pin["latitude"]), float(pin["longitude"]))
+            if distance > radius_km:
+                continue
+            pins.append({**self._hazard_pin_view(snapshot.id, pin, user_id), "distance_km": round(distance, 2)})
+        return sorted(pins, key=lambda item: item["updated_at"], reverse=True)[:300]
+
+    @staticmethod
+    def _own_hazard_pin(ref, user_id: str) -> dict:
+        snapshot = ref.get()
+        if not snapshot.exists:
+            raise HazardPinNotFoundError("找不到這個災情標記，可能已經被刪除")
+        pin = snapshot.to_dict()
+        if pin.get("created_by") != user_id:
+            raise HazardPinPermissionError("只能修改自己標記的災情")
+        return pin
+
+    @staticmethod
+    def _hazard_pin_view(pin_id: str, pin: dict, user_id: str) -> dict:
+        # 不回傳標記者的帳號或名字，只告訴使用者這是不是他自己標的。
+        return {
+            "id": pin_id,
+            "category": pin["category"],
+            "note": pin.get("note", ""),
+            "latitude": pin["latitude"],
+            "longitude": pin["longitude"],
+            "created_at": pin["created_at"],
+            "updated_at": pin.get("updated_at", pin["created_at"]),
+            "mine": pin.get("created_by") == user_id,
+        }
 
     def register_device_token(self, token: str, platform: str, user_id: str | None) -> None:
         ref = self._get_db().collection("device_tokens").document(token)

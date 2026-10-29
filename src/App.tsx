@@ -89,6 +89,14 @@ import {
   assessEarthquakeForUser,
   submitEarthquakeFieldReport,
 } from "./services/earthquakeResponseService";
+import {
+  NEED_HELP_OPTIONS,
+  NEED_HELP_REPLY,
+  needsRescue,
+  STATUS_META,
+  statusFromQuickReply,
+} from "./services/caseStatus";
+import { flushPendingMyStatus, submitMyStatus } from "./services/myStatusService";
 
 const OFFLINE_ANALYSIS_TIMEOUT_MS = 20_000;
 
@@ -842,6 +850,8 @@ const App: React.FC = () => {
         // 2. 🚨 救命第一優先：無論 Token 是否有效，網路一通就立刻把 SOS 推出去！
         await syncPendingEmergencyReports();
         await syncPendingUserStatusRecords();
+        // 離線時在救援地圖或對話裡按的狀態，也一起補送。
+        await flushPendingMyStatus();
 
         // 3. 資料都順利推播後，才來處理 UI 與登出邏輯
         if (user) {
@@ -865,10 +875,11 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // App 重啟或重新登入後，自動重試之前未同步的救援摘要。
+  // App 重啟或重新登入後，自動重試之前未同步的救援摘要和狀態。
   useEffect(() => {
     if (authUser && navigator.onLine) {
       syncPendingEmergencyReports();
+      void flushPendingMyStatus();
     }
   }, [authUser]);
 
@@ -1380,7 +1391,7 @@ ${notes}`,
           warnings.map((warning) => `• ${warning}`).join("\n");
 
         const lbsAnalysis = {
-          missingInfoRequests: ["我目前安全", "我需要協助"],
+          missingInfoRequests: ["我目前安全", NEED_HELP_REPLY],
           immediateActions: [],
         } as unknown as DisasterAnalysis;
 
@@ -1450,6 +1461,41 @@ ${notes}`,
     setMessages(updatedMessages);
     setInput("");
     setIsAnalyzing(true);
+
+    // 「我需要協助」：先問是哪一種，救援地圖上的狀態才標得準。選完再交給 AI 給指引。
+    if (userMsg.content.trim() === NEED_HELP_REPLY) {
+      setMessages((previous) => [...previous, {
+        id: `status-pick-${Date.now()}`,
+        role: "assistant",
+        content: "你現在是哪一種狀況？選一個，搜救人員會在救援地圖上看到。",
+        analysis: {
+          missingInfoRequests: NEED_HELP_OPTIONS.map((status) => STATUS_META[status].label),
+          immediateActions: [],
+        } as unknown as DisasterAnalysis,
+        timestamp: new Date(),
+      }]);
+      setIsAnalyzing(false);
+      return;
+    }
+
+    // 對話裡的狀態按鈕（例如「我目前安全」「受困，無法移動」）直接更新救援地圖上的狀態，
+    // 之後照原本的流程繼續（安全確認、AI 指引）。
+    const pickedStatus = statusFromQuickReply(userMsg.content);
+    if (pickedStatus) {
+      const label = STATUS_META[pickedStatus].label;
+      void submitMyStatus(pickedStatus, userStatus.location).then(({ queued }) => {
+        setMessages((previous) => [...previous, {
+          id: `status-saved-${Date.now()}`,
+          role: "assistant",
+          content: queued
+            ? `已記下你的狀態「${label}」，恢復連線後會自動送到救援地圖。`
+            : needsRescue(pickedStatus)
+              ? `已把你的狀態更新為「${label}」，搜救人員會在救援地圖上看到你。`
+              : `已把你的狀態更新為「${label}」。`,
+          timestamp: new Date(),
+        }]);
+      });
+    }
 
     if (earthquakeWorkflow?.phase === "awaiting_safety") {
       const confirmsSafe = /我目前安全|已安全|安全了|目前安全/.test(
