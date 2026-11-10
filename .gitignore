@@ -56,3 +56,4 @@ preview/
 
 # 本機開發用自簽憑證（含私鑰）
 .certs/
+tmp/guardian-review/

@@ -134,8 +134,9 @@ class RescueCaseResponse(BaseModel):
     latitude: float
     longitude: float
     distanceKm: float
-    urgencyLevel: int
-    injurySeverity: str
+    # 只自己標了狀態、沒跟 AI 對話過的人沒有 AI 彙整，這兩欄用預設值。
+    urgencyLevel: int = 1
+    injurySeverity: str = "unknown"
     injurySummary: str = ""
     rescueNeeds: List[str] = Field(default_factory=list)
     isTrapped: bool = False
@@ -143,8 +144,36 @@ class RescueCaseResponse(BaseModel):
     locationDetails: str = ""
     battery_level: Optional[float] = None
     heart_rate: Optional[int] = None
+    # 受難者目前的狀況（見 services/case_status.py），跟救援處理進度是不同的東西：
+    # condition 是「人怎麼了」（受困、受傷…），來源是本人回報（self）或 AI 推斷（ai）。
+    condition: Optional[str] = None
+    conditionSource: Optional[str] = None
+    conditionUpdatedAt: Optional[datetime] = None
     updatedAt: datetime
     status: str = "待處理"
+
+
+SelfCondition = Literal["trapped", "injured", "need_supplies", "safe", "helping"]
+
+
+class MyStatusUpdate(BaseModel):
+    """受難者在災情地圖上自己標示的狀況。"""
+    condition: SelfCondition
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    # 離線時先記在手機上、恢復連線才送出的狀況，帶當時的時間。
+    reported_at: Optional[datetime] = None
+
+
+class MyCaseResponse(BaseModel):
+    condition: Optional[str] = None
+    conditionSource: Optional[str] = None
+    conditionUpdatedAt: Optional[datetime] = None
+    selfCondition: Optional[SelfCondition] = None
+    selfConditionAt: Optional[datetime] = None
+    requiresRescue: bool = False
+    hasLocation: bool = False
+    updatedAt: Optional[datetime] = None
 
 # --- Cloud Run Gemini 災害對話 ---
 class AIChatMessage(BaseModel):
@@ -229,6 +258,61 @@ class EarthquakeFieldReportCreate(BaseModel):
     battery_level: Optional[float] = Field(default=None, ge=0, le=100)
     heart_rate: Optional[int] = Field(default=None, ge=0, le=300)
     observed_at: Optional[datetime] = None
+
+
+class FieldReportAnalysis(BaseModel):
+    category: Literal["road", "building", "fire", "utility", "other"]
+    summary: str = Field(min_length=1, max_length=600)
+    impact: str = Field(min_length=1, max_length=600)
+    location_description: str = Field(min_length=1, max_length=300)
+
+
+class FieldReportMapItem(BaseModel):
+    id: str
+    earthquake_key: str
+    latitude: float
+    longitude: float
+    distance_km: float
+    observation: str
+    observed_at: Optional[datetime] = None
+    received_at: datetime
+    analysis_status: Literal["pending", "ready", "unavailable"]
+    analysis: Optional[FieldReportAnalysis] = None
+    verification_status: Literal["unverified"] = "unverified"
+    location_basis: Literal["reporter"] = "reporter"
+
+
+# 使用者在災情地圖上自己釘選的災情，分類跟 FieldReportAnalysis.category 相同的五類。
+HazardPinCategory = Literal["road", "building", "fire", "utility", "other"]
+
+
+class HazardPinCreate(BaseModel):
+    category: HazardPinCategory
+    note: str = Field(default="", max_length=200)
+    # 釘選的位置是使用者在地圖上對準的地方，不是他自己的 GPS 位置。
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class HazardPinUpdate(BaseModel):
+    category: Optional[HazardPinCategory] = None
+    note: Optional[str] = Field(default=None, max_length=200)
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+
+
+class HazardPinResponse(BaseModel):
+    """地圖上的一個災情標記。不回傳是誰標的，只告訴使用者這個標記是不是他自己的。"""
+    id: str
+    category: HazardPinCategory
+    note: str = ""
+    latitude: float
+    longitude: float
+    distance_km: Optional[float] = None
+    created_at: datetime
+    updated_at: datetime
+    mine: bool = False
+    verification_status: Literal["unverified"] = "unverified"
 
 
 class EarthquakeFieldReportResponse(BaseModel):

@@ -164,6 +164,11 @@ export function AppHeader({
                 onClick={onShowShelterNavigator}
               />
             )}
+            <IconButton
+              label="附近求援地圖"
+              icon="fa-map-location-dot"
+              onClick={onShowRescueMap}
+            />
             {/* 藍牙模組：附近的人入口。未讀訊息以紅點提示——使用者不在該頁面時，
                 仍必須知道有人傳訊息給他。 */}
             <IconButton

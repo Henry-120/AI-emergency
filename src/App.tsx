@@ -48,9 +48,7 @@ import {
 } from "./services/offlineSafetyService";
 import {
   saveEmergencyReport,
-  saveUserStatusSnapshot,
   syncPendingEmergencyReports,
-  syncPendingUserStatusRecords,
 } from "./services/offlineQueueService";
 // 藍牙模組：附近的人功能（BLE App-to-App 訊息 + 位置廣播）
 import { NearbyPeoplePage } from "./components/bluetooth/NearbyPeoplePage";
@@ -67,6 +65,7 @@ import { MedicalCardPage } from "./components/medical/MedicalCardPage";
 import { RescueMapPage } from "./components/rescue/RescueMapPage";
 import { RescueCenter } from "./components/rescue/RescueCenter";
 import { FieldMissionCenter } from "./components/rescue/FieldMissionCenter";
+import { flushPendingMyStatus } from "./services/myStatusService";
 import { getCurrentUser, logout, validateSession } from "./services/authService";
 import { getMedicalCard, summarizeMedicalCard } from "./services/medicalCardService";
 import { initHealthKit, getLatestHeartRate } from "./services/healthService";
@@ -211,18 +210,6 @@ const App: React.FC = () => {
   useEffect(() => {
     earthquakeAlertRef.current = earthquakeAlert;
   }, [earthquakeAlert]);
-
-  // 每 30 秒同步已登入使用者的狀態；未登入時絕不能產生匿名／占位使用者紀錄。
-  useEffect(() => {
-    if (!authUser) return;
-
-    const syncInterval = setInterval(() => {
-      saveUserStatusSnapshot(userStatusRef.current, authUser.id).catch((error) =>
-        console.error("狀態儲存失敗", error),
-      );
-    }, 30000);
-    return () => clearInterval(syncInterval);
-  }, [authUser]);
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [offlineMapStatus, setOfflineMapStatus] = useState<string>("");
@@ -541,6 +528,9 @@ const App: React.FC = () => {
    * 但下一則問題仍會要求使用者提供一項可執行決策所需的關鍵資訊。
    */
   const continueAfterEarthquakeSafetyTracking = async (history: ChatMessage[]) => {
+    // Keep a stable snapshot: authUser can be null (or change) while this async
+    // analysis is running, so don't dereference it after awaiting the AI call.
+    const reportUserId = authUser?.id;
     const handoffMessage: ChatMessage = {
       id: `earthquake-handoff-context-${Date.now()}`,
       role: "user",
@@ -569,12 +559,14 @@ const App: React.FC = () => {
       };
       setMessages((previous) => [...previous, assistantMsg]);
       setCurrentAnalysis(analysis);
-      await saveEmergencyReport(
-        authUser.id,
-        analysis.emergencySummary,
-        [...history, assistantMsg],
-        userStatus.location,
-      );
+      if (reportUserId) {
+        await saveEmergencyReport(
+          reportUserId,
+          analysis.emergencySummary,
+          [...history, assistantMsg],
+          userStatus.location,
+        );
+      }
     } catch (error) {
       console.error("地震安全追蹤交接分析失敗", error);
       const fallbackQuestion = "請直接回覆：你現在在室內、室外，還是正在撤離？";
@@ -768,8 +760,8 @@ const App: React.FC = () => {
 
         // 2. 🚨 救命第一優先：無論 Token 是否有效，網路一通就立刻把 SOS 推出去！
         await syncPendingEmergencyReports();
+        await flushPendingMyStatus();
         if (user) {
-          await syncPendingUserStatusRecords(user.id);
           const fieldReports = await syncPendingEarthquakeFieldReports(user.id);
           if (fieldReports.synced > 0) {
             setMessages((previous) => [...previous, {
@@ -807,7 +799,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (authUser && navigator.onLine) {
       syncPendingEmergencyReports();
-      syncPendingUserStatusRecords(authUser.id);
+      void flushPendingMyStatus();
       syncPendingEarthquakeFieldReports(authUser.id);
     }
   }, [authUser]);
@@ -1651,7 +1643,7 @@ ${notes}`,
           key: "rescue",
           title: "救援任務地圖",
           node: (
-            <RescueMapPage location={userStatus.location} onBack={goHome} />
+            <RescueMapPage location={userStatus.location} onBack={goHome} audience="public" />
           ),
         }
       : selectedMap

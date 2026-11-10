@@ -162,6 +162,13 @@ export function AppTabBar({
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-line" />
           <div className="p-3">
             <button
+              onClick={close(onShowRescueMap)}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors active:bg-surface-2"
+            >
+              <i className="fas fa-map-location-dot w-5 text-center text-accent" aria-hidden="true"></i>
+              <span className="text-sm font-semibold text-ink">附近求援地圖</span>
+            </button>
+            <button
               onClick={close(onDownloadOfflineSafetyPack)}
               disabled={isDownloadingMap}
               className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors active:bg-surface-2 disabled:opacity-40"

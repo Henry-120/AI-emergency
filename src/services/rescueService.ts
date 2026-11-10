@@ -60,6 +60,16 @@ export interface PersonRescueCase {
   status_history?: PersonRescueCaseStatusHistoryEntry[];
 }
 
+/** 使用者端地圖只取得匿名、降精度的未結案案件標記，不包含個案摘要。 */
+export interface PublicPersonRescueMapCase {
+  id: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+  priority: number;
+  status: string;
+}
+
 export interface PersonRescueCaseStatusHistoryEntry {
   from_status?: string | null;
   to_status: string;
@@ -207,6 +217,19 @@ export const updatePersonRescueCaseStatus = (caseId: string, status: string) =>
 export const fetchNearbyPersonRescueCases = (location: { lat: number; lng: number }, radiusKm = 50) => {
   const query = new URLSearchParams({ latitude: String(location.lat), longitude: String(location.lng), radius_km: String(radiusKm) });
   return rescueRequest<PersonRescueCase[]>(`/api/rescue/person-cases/nearby?${query.toString()}`);
+};
+export const fetchPublicNearbyPersonRescueCases = async (location: { lat: number; lng: number }, radiusKm = 50) => {
+  const token = getBackendToken();
+  if (!token) throw new Error("請先登入後查看附近求援地圖");
+  const query = new URLSearchParams({ latitude: String(location.lat), longitude: String(location.lng), radius_km: String(radiusKm) });
+  const response = await fetch(buildBackendUrl(`/api/map/person-cases/nearby?${query.toString()}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || `附近求援地圖載入失敗（HTTP ${response.status}）`);
+  }
+  return response.json() as Promise<PublicPersonRescueMapCase[]>;
 };
 export const fetchRescueSites = () => rescueRequest<RescueSite[]>("/api/rescue/sites");
 export const createPersonRescueCaseFromReport = (
@@ -356,6 +379,41 @@ export async function fetchNearbySosReports(
     if (!response.ok) throw new Error(`求救記錄載入失敗（HTTP ${response.status}）`);
     const data = (await response.json()) as SosCaseApiResponse[];
     return data.map(fromSosApiResponse);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+export interface FieldReportMapItem {
+  id: string;
+  earthquake_key: string;
+  latitude: number;
+  longitude: number;
+  distance_km: number;
+  observation: string;
+  observed_at: string | null;
+  received_at: string;
+  analysis_status: "pending" | "ready" | "unavailable";
+  analysis: null | {
+    category: "road" | "building" | "fire" | "utility" | "other";
+    summary: string;
+    impact: string;
+    location_description: string;
+  };
+}
+
+export async function fetchNearbyFieldReports(location: { lat: number; lng: number }): Promise<FieldReportMapItem[]> {
+  const token = getBackendToken();
+  if (!token) throw new Error("請先登入才能查看災情回報");
+  const url = buildBackendUrl("/api/earthquake/field-reports/nearby");
+  url.searchParams.set("latitude", String(location.lat));
+  url.searchParams.set("longitude", String(location.lng));
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+    if (!response.ok) throw new Error(`災情回報載入失敗（HTTP ${response.status}）`);
+    return response.json();
   } finally {
     window.clearTimeout(timeout);
   }

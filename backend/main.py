@@ -28,7 +28,7 @@ for env_file in [
                 if key and key not in os.environ:
                     os.environ[key] = value
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Query, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from . import auth, schemas
@@ -45,6 +45,11 @@ from .services.tts_service import TTSError, tts_service
 from pydantic import BaseModel
 from .services.location_ai_service import location_ai_service
 from .services.earthquake_response_service import earthquake_response_service
+from .services.firebase_service import (
+    HazardPinLimitError,
+    HazardPinNotFoundError,
+    HazardPinPermissionError,
+)
 
 cwa = CWAService(api_key=os.getenv("CWA_API_KEY"))
 
@@ -114,6 +119,15 @@ def require_field_user(current_user: dict = Depends(get_current_user)) -> dict:
     if current_user.get("role") != "field" or not current_user.get("team_id"):
         raise HTTPException(status_code=403, detail="此功能僅限已加入救援隊的外勤人員使用")
     return current_user
+
+
+def require_rescue_side_user(current_user: dict = Depends(get_current_user)) -> dict:
+    """現場回報詳細內容限救援指揮端或已加入隊伍的外遣端查看。"""
+    if current_user.get("role") == "rescue":
+        return current_user
+    if current_user.get("role") == "field" and current_user.get("team_id"):
+        return current_user
+    raise HTTPException(status_code=403, detail="現場回報詳細內容僅限救援人員查看")
 @app.post("/api/auth/register", response_model=schemas.AuthResponse)
 def register(data: schemas.RegisterRequest):
     username = data.username.strip()
@@ -242,36 +256,17 @@ async def analyze_disaster(
     except DisasterAIError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    # 自動解析 AI 產生的救援摘要，存入 Firebase 並發送緊急推播
+    # 救援摘要由 App 收到分析結果後，連同 GPS 位置一起寫入（PUT /api/emergency-report）。
+    # 這裡不再自己存一份：原本的欄位名稱對不上 EmergencySummary，存進去的是全部預設值、
+    # 沒有位置，會短暫蓋掉受難者的狀況。這裡只負責判斷要不要發緊急推播。
     summary_data = ai_result.get("emergencySummary") or {}
     if summary_data:
         try:
-            # 1. 整理 AI 回傳的 summary 字典資料 (轉成 Pydantic/schemas 所需格式)
-            summary_payload = {
-                "has_injuries": summary_data.get("hasInjuries", False),
-                "injury_summary": summary_data.get("injurySummary", ""),
-                "injury_severity": summary_data.get("injurySeverity", "unknown"),
-                "rescue_needs": summary_data.get("rescueNeeds", []),
-                "is_trapped": summary_data.get("isTrapped", False),
-                "mobility_status": summary_data.get("mobilityStatus", "unknown"),
-                "location_details": summary_data.get("locationDetails", ""),
-                "urgency_level": summary_data.get("urgencyLevel", 1),
-                "confidence": summary_data.get("confidence", 0.0),
-            }
-
-            # 2. 將 summary 包進 EmergencyReportUpsert 中
-            # 如果你的 EmergencyReportUpsert 接收 summary 物件，請用這行：
-            upsert_data = schemas.EmergencyReportUpsert(
-                summary=summary_payload,
-                battery_level=data.battery_level,
-                heart_rate=data.heart_rate,
-            )
-            
-            # 1. 自動更新至 Firebase
-            firebase_service.upsert_emergency_report(current_user["id"], upsert_data)
-
-            # 2. 判斷是否符合高風險條件，發送推播給救災人員
-            if summary_payload["has_injuries"] or summary_payload["is_trapped"] or summary_payload["urgency_level"] >= 3:
+            if (
+                summary_data.get("hasInjuries", False)
+                or summary_data.get("isTrapped", False)
+                or summary_data.get("urgencyLevel", 1) >= 3
+            ):
                 username = current_user.get("username", "未知使用者")
                 push_service.send_rescue_dispatch_push(
                     username=username,
@@ -280,7 +275,7 @@ async def analyze_disaster(
                     lng=None,
                 )
         except Exception as e:
-            print(f"[Warning] 自動儲存報告或推播失敗: {e}")
+            print(f"[Warning] 緊急推播失敗: {e}")
 
     return ai_result
 
@@ -301,6 +296,23 @@ def get_emergency_report(
     if not report:
         raise HTTPException(status_code=404, detail="尚無救援摘要")
     return report
+
+
+@app.get("/api/my-status", response_model=schemas.MyCaseResponse)
+def get_my_status(current_user: dict = Depends(get_current_user)):
+    """自己目前的狀況；還沒有任何回報時各欄位都是空的。"""
+    case = firebase_service.get_emergency_report(current_user["id"]) or {}
+    return firebase_service.my_case_view(case)
+
+
+@app.put("/api/my-status", response_model=schemas.MyCaseResponse)
+def put_my_status(
+    data: schemas.MyStatusUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    """受難者自己標示狀況（受困、受傷、需要物資、已安全、協助他人）。"""
+    case = firebase_service.update_self_condition(current_user["id"], data)
+    return firebase_service.my_case_view(case)
 
 
 @app.get("/api/rescue/nearby", response_model=list[schemas.RescueCaseResponse])
@@ -414,6 +426,30 @@ def get_nearby_person_rescue_cases(
     """只查詢救難隊附近的個人案件，供任務地圖使用。"""
     radius_km = max(1, min(radius_km, 200))
     return firebase_service.get_nearby_person_rescue_cases(latitude, longitude, radius_km)
+
+
+@app.get("/api/map/person-cases/nearby")
+def get_public_nearby_person_rescue_cases(
+    latitude: float,
+    longitude: float,
+    radius_km: float = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    """供一般使用者地圖顯示附近匿名求援點；不回傳摘要、身分或精確座標。"""
+    radius_km = max(1, min(radius_km, 200))
+    cases = firebase_service.get_nearby_person_rescue_cases(latitude, longitude, radius_km)
+    return [
+        {
+            "id": case["id"],
+            "label": "匿名求援位置",
+            "latitude": round(float(case["latitude"]), 3),
+            "longitude": round(float(case["longitude"]), 3),
+            "priority": int(case.get("priority", 3)),
+            "status": str(case.get("status") or "待核實"),
+        }
+        for case in cases
+        if str(case.get("status") or "待核實") not in {"結案", "已結案"}
+    ]
 
 
 @app.post("/api/rescue/incidents", response_model=schemas.RescueIncidentResponse)
@@ -682,13 +718,72 @@ async def assess_earthquake(
 @app.post("/api/earthquake/field-report", response_model=schemas.EarthquakeFieldReportResponse)
 def create_earthquake_field_report(
     data: schemas.EarthquakeFieldReportCreate,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):
     """接收已確認安全之使用者提供的具座標第一手災情。"""
     if not data.is_safe:
         raise HTTPException(status_code=409, detail="尚未確認安全，請先依指示避難或求救")
     report_id = firebase_service.save_earthquake_field_report(current_user["id"], data)
+    from .services.field_report_service import structure_field_report
+    background_tasks.add_task(structure_field_report, report_id, data.observation)
     return {"id": report_id, "status": "received"}
+
+
+@app.get("/api/earthquake/field-reports/nearby", response_model=list[schemas.FieldReportMapItem])
+def nearby_field_reports(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    radius_km: float = Query(default=50, gt=0, le=100),
+    current_user: dict = Depends(require_rescue_side_user),
+):
+    """Recent anonymous field observations; never expose medical or account data."""
+    return firebase_service.nearby_field_reports(latitude, longitude, radius_km)
+# ==================== 使用者釘選的災情標記 ====================
+# 像 Google 地圖那樣：使用者在地圖上對準位置、選五類之一，所有人都看得到。
+
+def _hazard_pin_errors(action):
+    try:
+        return action()
+    except HazardPinNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HazardPinPermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except HazardPinLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+
+@app.post("/api/hazard-pins", response_model=schemas.HazardPinResponse)
+def create_hazard_pin(
+    data: schemas.HazardPinCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    return _hazard_pin_errors(lambda: firebase_service.create_hazard_pin(current_user["id"], data))
+
+
+@app.get("/api/hazard-pins/nearby", response_model=list[schemas.HazardPinResponse])
+def nearby_hazard_pins(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    radius_km: float = Query(default=50, gt=0, le=100),
+    current_user: dict = Depends(get_current_user),
+):
+    return firebase_service.nearby_hazard_pins(current_user["id"], latitude, longitude, radius_km)
+
+
+@app.patch("/api/hazard-pins/{pin_id}", response_model=schemas.HazardPinResponse)
+def update_hazard_pin(
+    pin_id: str,
+    data: schemas.HazardPinUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    return _hazard_pin_errors(lambda: firebase_service.update_hazard_pin(current_user["id"], pin_id, data))
+
+
+@app.delete("/api/hazard-pins/{pin_id}", status_code=204)
+def delete_hazard_pin(pin_id: str, current_user: dict = Depends(get_current_user)):
+    _hazard_pin_errors(lambda: firebase_service.delete_hazard_pin(current_user["id"], pin_id))
+    return Response(status_code=204)
 
 
 # ==================== 推播裝置註冊 API ====================
@@ -739,29 +834,13 @@ def unregister_device_token(data: schemas.DeviceTokenRegister):
 
 
 @app.post("/api/sync/status")
-async def sync_status(
-    status: schemas.UserStatusCreate,
-    current_user: dict = Depends(get_current_user),
-):
-    # 使用 token 的帳號覆寫 client 欄位，避免任意 ID（例如舊版 local_user）寫入。
-    document_id = firebase_service.save_user_status(
-        status.model_copy(update={"user_id": current_user["id"]})
-    )
-    return {"status": "saved", "id": document_id}
+def sync_status_disabled():
+    raise HTTPException(status_code=410, detail="使用者狀態快照同步已停用")
 
 
 @app.post("/api/sync/bulk_status")
-def sync_bulk_status(
-    data: schemas.UserStatusBulk,
-    current_user: dict = Depends(get_current_user),
-):
-    # user_id 必須由已驗證的登入身分決定，不能信任前端送來的值。
-    records = [
-        record.model_copy(update={"user_id": current_user["id"]})
-        for record in data.records
-    ]
-    firebase_service.save_user_status_bulk(records)
-    return {"message": f"Successfully synced {len(data.records)} records"}
+def sync_bulk_status_disabled():
+    raise HTTPException(status_code=410, detail="使用者狀態快照同步已停用")
 
 
 # ==================== SOS 多跳中繼 API 端點 ====================
